@@ -1,0 +1,164 @@
+/* Accessibility Tools Styling */
+.accessibility-tools {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 1000;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 12px;
+  padding: 10px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  backdrop-filter: blur(10px);
+}
+
+.accessibility-buttons {
+  display: flex;
+  gap: 8px;
+  flex-direction: column;
+}
+
+.accessibility-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 8px;
+  background: #f8f9fa;
+  color: #333;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-size: 14px;
+  min-width: 120px;
+  text-align: left;
+}
+
+.accessibility-btn:hover {
+  background: #e9ecef;
+  transform: translateY(-2px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.accessibility-btn:active {
+  transform: translateY(0);
+}
+
+.btn-icon {
+  font-size: 16px;
+  font-weight: bold;
+  min-width: 20px;
+}
+
+.btn-text {
+  font-weight: 500;
+}
+
+/* Font Size Classes */
+body.font-large {
+  font-size: 118% !important;
+}
+
+body.font-large * {
+  font-size: inherit !important;
+  line-height: 1.4 !important;
+}
+
+body.font-extra-large {
+  font-size: 136% !important;
+}
+
+body.font-extra-large * {
+  font-size: inherit !important;
+  line-height: 1.5 !important;
+}
+
+/* High Contrast Mode */
+body.high-contrast {
+  background: #000000 !important;
+  color: #ffffff !important;
+}
+
+body.high-contrast * {
+  background-color: #000000 !important;
+  color: #ffffff !important;
+  border-color: #ffffff !important;
+}
+
+body.high-contrast button,
+body.high-contrast .btn,
+body.high-contrast input[type="button"],
+body.high-contrast input[type="submit"] {
+  background: #ffffff !important;
+  color: #000000 !important;
+  border: 2px solid #ffffff !important;
+}
+
+body.high-contrast a {
+  color: #00ff00 !important;
+  text-decoration: underline !important;
+}
+
+body.high-contrast input,
+body.high-contrast textarea,
+body.high-contrast select {
+  background: #000000 !important;
+  color: #ffffff !important;
+  border: 2px solid #ffffff !important;
+}
+
+/* Low Contrast Mode */
+body.low-contrast {
+  filter: contrast(0.8) brightness(1.2);
+}
+
+/* Dyslexia-Friendly Font */
+body.dyslexia-font,
+body.dyslexia-font * {
+  font-family: 'Comic Sans MS', 'Arial', sans-serif !important;
+  letter-spacing: 0.05em !important;
+  word-spacing: 0.1em !important;
+  line-height: 1.5 !important;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .accessibility-tools {
+    bottom: 10px;
+    right: 10px;
+  }
+  
+  .accessibility-buttons {
+    flex-direction: row;
+  }
+  
+  .accessibility-btn {
+    min-width: auto;
+    padding: 8px 10px;
+  }
+  
+  .btn-text {
+    display: none;
+  }
+  
+  .btn-icon {
+    font-size: 18px;
+  }
+}
+
+/* Active states for buttons */
+body.font-large .accessibility-tools .font-btn,
+body.font-extra-large .accessibility-tools .font-btn {
+  background: #007bff;
+  color: white;
+}
+
+body.high-contrast .accessibility-tools .contrast-btn,
+body.low-contrast .accessibility-tools .contrast-btn {
+  background: #007bff;
+  color: white;
+}
+
+body.dyslexia-font .accessibility-tools .dyslexia-btn {
+  background: #007bff;
+  color: white;
+}

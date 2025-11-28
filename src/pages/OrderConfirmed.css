@@ -1,0 +1,245 @@
+/* Base container styles */
+.order-confirmed-container {
+  min-height: 100vh;
+  position: relative;
+  transition: all 0.3s ease;
+  color: #333333; /* Adjusted text color */
+}
+
+/* Accessibility mode overrides */
+.order-confirmed-container.accessibility-mode {
+  background-color: black;
+  color: #00BFFF;
+}
+
+/* Remove background image and overlay for pure white background */
+.background-container,
+.background-image,
+.background-overlay {
+  display: none; /* Hide background image and overlay */
+}
+
+/* Accessibility toggle button */
+.accessibility-toggle {
+  position: fixed;
+  top: 63px !important;
+  right: 24px;
+  z-index: 20;
+  padding: 12px;
+  border-radius: 50%;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  backdrop-filter: blur(16px);
+  transition: all 0.3s ease;
+  background-color: rgba(0, 0, 0, 0.6);
+  color: white;
+  border: none;
+  cursor: pointer;
+}
+
+.accessibility-toggle:hover {
+  background-color: rgba(0, 0, 0, 0.8);
+}
+
+.accessibility-toggle.accessibility-mode {
+  background-color: #00BFFF;
+  color: black;
+}
+
+.accessibility-toggle.accessibility-mode:hover {
+  background-color: #60a5fa;
+}
+
+/* Main content wrapper */
+.main-content {
+  position: relative;
+  z-index: 10;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 96px 16px 48px 16px;
+  margin-top:2vh ;
+}
+
+/* Confirmation card */
+.confirmation-card {
+  width: 100%;
+  max-width: 448px;
+  padding: 24px;
+  border-radius: 16px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  text-align: center;
+  backdrop-filter: blur(4px);
+  margin-top: -150px;
+  transition: all 0.3s ease;
+  background-color: #ffffff; /* White background */
+  border: 1px solid #cccccc; /* Light gray border */
+}
+
+.confirmation-card.accessibility-mode {
+  background-color: black;
+  border: 2px solid #00BFFF;
+  color: #00BFFF;
+}
+
+/* Card title */
+.card-title {
+  font-size: 1.5rem;
+  font-weight: bold;
+  margin-bottom: 12px;
+  line-height: 1.2;
+  color: #FC8019; /* Accent color */
+}
+
+.accessibility-mode .card-title {
+  color: #00BFFF;
+}
+
+/* Card description */
+.card-description {
+  margin-bottom: 24px;
+  color: #444444; /* Dark text */
+}
+
+.card-description.accessibility-mode {
+  color: #00BFFF;
+}
+
+/* Action buttons container */
+.action-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.feedback-button {
+  background-color: #10b981 !important; /* Green color for feedback */
+}
+
+.feedback-button:hover {
+  background-color: #059669 !important;
+}
+
+.feedback-button.accessibility-mode {
+  background-color: #00BFFF !important;
+  color: black !important;
+}
+
+.feedback-button.accessibility-mode:hover {
+  background-color: #60a5fa !important;
+}
+
+/* Action buttons */
+.action-button {
+  width: 100%;
+  padding: 8px 0;
+  border-radius: 16px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  border: none;
+  background-color: #FC8019; /* Accent color */
+  color: white; /* White text */
+}
+
+.action-button:hover {
+  background-color: #e16f19; /* Darker hover */
+  transform: translateY(-1px);
+}
+
+.action-button.accessibility-mode {
+  background-color: #00BFFF;
+  color: black;
+}
+
+.action-button.accessibility-mode:hover {
+  background-color: #60a5fa;
+}
+
+/* Responsive design */
+@media (max-width: 640px) {
+  .main-content {
+    padding: 80px 12px 32px 12px;
+  }
+  
+  .confirmation-card {
+    padding: 20px;
+    max-width: 100%;
+    margin-top: -100px;
+  }
+  
+  .card-title {
+    font-size: 1.25rem;
+    margin-bottom: 10px;
+  }
+  
+  .card-description {
+    margin-bottom: 20px;
+  }
+  
+  .accessibility-toggle {
+    top: 60px;
+    right: 16px;
+    padding: 8px;
+  }
+}
+
+@media (max-width: 480px) {
+  .confirmation-card {
+    padding: 16px;
+    margin-top: -80px;
+  }
+  
+  .card-title {
+    font-size: 1.125rem;
+  }
+  
+  .card-description {
+    font-size: 0.875rem;
+    margin-bottom: 16px;
+  }
+  
+  .action-buttons {
+    gap: 10px;
+  }
+  
+  .action-button {
+    font-size: 0.8125rem;
+  }
+}
+
+/* Animation for card entrance */
+@keyframes slideInUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.confirmation-card {
+  animation: slideInUp 0.6s ease-out;
+}
+
+/* Focus states for accessibility */
+.action-button:focus {
+  outline: 2px solid #FC8019; /* Adjusted to accent color */
+  outline-offset: 2px;
+}
+
+.action-button.accessibility-mode:focus {
+  outline-color: #00BFFF;
+}
+
+.accessibility-toggle:focus {
+  outline: 2px solid white;
+  outline-offset: 2px;
+}
+
+.accessibility-toggle.accessibility-mode:focus {
+  outline-color: #00BFFF;
+}

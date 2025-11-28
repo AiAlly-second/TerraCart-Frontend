@@ -1,0 +1,264 @@
+/* Base container styles */
+.billing-container {
+  min-height: 100vh;
+  position: relative;
+  transition: all 0.3s ease;
+  color: #333333; /* Adjusted text color */
+}
+
+/* Accessibility mode overrides */
+.billing-container.accessibility-mode {
+  background-color: black;
+  color: #00BFFF;
+}
+
+/* Loading container */
+.loading-container {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #333333; /* Adjusted text color */
+}
+
+/* Remove background image and overlay for pure white background */
+.background-container,
+.background-image,
+.background-overlay {
+  display: none; /* Hide background image and overlay */
+}
+
+/* Accessibility toggle button */
+.accessibility-toggle {
+  position: fixed !important;
+  top: 63px  !important;  /* Change this value as needed */
+  right: 14px !important;
+  z-index: 20;
+  padding: 20px !important;
+  border-radius: 50%;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  backdrop-filter: blur(16px);
+  transition: all 0.3s ease;
+  background-color: rgba(0, 0, 0, 0.6);
+  color: white;
+  border: none;
+  cursor: pointer;
+}
+.accessibility-toggle:hover {
+  background-color: rgba(0, 0, 0, 0.8);
+}
+
+.accessibility-toggle.accessibility-mode {
+  background-color: #00BFFF;
+  color: black;
+}
+
+.accessibility-toggle.accessibility-mode:hover {
+  background-color: #60a5fa;
+}
+
+/* Content wrapper */
+.content-wrapper {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  align-items: center;        /* Changed from flex-start to center */
+  justify-content: center;
+  padding: 0 16px 48px 16px;
+  min-height: 100vh;          /* Added to ensure full height for centering */
+  padding-top: 0;             /* Removed top padding since we're centering */
+}
+
+/* Billing card */
+.billing-card {
+  width: 100%;
+  max-width: 448px;
+  padding: 24px;
+  border-radius: 16px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(4px);
+  transition: all 0.3s ease;
+  background-color: #ffffff; /* White background */
+  border: 1px solid #cccccc; /* Light gray border */
+}
+
+.billing-card.accessibility-mode {
+  background-color: black;
+  border: 2px solid #00BFFF;
+  color: #00BFFF;
+}
+
+/* Restaurant title */
+.restaurant-title {
+  text-align: center;
+  font-size: 1.25rem;
+  font-weight: bold;
+  margin-bottom: 16px;
+  line-height: 1.2;
+  color: #FC8019; /* Accent color */
+}
+
+.accessibility-mode .restaurant-title {
+  color: #00BFFF;
+}
+
+/* Table info */
+.order-info{
+  font-size: 0.85rem;
+  font-weight: 400;
+  color: #444444; /* Dark text */
+}
+.table-info {
+  font-size: 0.85rem;
+  font-weight: 400;
+  margin-bottom: 10px;
+  color: #444444; /* Dark text */
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.table-info span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.accessibility-mode .table-info {
+  color: #00BFFF;
+}
+
+/* Order items container */
+.order-items {
+  margin-bottom: 16px;
+}
+
+.order-item {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.875rem;
+  margin-bottom: 8px;
+  color: #444444; /* Dark text */
+}
+
+.accessibility-mode .order-item {
+  color: #00BFFF;
+}
+
+.order-item:last-child {
+  margin-bottom: 0;
+}
+
+/* Totals section */
+.totals-section {
+  margin-top: 16px;
+  border-top: 1px solid #cccccc; /* Light gray divider */
+  padding-top: 16px;
+  font-size: 0.875rem;
+  color: #444444; /* Dark text */
+}
+
+.totals-section.accessibility-mode {
+  border-top-color: #00BFFF;
+  color: #00BFFF;
+}
+
+.total-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.total-row.subtotal {
+  margin-bottom: 4px;
+}
+
+.total-row.tax {
+  margin-bottom: 8px;
+}
+
+.total-row.final-total {
+  font-weight: bold;
+  font-size: 1.125rem;
+  margin-top: 8px;
+  margin-bottom: 0;
+}
+
+/* Proceed button */
+.proceed-button {
+  margin-top: 24px;
+  width: 100%;
+  padding: 8px 0;
+  border-radius: 16px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  border: none;
+  background-color: #FC8019; /* Accent color */
+  color: white; /* White text */
+}
+
+.proceed-button:hover {
+  background-color: #e16f19; /* Darker hover */
+  transform: translateY(-1px);
+}
+
+.proceed-button.accessibility-mode {
+  background-color: #00BFFF;
+  color: black;
+}
+
+.proceed-button.accessibility-mode:hover {
+  background-color: #60a5fa;
+}
+
+/* Responsive design */
+@media (max-width: 640px) {
+  .content-wrapper {
+    padding: 0 12px 32px 12px;
+    padding-top: 80px;
+  }
+  
+  .billing-card {
+    padding: 20px;
+    max-width: 100%;
+  }
+  
+  .restaurant-title {
+    font-size: 1.125rem;
+    margin-bottom: 12px;
+  }
+  
+  .accessibility-toggle {
+    top: 60px;
+    right: 16px;
+    padding: 8px;
+  }
+}
+
+@media (max-width: 480px) {
+  .billing-card {
+    padding: 16px;
+  }
+  
+  .restaurant-title {
+    font-size: 1.25rem;
+  }
+  
+  .table-info .order-info {
+    font-size: 0.875rem;
+  }
+  
+  .order-item {
+    font-size: 0.8125rem;
+  }
+  
+  .totals-section {
+    font-size: 0.8125rem;
+  }
+  
+  .total-row.final-total {
+    font-size: 1rem;
+  }
+}

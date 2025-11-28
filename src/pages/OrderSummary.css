@@ -1,0 +1,697 @@
+/* OrderSummary.css - updated to ensure pure white background */
+
+/* Page root */
+.order-summary-page {
+  min-height: 100vh;
+  position: relative;
+  color: #333333;                /* Adjusted text color */
+  background-color: #ffffff;     /* Pure white background */
+  transition: all 0.3s ease;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, "Noto Sans", "Liberation Sans", sans-serif;
+}
+
+/* Accessibility mode overrides */
+.order-summary-page.accessibility {
+  background-color: #000;
+  color: #00bfff;
+}
+
+/* Loading screen (when order not ready) */
+.loading-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background-color: #ffffff; /* Pure white background */
+  color: inherit;
+}
+.loading-screen.accessibility {
+  background-color: #000;
+}
+
+/* Remove background image and overlay for pure white background */
+.background-container,
+.background-image,
+.background-overlay {
+  display: none; /* Hide background image and overlay */
+}
+
+/* Accessibility toggle button (top-right) */
+.order-summary-page .accessibility-toggle {
+  position: fixed !important;
+  top: 66px !important;  /* Change this value as needed */
+  right: 14px !important;
+  z-index: 20;
+  padding: 20px !important;
+  border-radius: 50%;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  backdrop-filter: blur(16px);
+  transition: all 0.3s ease;
+  background-color: rgba(0, 0, 0, 0.6);
+  color: white;
+  border: none;
+  cursor: pointer;
+}
+
+.accessibility-toggle:hover { transform: translateY(-1px); }
+
+.order-summary-page.accessibility .accessibility-toggle {
+  background-color: #00bfff;
+  color: #000;
+}
+.order-summary-page.accessibility .accessibility-toggle:hover {
+  background-color: #4fc3f7;
+}
+
+/* Main content area */
+.content-wrapper {
+  position: relative;
+  z-index: 20;
+}
+
+/* Ensure the card is centered horizontally and starts near the top (pt-24) */
+/* Ensure the card is positioned near the top instead of center */
+/* Ensure the card is positioned near the top */
+.main-content {
+  position: fixed !important;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+  padding-top: 1rem;   /* Add controlled padding */
+  box-sizing: border-box;
+}
+
+
+/* Summary card - matches tailwind's w-full max-w-md p-6 rounded-3xl shadow-xl border */
+.summary-card {
+    
+  width: 100%;
+  max-width: 28rem;          /* Tailwind max-w-md = 28rem */
+  padding: 1.5rem;           /* p-6 = 1.5rem */
+  border-radius: 1.5rem;     /* rounded-3xl */
+  background-color: #ffffff; /* White background */
+  border: 1px solid #cccccc; /* Light gray border */
+  box-sizing: border-box;
+  /* Tailwind shadow-xl equivalent */
+  box-shadow:
+    0 20px 25px -5px rgba(0, 0, 0, 0.1),
+    0 8px 10px -6px rgba(0, 0, 0, 0.04);
+  color: inherit;
+  /* Keep the visual "card floating" effect */
+}
+
+/* Accessibility card overrides */
+.order-summary-page.accessibility .summary-card {
+  background-color: #000;
+  border-color: #00bfff;
+  color: #00bfff;
+}
+
+/* Title */
+.summary-title {
+  font-size: 1.25rem;  /* text-xl */
+  font-weight: 600;    /* font-semibold */
+  margin-bottom: 1rem;
+  text-align: center;
+  color: #FC8019;      /* Accent color */
+}
+.order-summary-page.accessibility .summary-title {
+  color: #00bfff;
+}
+.order-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+}
+.order-meta-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.9rem;
+  color: #555;
+}
+.order-summary-page.accessibility .order-meta-row {
+  color: #00bfff;
+}
+
+/* Items */
+.items-list {
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #444444;      /* Dark text */
+}
+.order-summary-page.accessibility .items-list {
+  color: #00bfff;
+}
+.item-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.4rem;
+}
+
+/* Totals */
+.summary-totals {
+  font-size: 0.9rem;
+  margin-bottom: 1rem;
+  color: #444444; /* Dark text */
+}
+.order-summary-page.accessibility .summary-totals {
+  color: #00bfff;
+}
+.total-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.125rem 0;
+}
+.total-bold {
+  font-weight: 700;
+}
+
+/* thin divider like Tailwind hr */
+.divider {
+  border: none;
+  border-top: 1px solid #cccccc; /* Light gray divider */
+  margin: 1rem 0;
+}
+.order-summary-page.accessibility .divider {
+  border-top-color: #00bfff;
+}
+
+/* Cooking instructions area */
+.instructions-section label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #333333; /* Dark label */
+}
+.order-summary-page.accessibility .instructions-section label {
+  color: #00bfff;
+}
+
+.instructions-textarea {
+  width: 100%;
+  padding: 0.75rem;
+  border-radius: 0.75rem;      /* rounded-xl */
+  border: 1px solid #cccccc;   /* Light gray border */
+  resize: none;
+  font-size: 0.9rem;
+  background-color: #ffffff;   /* White background */
+  color: #333333;              /* Dark text */
+  box-sizing: border-box;
+}
+.instructions-textarea::placeholder {
+  color: #999999;              /* Gray placeholder */
+}
+.order-summary-page.accessibility .instructions-textarea {
+  background-color: #000;
+  color: #00bfff;
+  border-color: #00bfff;
+}
+.order-summary-page.accessibility .instructions-textarea::placeholder {
+  color: rgba(0, 191, 255, 0.6);
+}
+
+/* Buttons row */
+.buttons-row {
+  display: flex;
+  gap: 0.75rem;                 /* gap-3 */
+  margin-top: 0.25rem;
+}
+
+.primary-btn,
+.secondary-btn {
+  flex: 1;
+  padding: 0.6rem 0;
+  border-radius: 0.75rem;       /* rounded-xl */
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: background-color 0.18s ease, transform 0.12s;
+  background-color: #FC8019;    /* Accent color */
+  color: #fff;                  /* White text */
+}
+
+/* Hover for non-accessibility */
+.primary-btn:hover,
+.secondary-btn:hover {
+  background-color: #e16f19;    /* Darker hover */
+  transform: translateY(-1px);
+}
+
+/* Accessibility mode: make both buttons teal/blue like tailwind toggled style */
+.order-summary-page.accessibility .primary-btn,
+.order-summary-page.accessibility .secondary-btn {
+  background-color: #00bfff;
+  color: #000;
+}
+.order-summary-page.accessibility .primary-btn:hover,
+.order-summary-page.accessibility .secondary-btn:hover {
+  background-color: #4fc3f7;
+}
+
+/* ---------- Modal (Bill) ---------- */
+.bill-modal-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: rgba(0,0,0,0.4);
+  backdrop-filter: blur(6px);
+  z-index: 80;
+}
+
+.bill-modal {
+  padding: 1.5rem;
+  border-radius: 1.25rem;
+  width: 100%;
+  max-width: 28rem;
+  background-color: #ffffff; /* White background */
+  border: 1px solid #cccccc; /* Light gray border */
+  box-shadow:
+    0 20px 25px -5px rgba(0,0,0,0.1),
+    0 8px 10px -6px rgba(0,0,0,0.04);
+  box-sizing: border-box;
+}
+
+.order-summary-page.accessibility .bill-modal {
+  background-color: #000;
+  color: #00bfff;
+  border-color: #00bfff;
+}
+
+.bill-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1.5rem;
+  gap: 1rem;
+}
+
+.bill-modal-header h3 {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #FC8019;
+}
+
+.order-summary-page.accessibility .bill-modal-header h3 {
+  color: #00bfff;
+}
+
+.invoice-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+  color: #6b7280;
+}
+
+.order-summary-page.accessibility .invoice-meta {
+  color: #00bfff;
+}
+
+.bill-modal-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.invoice-action-btn {
+  padding: 0.45rem 0.85rem;
+  border-radius: 0.65rem;
+  border: 1px solid #d1d5db;
+  background-color: #f8fafc;
+  color: #1f2937;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.invoice-action-btn:hover {
+  background-color: #e2e8f0;
+}
+
+.invoice-action-btn.download {
+  border-color: #34d399;
+  color: #047857;
+  background-color: #ecfdf5;
+}
+
+.invoice-action-btn.download:hover {
+  background-color: #d1fae5;
+}
+
+.invoice-action-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.invoice-close-btn {
+  border: none;
+  background: transparent;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  color: #6b7280;
+  padding: 0.25rem;
+}
+
+.invoice-close-btn:hover {
+  color: #111827;
+}
+
+.order-summary-page.accessibility .invoice-close-btn {
+  color: #00bfff;
+}
+
+.invoice-preview {
+  background-color: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 1rem;
+  padding: 1.25rem;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.4);
+  font-size: 0.9rem;
+  color: #1f2933;
+}
+
+.order-summary-page.accessibility .invoice-preview {
+  background-color: #000;
+  border-color: #00bfff;
+  color: #00bfff;
+}
+
+.invoice-top {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.brand-name {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin-bottom: 0.25rem;
+  text-align: center;
+}
+
+.brand-address {
+  font-size: 0.85rem;
+  color: #6b7280;
+  text-align: center;
+}
+
+.order-summary-page.accessibility .brand-address {
+  color: #00bfff;
+}
+
+.invoice-meta-block {
+  min-width: 160px;
+  font-size: 0.85rem;
+  color: #6b7280;
+  text-align: center;
+}
+
+.order-summary-page.accessibility .invoice-meta-block {
+  color: #00bfff;
+}
+
+.meta-line {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  margin-bottom: 0.35rem;
+  text-align: center;
+}
+
+.meta-line span:first-child {
+  color: #6b7280;
+}
+
+.order-summary-page.accessibility .meta-line span:first-child {
+  color: #00bfff;
+}
+
+.invoice-billed {
+  margin-bottom: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid #e5e7eb;
+  text-align: center;
+}
+
+.order-summary-page.accessibility .invoice-billed {
+  border-bottom-color: #00bfff;
+}
+
+.invoice-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1.25rem;
+}
+
+.invoice-table th,
+.invoice-table td {
+  padding: 0.6rem 0.25rem;
+  border-bottom: 1px solid #e5e7eb;
+  text-align: center;
+}
+
+.invoice-table th {
+  font-weight: 600;
+  color: #475569;
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.invoice-table td {
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.align-right {
+  text-align: right;
+}
+
+.empty-row {
+  text-align: center;
+  color: #9ca3af;
+  font-style: italic;
+}
+
+.invoice-totals {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 1.25rem;
+  text-align: center;
+}
+
+.invoice-totals .meta-line {
+  justify-content: center;
+  text-align: center;
+}
+
+.invoice-totals .total {
+  font-weight: 700;
+  font-size: 0.95rem;
+  text-align: center;
+}
+
+.invoice-footer {
+  text-align: center;
+  font-size: 0.8rem;
+  color: #9ca3af;
+}
+
+.meta-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.55rem;
+  border-radius: 9999px;
+  background-color: rgba(15, 118, 110, 0.12);
+  color: #0f766e;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.meta-chip.returned-chip {
+  background-color: rgba(239, 68, 68, 0.15);
+  color: #b91c1c;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+}
+
+.invoice-returned-note {
+  font-size: 0.7rem;
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.order-summary-page.accessibility .invoice-footer {
+  color: #00bfff;
+}
+
+.modal-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.modal-header img {
+  width: 5rem;
+  height: 5rem;
+  border-radius: 50%;
+  object-fit: cover;
+  box-shadow: 0 8px 18px rgba(0,0,0,0.12);
+}
+.modal-header h3 {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #FC8019; /* Accent color */
+}
+.order-summary-page.accessibility .modal-header h3 {
+  color: #00bfff;
+}
+.modal-header p {
+  margin: 0;
+  font-size: 0.9rem;
+  text-align: center;
+  line-height: 1.25;
+  color: #444444; /* Dark text */
+}
+.order-summary-page.accessibility .modal-header p {
+  color: #00bfff;
+}
+
+.modal-info,
+.modal-items {
+  font-size: 0.9rem;
+  margin-bottom: 0.75rem;
+}
+.info-row,
+.modal-items .item-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.12rem 0;
+}
+
+/* small responsive adjustments */
+@media (max-width: 640px) {
+  .main-content {
+    padding-top: 0.25rem; /* slightly less top on small screens */
+  }
+  .summary-card{
+    margin-top: -10rem;  /* shift card upwards */
+    max-width: 95%;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .bill-modal {
+    max-width: 95%;
+    margin: 0 1rem;
+  }
+}
+/* Style specifically for the View Bill button */
+.secondary-btn {
+  background-color: #FC8019; /* Neutral gray */
+  color: #fff;
+  font-weight: 600;
+  
+}
+.secondary-btn:hover {
+  background-color: #FC8019;
+  transform: translateY(-1px);
+}
+.order-summary-page.accessibility .secondary-btn {
+  background-color: #00bfff;
+  color: #000;
+}
+.order-summary-page.accessibility .secondary-btn:hover {
+  background-color: #4fc3f7;
+}
+
+/* Bill modal header with Terra Cart highlight */
+.bill-modal h3 {
+  font-size: 1.4rem;
+  font-weight: 800;
+  text-align: center;
+  color: #FC8019;
+  margin-bottom: 0.5rem;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+/* Terra Cart address section */
+.bill-address {
+  font-size: 0.85rem;
+  text-align: center;
+  margin-bottom: 1rem;
+  color: #555;
+}
+.bill-address strong {
+  display: block;
+  font-weight: 700;
+  color: #333;
+}
+.order-summary-page.accessibility .bill-address {
+  color: #00bfff;
+}
+.order-summary-page.accessibility .bill-address strong {
+  color: #00bfff;
+}
+
+/* Order details row */
+.bill-details {
+  font-size: 0.9rem;
+  margin-bottom: 1rem;
+  border-top: 1px dashed #ccc;
+  border-bottom: 1px dashed #ccc;
+  padding: 0.5rem 0;
+}
+.bill-details .detail-row {
+  display: flex;
+  justify-content: space-between;
+  margin: 0.2rem 0;
+}
+.bill-details span:first-child {
+  font-weight: 600;
+}
+/* Close button inside bill modal */
+.close-btn {
+  display: block;
+  margin: 1rem auto 0;        /* center horizontally */
+  padding: 0.5rem 1.25rem;    /* smaller padding */
+  border-radius: 0.75rem;     /* rounded-xl */
+  font-size: 0.9rem;
+  font-weight: 500;           /* not too bold */
+  cursor: pointer;
+  border: none;
+  background-color: #FC8019;  /* Accent color */
+  color: #fff;
+  transition: background-color 0.18s ease, transform 0.12s;
+  width: auto;                /* shrink to fit text */
+}
+
+.close-btn:hover {
+  background-color: #e16f19;
+  transform: translateY(-1px);
+}
+
+/* Accessibility mode */
+.order-summary-page.accessibility .close-btn {
+  background-color: #00bfff;
+  color: #000;
+}
+.order-summary-page.accessibility .close-btn:hover {
+  background-color: #4fc3f7;
+}

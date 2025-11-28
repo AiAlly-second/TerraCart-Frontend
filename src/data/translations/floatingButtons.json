@@ -1,0 +1,42 @@
+{
+  "en": {
+    "signLanguage": "Sign Language",
+    "signName": "Sign Name", 
+    "back": "Back",
+    "closeSign": "Close Sign",
+    "showInSignLanguage": "Show in Sign Language",
+    "enterYourName": "Enter your name",
+    "makeNameSpeak": "Make Your Name Speak a New Language!",
+    "close": "Close"
+  },
+  "hi": {
+    "signLanguage": "सांकेतिक भाषा",
+    "signName": "नाम का हस्ताक्षर",
+    "back": "वापस",
+    "closeSign": "हस्ताक्षर बंद करें",
+    "showInSignLanguage": "सांकेतिक भाषा में दिखाएं",
+    "enterYourName": "अपना नाम दर्ज करें",
+    "makeNameSpeak": "अपने नाम को एक नई भाषा बोलने दें!",
+    "close": "बंद करें"
+  },
+  "mr": {
+    "signLanguage": "सांकेतिक भाषा",
+    "signName": "नावाचा स्वाक्षरी",
+    "back": "मागे",
+    "closeSign": "स्वाक्षरी बंद करा",
+    "showInSignLanguage": "सांकेतिक भाषेत दाखवा",
+    "enterYourName": "तुमचे नाव टाका",
+    "makeNameSpeak": "तुमच्या नावाला नवीन भाषा बोलू द्या!",
+    "close": "बंद करा"
+  },
+  "gu": {
+    "signLanguage": "સાંકેતિક ભાષા",
+    "signName": "નામની હસ્તાક્ષર",
+    "back": "પાછળ", 
+    "closeSign": "હસ્તાક્ષર બંધ કરો",
+    "showInSignLanguage": "સાંકેતિક ભાષામાં બતાવો",
+    "enterYourName": "તમારું નામ દાખલ કરો",
+    "makeNameSpeak": "તમારા નામને નવી ભાષા બોલવા દો!",
+    "close": "બંધ કરો"
+  }
+}

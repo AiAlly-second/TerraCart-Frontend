@@ -1,0 +1,250 @@
+/* Base styles */
+.landing-container {
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  transition: all 0.3s ease;
+  background-color: white; /* White background */
+  color: #fc8019; /* Orange text */
+}
+
+.landing-container.accessibility-mode {
+  background-color: black;
+  color: #00bfff;
+}
+
+/* Background styles */
+.background-image {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  background-size: cover;
+  background-position: center;
+  z-index: 0;
+  /* Removed filter: brightness(0.75) to eliminate shadow effect */
+}
+
+.background-image.accessibility-mode {
+  filter: brightness(0.5) grayscale(1);
+}
+
+/* Welcome text styling */
+/* Container wrapper */
+.welcome-container {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  padding: 2rem 1rem;
+}
+
+@media (min-width: 640px) {
+  .welcome-container {
+    padding: 3rem 1rem;
+  }
+}
+
+/* Welcome box */
+.welcome-box {
+  padding: 1.5rem 2rem;
+  border-radius: 1rem;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  background-color: #FC8019;
+}
+
+@media (min-width: 640px) {
+  .welcome-box {
+    padding: 2rem 3rem;
+  }
+}
+
+/* Welcome text */
+.welcome-text {
+  font-size: 1.5rem;
+  font-weight: 700;
+  text-align: center;
+  color: white;
+}
+
+@media (min-width: 640px) {
+  .welcome-text {
+    font-size: 1.875rem;
+  }
+}
+
+@media (min-width: 768px) {
+  .welcome-text {
+    font-size: 2.25rem;
+  }
+}
+
+/* Accessibility mode variations */
+.accessibility-mode .welcome-box {
+  background-color: #06b6d4;
+}
+
+.accessibility-mode .welcome-text {
+  color: black;
+}
+
+/* Accessibility toggle button */
+.accessibility-toggle {
+  position: fixed;
+  top: 1.5rem;
+  right: 1.5rem;
+  z-index: 20;
+  padding: 0.75rem;
+  border-radius: 50%;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  backdrop-filter: blur(16px);
+  transition: all 0.3s ease;
+  background-color: #fc8019; /* Orange */
+  color: white;
+  border: none;
+  cursor: pointer;
+}
+
+.accessibility-toggle:hover {
+  background-color: #e6721a; /* Darker orange on hover */
+}
+
+.accessibility-toggle.accessibility-mode {
+  background-color: #00bfff;
+  color: black;
+}
+
+.accessibility-toggle.accessibility-mode:hover {
+  background-color: #60a5fa;
+}
+
+/* Main card */
+.main-card .main-card {
+  position: fixed;
+  top: 9 rem;
+  z-index: 10;
+  border-radius: 1.5rem;
+  padding: 2.5rem;
+  width: 90%;
+  max-width: 36rem;
+  /* box-shadow: 0 25px 50px -12px rgba(252, 128, 25, 0.25); */
+  backdrop-filter: blur(16px);
+  background-color: white;
+  /* border: 1px solid #e6721a; */
+  color: white;
+}
+
+.main-card.accessibility-mode {
+  background-color: black;
+  border: 2px solid #00bfff;
+  color: #00bfff;
+}
+
+/* Typography */
+.main-title {
+  font-size: 2.25rem;
+  font-weight: 700;
+  text-align: center;
+  margin-bottom: 2rem;
+  line-height: 1.1;
+  color: #1b1212;
+}
+
+.subtitle {
+  text-align: center;
+  margin-bottom: 1.5rem;
+  color: #1b1212;
+  font-size: 1.2rem;
+}
+
+.subtitle.accessibility-mode {
+  color: #00bfff;
+}
+
+/* Language grid - Updated for vertical alignment */
+.language-grid {
+  display: grid;
+  grid-template-columns: 1fr; /* Single column for vertical alignment */
+  gap: 1rem;
+}
+
+/* Language buttons - Updated with orange color */
+.language-button {
+  border-radius: 0.75rem;
+  padding: 1rem 0;
+  font-size: 1.5rem;
+  font-weight: 500;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  transition: all 0.3s ease;
+  cursor: pointer;
+  border: none;
+  background-color: #fc8019; /* Solid orange background */
+  border: 1px solid #e6721a; /* Orange border */
+  backdrop-filter: blur(16px);
+  color: white; /* White text */
+}
+
+.language-button:hover {
+  background-color: #e6721a; /* Darker orange on hover */
+  transform: scale(1.05);
+}
+
+.language-button:active {
+  transform: scale(0.95);
+}
+
+.language-button.accessibility-mode {
+  background-color: #00bfff;
+  color: black;
+}
+
+.language-button.accessibility-mode:hover {
+  background-color: #60a5fa;
+}
+
+/* Text outside card (if any) */
+.outside-text {
+  color: #fc8019; /* Orange text for elements outside the card */
+}
+
+/* Responsive design */
+@media (max-width: 640px) {
+  .main-card {
+    width: 95%;
+    padding: 2rem;
+  }
+  .main-title {
+    font-size: 1.875rem;
+  }
+  .accessibility-toggle {
+    top: 1rem;
+    right: 1rem;
+    padding: 0.5rem;
+  }
+  .welcome-text {
+    font-size: 1.25rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .language-grid {
+    grid-template-columns: 1fr; /* Keep single column on mobile */
+  }
+  .main-title {
+    font-size: 1.5rem;
+  }
+  .welcome-text {
+    font-size: 1.125rem;
+  }
+}
+
+/* Blind Eye Button Responsive */
+@media (max-width: 768px) {
+  .blind-eye-btn {
+    bottom: 10px !important;
+    right: 10px !important;
+  }
+}

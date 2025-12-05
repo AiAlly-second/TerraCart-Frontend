@@ -14,6 +14,35 @@ const languages = [
 
 const nodeApi = (import.meta.env.VITE_NODE_API_URL || "http://localhost:5001").replace(/\/$/, "");
 
+// Helper function to clear all old order data when session changes
+function clearOldOrderData() {
+  console.log('[Landing] Clearing old order data due to session change');
+  localStorage.removeItem("terra_orderId");
+  localStorage.removeItem("terra_cart");
+  localStorage.removeItem("terra_orderStatus");
+  localStorage.removeItem("terra_orderStatusUpdatedAt");
+  localStorage.removeItem("terra_previousOrder");
+  localStorage.removeItem("terra_previousOrderDetail");
+  localStorage.removeItem("terra_lastPaidOrderId");
+  // Clear service-type-specific keys
+  ["DINE_IN", "TAKEAWAY"].forEach(serviceType => {
+    localStorage.removeItem(`terra_cart_${serviceType}`);
+    localStorage.removeItem(`terra_orderId_${serviceType}`);
+    localStorage.removeItem(`terra_orderStatus_${serviceType}`);
+    localStorage.removeItem(`terra_orderStatusUpdatedAt_${serviceType}`);
+  });
+}
+
+// Helper function to check if sessionToken changed and clear old data if needed
+function updateSessionToken(newToken, oldToken) {
+  if (newToken && newToken !== oldToken) {
+    clearOldOrderData();
+  }
+  if (newToken) {
+    localStorage.setItem("terra_sessionToken", newToken);
+  }
+}
+
 export default function Landing() {
   const navigate = useNavigate();
   const [accessibilityMode, setAccessibilityMode] = useState(
@@ -167,9 +196,10 @@ export default function Landing() {
         if (res.status === 200 && tableStatus === "AVAILABLE") {
           // Table is available - clear ALL waitlist-related state
           localStorage.removeItem("terra_waitToken");
-          if (payload.sessionToken || tableData.sessionToken) {
-            localStorage.setItem("terra_sessionToken", payload.sessionToken || tableData.sessionToken);
-          }
+          
+          // CRITICAL: Check if sessionToken changed - if so, clear all old order data
+          const newSessionToken = payload.sessionToken || tableData.sessionToken;
+          updateSessionToken(newSessionToken, storedSession);
           // First user can proceed directly - NO WAITLIST LOGIC APPLIED
           return;
         }
@@ -177,17 +207,19 @@ export default function Landing() {
         // CRITICAL: Double-check - if table status is AVAILABLE, skip all waitlist logic
         if (tableStatus === "AVAILABLE") {
           localStorage.removeItem("terra_waitToken");
-          if (payload.sessionToken || tableData.sessionToken) {
-            localStorage.setItem("terra_sessionToken", payload.sessionToken || tableData.sessionToken);
-          }
+          
+          // CRITICAL: Check if sessionToken changed - if so, clear all old order data
+          const newSessionToken = payload.sessionToken || tableData.sessionToken;
+          updateSessionToken(newSessionToken, storedSession);
           return; // No waitlist logic for available tables
         }
 
         // Table is NOT available - apply waitlist logic
         if (res.status === 423) {
           localStorage.removeItem("terra_sessionToken");
-        } else if (payload.sessionToken || tableData.sessionToken) {
-          localStorage.setItem("terra_sessionToken", payload.sessionToken || tableData.sessionToken);
+        } else {
+          const newSessionToken = payload.sessionToken || tableData.sessionToken;
+          updateSessionToken(newSessionToken, storedSession);
         }
 
         // Only store waitlist token if table is NOT available
@@ -201,7 +233,7 @@ export default function Landing() {
             payload.waitlist?.status === "SEATED" &&
             payload.waitlist?.sessionToken
           ) {
-            localStorage.setItem("terra_sessionToken", payload.waitlist.sessionToken);
+            updateSessionToken(payload.waitlist.sessionToken, storedSession);
             localStorage.removeItem("terra_waitToken");
           }
         }
@@ -215,9 +247,8 @@ export default function Landing() {
           // STRONG CHECK: If table is actually AVAILABLE, clear waitlist and return
           if (actualTableStatus === "AVAILABLE") {
             localStorage.removeItem("terra_waitToken");
-            if (payload.sessionToken || tableData?.sessionToken) {
-              localStorage.setItem("terra_sessionToken", payload.sessionToken || tableData.sessionToken);
-            }
+            const newSessionToken = payload.sessionToken || tableData?.sessionToken;
+            updateSessionToken(newSessionToken, storedSession);
             return; // Table is available, no waitlist needed
           }
           
@@ -479,16 +510,16 @@ const startListening = () => {
         </div>
       </div>
 
-      {/* Floating Speaker Button */}
+      {/* Floating Speaker Button - Same level as accessibility button but on right side, with higher z-index than footer */}
       <motion.button
         whileHover={{ scale: 1.1 }}
         whileTap={{ scale: 0.9 }}
         onClick={readPageAloud}
         className="fixed rounded-full shadow-lg bg-orange-600 text-white hover:bg-orange-700 focus:outline-none blind-eye-btn"
         style={{ 
-          zIndex: 9999, 
-          bottom: '20px',
-          right: '20px',
+          position: 'fixed',
+          bottom: '20px', // Same lower position as accessibility button
+          right: '20px', // Right side instead of left
           width: '56px',
           height: '56px',
           display: 'grid',
@@ -496,8 +527,11 @@ const startListening = () => {
           border: 'none',
           cursor: 'pointer',
           boxShadow: '0 6px 18px rgba(0,0,0,0.25)',
-          transition: 'transform .2s ease, box-shadow .2s ease, background .2s ease'
+          transition: 'transform .2s ease, box-shadow .2s ease, background .2s ease',
+          zIndex: 10001, // Higher than footer (z-40) to ensure it's on top
+          pointerEvents: 'auto'
         }}
+        aria-label="Blind Support - Read Page Aloud"
       >
         <img 
           src={blindEyeIcon} 

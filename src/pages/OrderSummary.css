@@ -588,17 +588,103 @@
 /* small responsive adjustments */
 @media (max-width: 640px) {
   .main-content {
-    padding-top: 0.25rem; /* slightly less top on small screens */
+    padding-top: 80px;
+    padding-left: 12px;
+    padding-right: 12px;
+    padding-bottom: 24px;
+    align-items: flex-start;
   }
-  .summary-card{
-    margin-top: -10rem;  /* shift card upwards */
-    max-width: 95%;
-    margin-left: auto;
-    margin-right: auto;
+  
+  .summary-card {
+    margin-top: 0;
+    max-width: 100%;
+    width: 100%;
+    padding: 1.25rem;
+    box-sizing: border-box;
   }
+  
+  .summary-title {
+    font-size: 1.1rem;
+  }
+  
+  .order-meta-row {
+    font-size: 0.85rem;
+  }
+  
+  .items-list {
+    font-size: 0.85rem;
+  }
+  
+  .summary-totals {
+    font-size: 0.85rem;
+  }
+  
+  .primary-btn,
+  .secondary-btn {
+    padding: 0.75rem 0;
+    font-size: 0.9rem;
+    min-height: 44px;
+  }
+  
   .bill-modal {
     max-width: 95%;
-    margin: 0 1rem;
+    margin: 0 12px;
+    padding: 1.25rem;
+  }
+  
+  .accessibility-toggle {
+    top: 60px;
+    right: 12px;
+    padding: 10px;
+  }
+}
+
+@media (max-width: 480px) {
+  .main-content {
+    padding-top: 70px;
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  
+  .summary-card {
+    padding: 1rem;
+    border-radius: 12px;
+  }
+  
+  .summary-title {
+    font-size: 1rem;
+    margin-bottom: 0.75rem;
+  }
+  
+  .order-meta-row {
+    font-size: 0.8rem;
+  }
+  
+  .items-list {
+    font-size: 0.8rem;
+  }
+  
+  .summary-totals {
+    font-size: 0.8rem;
+  }
+  
+  .primary-btn,
+  .secondary-btn {
+    padding: 0.7rem 0;
+    font-size: 0.85rem;
+    min-height: 42px;
+  }
+  
+  .bill-modal {
+    max-width: 100%;
+    margin: 0 8px;
+    padding: 1rem;
+  }
+  
+  .accessibility-toggle {
+    top: 55px;
+    right: 8px;
+    padding: 8px;
   }
 }
 /* Style specifically for the View Bill button */

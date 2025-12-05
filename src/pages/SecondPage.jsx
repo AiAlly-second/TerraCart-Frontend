@@ -7,9 +7,38 @@ import restaurantBg from "../assets/images/restaurant-img.jpg";
 import blindEyeIcon from "../assets/images/blind-eye-sign.png";
 import translations from "../data/translations/secondpage.json";
 import useVoiceAssistant from "../utils/useVoiceAssistant";
+import BlindVoiceAssistant from "../components/BlindVoiceAssistant";
 import "./SecondPage.css";
 
 const nodeApi = (import.meta.env.VITE_NODE_API_URL || "http://localhost:5001").replace(/\/$/, "");
+
+// Helper function to clear all old order data when session changes
+function clearOldOrderData() {
+  console.log('[SecondPage] Clearing old order data due to session change');
+  localStorage.removeItem("terra_orderId");
+  localStorage.removeItem("terra_cart");
+  localStorage.removeItem("terra_orderStatus");
+  localStorage.removeItem("terra_orderStatusUpdatedAt");
+  localStorage.removeItem("terra_previousOrder");
+  localStorage.removeItem("terra_previousOrderDetail");
+  localStorage.removeItem("terra_lastPaidOrderId");
+  ["DINE_IN", "TAKEAWAY"].forEach(serviceType => {
+    localStorage.removeItem(`terra_cart_${serviceType}`);
+    localStorage.removeItem(`terra_orderId_${serviceType}`);
+    localStorage.removeItem(`terra_orderStatus_${serviceType}`);
+    localStorage.removeItem(`terra_orderStatusUpdatedAt_${serviceType}`);
+  });
+}
+
+// Helper function to check if sessionToken changed and clear old data if needed
+function updateSessionTokenWithCleanup(newToken, oldToken) {
+  if (newToken && newToken !== oldToken) {
+    clearOldOrderData();
+  }
+  if (newToken) {
+    localStorage.setItem("terra_sessionToken", newToken);
+  }
+}
 
 const checkVoiceSupport = (language) => {
   const voices = window.speechSynthesis.getVoices();
@@ -118,6 +147,7 @@ export default function SecondPage() {
 
   const t = (key) => translations[language]?.[key] || key;
   const { readAloud, startListening } = useVoiceAssistant();
+  const [showVoiceAssistant, setShowVoiceAssistant] = useState(false);
 
   // STRONG LOGIC: Check if table is occupied based on actual table.status field
   useEffect(() => {
@@ -364,9 +394,29 @@ export default function SecondPage() {
             setWaitlistInfo(null);
           }
 
-          // Update session token if provided
+          // Update session token if provided - clear old orders if session changed
       if (payload.sessionToken || tableData.sessionToken) {
         const nextToken = payload.sessionToken || tableData.sessionToken;
+        const oldToken = sessionToken || localStorage.getItem("terra_sessionToken");
+        
+        // If sessionToken changed, clear all old order data
+        if (nextToken && nextToken !== oldToken) {
+          console.log('[SecondPage] SessionToken changed - clearing old order data');
+          localStorage.removeItem("terra_orderId");
+          localStorage.removeItem("terra_cart");
+          localStorage.removeItem("terra_orderStatus");
+          localStorage.removeItem("terra_orderStatusUpdatedAt");
+          localStorage.removeItem("terra_previousOrder");
+          localStorage.removeItem("terra_previousOrderDetail");
+          localStorage.removeItem("terra_lastPaidOrderId");
+          ["DINE_IN", "TAKEAWAY"].forEach(serviceType => {
+            localStorage.removeItem(`terra_cart_${serviceType}`);
+            localStorage.removeItem(`terra_orderId_${serviceType}`);
+            localStorage.removeItem(`terra_orderStatus_${serviceType}`);
+            localStorage.removeItem(`terra_orderStatusUpdatedAt_${serviceType}`);
+          });
+        }
+        
         localStorage.setItem("terra_sessionToken", nextToken);
         setSessionToken(nextToken);
       }
@@ -382,9 +432,29 @@ export default function SecondPage() {
         setTableInfo(tableData);
         setIsTableOccupied(true);
 
-        // Update session token if provided
+        // Update session token if provided - clear old orders if session changed
           if (payload.sessionToken || tableData.sessionToken) {
           const nextToken = payload.sessionToken || tableData.sessionToken;
+          const oldToken = sessionToken || localStorage.getItem("terra_sessionToken");
+          
+          // If sessionToken changed, clear all old order data
+          if (nextToken && nextToken !== oldToken) {
+            console.log('[SecondPage] SessionToken changed - clearing old order data');
+            localStorage.removeItem("terra_orderId");
+            localStorage.removeItem("terra_cart");
+            localStorage.removeItem("terra_orderStatus");
+            localStorage.removeItem("terra_orderStatusUpdatedAt");
+            localStorage.removeItem("terra_previousOrder");
+            localStorage.removeItem("terra_previousOrderDetail");
+            localStorage.removeItem("terra_lastPaidOrderId");
+            ["DINE_IN", "TAKEAWAY"].forEach(serviceType => {
+              localStorage.removeItem(`terra_cart_${serviceType}`);
+              localStorage.removeItem(`terra_orderId_${serviceType}`);
+              localStorage.removeItem(`terra_orderStatus_${serviceType}`);
+              localStorage.removeItem(`terra_orderStatusUpdatedAt_${serviceType}`);
+            });
+          }
+          
           localStorage.setItem("terra_sessionToken", nextToken);
           setSessionToken(nextToken);
         }
@@ -392,8 +462,29 @@ export default function SecondPage() {
         // If user was in waitlist and now seated, clear waitlist
         if (waitlistToken && payload.waitlist?.status === "SEATED") {
           if (payload.waitlist.sessionToken) {
-            localStorage.setItem("terra_sessionToken", payload.waitlist.sessionToken);
-            setSessionToken(payload.waitlist.sessionToken);
+            const nextToken = payload.waitlist.sessionToken;
+            const oldToken = sessionToken || localStorage.getItem("terra_sessionToken");
+            
+            // If sessionToken changed, clear all old order data
+            if (nextToken && nextToken !== oldToken) {
+              console.log('[SecondPage] SessionToken changed (waitlist seated) - clearing old order data');
+              localStorage.removeItem("terra_orderId");
+              localStorage.removeItem("terra_cart");
+              localStorage.removeItem("terra_orderStatus");
+              localStorage.removeItem("terra_orderStatusUpdatedAt");
+              localStorage.removeItem("terra_previousOrder");
+              localStorage.removeItem("terra_previousOrderDetail");
+              localStorage.removeItem("terra_lastPaidOrderId");
+              ["DINE_IN", "TAKEAWAY"].forEach(serviceType => {
+                localStorage.removeItem(`terra_cart_${serviceType}`);
+                localStorage.removeItem(`terra_orderId_${serviceType}`);
+                localStorage.removeItem(`terra_orderStatus_${serviceType}`);
+                localStorage.removeItem(`terra_orderStatusUpdatedAt_${serviceType}`);
+              });
+            }
+            
+            localStorage.setItem("terra_sessionToken", nextToken);
+            setSessionToken(nextToken);
           }
         localStorage.removeItem("terra_waitToken");
         setWaitlistToken(null);
@@ -548,6 +639,10 @@ export default function SecondPage() {
   }, [waitlistToken]);
 
   const handleVoiceAssistant = () => {
+    setShowVoiceAssistant(true);
+  };
+  
+  const handleVoiceAssistantOld = () => {
     const dineInText = t("dineIn");
     const takeAwayText = t("takeAway");
     
@@ -647,6 +742,7 @@ export default function SecondPage() {
   };
 
   return (
+    <>
     <div className={`main-container ${accessibilityMode ? "accessibility-mode" : "normal-mode"}`}>
       <Header showNavigationTabs={false} />
 
@@ -738,34 +834,6 @@ export default function SecondPage() {
 
         <div className="spacer" />
       </div>
-
-       <motion.button
-        whileHover={{ scale: 1.1 }}
-        whileTap={{ scale: 0.9 }}
-         onClick={handleVoiceAssistant}
-        className="fixed rounded-full shadow-lg bg-orange-500 text-white hover:bg-orange-600 focus:outline-none blind-eye-btn"
-        style={{ 
-          zIndex: 9999, 
-          bottom: '20px',
-          right: '20px',
-          width: '56px',
-          height: '56px',
-          display: 'grid',
-          placeItems: 'center',
-          border: 'none',
-          cursor: 'pointer',
-          boxShadow: '0 6px 18px rgba(0,0,0,0.25)',
-          transition: 'transform .2s ease, box-shadow .2s ease, background .2s ease'
-        }}
-      >
-        <img 
-          src={blindEyeIcon} 
-          alt="Blind Support" 
-          width="24"
-          height="24"
-          style={{ objectFit: "contain", filter: "brightness(0) invert(1)" }}
-        />
-      </motion.button>
 
       {/* Waitlist Modal - STRICT: only show when table is occupied (NOT available) */}
       {showWaitlistModal && isTableOccupied && tableInfo?.status !== "AVAILABLE" && !waitlistToken && (
@@ -873,6 +941,45 @@ export default function SecondPage() {
           </div>
         </div>
       )}
+      
+      {/* Blind Voice Assistant Modal */}
+      <BlindVoiceAssistant
+        open={showVoiceAssistant}
+        onClose={() => setShowVoiceAssistant(false)}
+      />
     </div>
+    
+    {/* Blind Support Button - Outside main-container to avoid overflow/clipping issues, same as Menu page */}
+    <motion.button
+      whileHover={{ scale: 1.1 }}
+      whileTap={{ scale: 0.9 }}
+      onClick={handleVoiceAssistant}
+      className="fixed rounded-full shadow-lg bg-orange-500 text-white hover:bg-orange-600 focus:outline-none blind-eye-btn"
+      style={{ 
+        position: 'fixed',
+        bottom: '20px', // Same lower position as accessibility button
+        right: '20px', // Right side instead of left
+        width: '56px',
+        height: '56px',
+        display: 'grid',
+        placeItems: 'center',
+        border: 'none',
+        cursor: 'pointer',
+        boxShadow: '0 6px 18px rgba(0,0,0,0.25)',
+        transition: 'transform .2s ease, box-shadow .2s ease, background .2s ease',
+        zIndex: 10001, // Higher than footer (z-40) to ensure it's on top
+        pointerEvents: 'auto'
+      }}
+      aria-label="Blind Support - Voice Assistant"
+    >
+      <img 
+        src={blindEyeIcon} 
+        alt="Blind Support" 
+        width="24"
+        height="24"
+        style={{ objectFit: "contain", filter: "brightness(0) invert(1)" }}
+      />
+    </motion.button>
+    </>
   );
 }

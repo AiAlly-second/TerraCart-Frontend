@@ -2,12 +2,21 @@
 .menu-root {
   position: relative;
   min-height: 100vh;
-  height: 100vh;
+  min-height: 100dvh; /* Dynamic viewport height for mobile */
   overflow-x: hidden;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
   transition: all 0.3s;
   width: 100%;
   box-sizing: border-box;
+}
+
+@media (max-width: 640px) {
+  .menu-root {
+    height: auto; /* Allow height to grow on mobile */
+    min-height: 100dvh; /* Ensure minimum height */
+    overflow-y: auto; /* Enable scrolling */
+  }
 }
 .menu-root.accessibility-mode {
   background-color: black;
@@ -15,6 +24,23 @@
 }
 .menu-root:not(.accessibility-mode) {
   color: #333333;
+}
+
+/* Blind Eye Button - Same lower position as accessibility button but on right side, with higher z-index than footer */
+.blind-eye-btn {
+  position: fixed;
+  bottom: 20px; /* Same lower position as accessibility button */
+  right: 20px; /* Right side instead of left */
+  z-index: 10001; /* Higher than footer (z-40) to ensure it's on top */
+}
+
+/* Blind Eye Button Responsive - Same lower position as accessibility button */
+@media (max-width: 768px) {
+  .blind-eye-btn {
+    bottom: 20px !important; /* Same lower position as accessibility button */
+    right: 10px !important;
+    z-index: 10001 !important; /* Higher than footer (z-40) to ensure it's on top */
+  }
 }
 .background-image {
   position: absolute;
@@ -50,8 +76,18 @@
   position: relative;
   z-index: 10;
   width: 100%;
-  height: 100%;
+  min-height: 100%;
+  min-height: 100dvh; /* Dynamic viewport height for mobile */
   box-sizing: border-box;
+  overflow-x: hidden; /* Prevent horizontal scroll */
+  overflow-y: visible; /* Allow vertical scrolling */
+}
+
+@media (max-width: 640px) {
+  .content-wrapper {
+    height: auto; /* Allow height to grow on mobile */
+    min-height: 100dvh;
+  }
 }
 .main-container {
   max-width: 100%;
@@ -60,13 +96,25 @@
   margin-right: auto;
   padding-left: 1rem;
   padding-right: 1rem;
-  padding-top: 2rem;
+  padding-top: 1rem;
   padding-bottom: 2rem;
   margin-top: 5rem;
   position: relative;
   z-index: 1;
   overflow: visible;
   box-sizing: border-box;
+}
+
+@media (max-width: 640px) {
+  .main-container {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+    padding-top: 0.5rem;
+    padding-bottom: 1rem;
+    margin-top: 4rem;
+    overflow-x: hidden; /* Prevent horizontal scroll */
+    min-height: calc(100dvh - 4rem); /* Ensure enough height for content */
+  }
 }
 @media (min-width: 640px) {
   .main-container {
@@ -94,8 +142,9 @@
   gap: 1rem;
   width: 100%;
   box-sizing: border-box;
-  justify-content: center;
+  justify-content: flex-start; /* Changed from center for better scrolling */
   align-items: stretch;
+  min-height: 0; /* Allow flex items to shrink and scroll */
 }
 @media (min-width: 768px) {
   .panels-container {
@@ -239,6 +288,18 @@
   padding: 1rem;
   border-radius: 9999px;
   font-size: 1.875rem;
+  touch-action: manipulation; /* Better touch handling */
+  -webkit-tap-highlight-color: rgba(252, 128, 25, 0.2); /* Touch feedback */
+  min-width: 64px; /* Minimum touch target size */
+  min-height: 64px; /* Minimum touch target size */
+}
+
+@media (max-width: 640px) {
+  .voice-button {
+    min-width: 80px; /* Larger touch target on mobile */
+    min-height: 80px;
+    padding: 1.25rem;
+  }
 }
 .voice-button.recording {
   background-color: #dc2626;
@@ -362,6 +423,7 @@
 @media (max-width: 640px) {
   .button-group.status-actions {
     grid-template-columns: 1fr;
+    gap: 0.75rem; /* More spacing between buttons */
   }
   
   .button-group.status-actions .confirm-button,
@@ -369,6 +431,11 @@
   .button-group.status-actions .billing-button,
   .button-group.status-actions .feedback-button {
     min-width: 100%;
+    min-height: 44px; /* Larger touch target */
+    padding: 0.75rem 1rem !important; /* More padding for easier tapping */
+    font-size: 0.9rem !important;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: rgba(252, 128, 25, 0.2);
   }
 }
 .order-status-card.previous-order-card {
@@ -655,6 +722,16 @@
   transition: all 0.15s;
   background-color: #2563eb;
   color: white;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: rgba(37, 99, 235, 0.2);
+  min-height: 44px; /* Minimum touch target size */
+}
+
+@media (max-width: 640px) {
+  .billing-button {
+    min-height: 48px;
+    padding: 0.75rem 1rem;
+  }
 }
 .billing-button:hover {
   background-color: #1d4ed8;
@@ -687,6 +764,16 @@
   font-size: 0.875rem;
   font-weight: 600;
   transition: all 0.15s;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: rgba(252, 128, 25, 0.2);
+  min-height: 44px; /* Minimum touch target size */
+}
+
+@media (max-width: 640px) {
+  .confirm-button {
+    min-height: 48px;
+    padding: 0.75rem 1rem;
+  }
 }
 .accessibility-mode .confirm-button {
   background-color: #00BFFF;
@@ -746,6 +833,16 @@
   font-size: 0.875rem;
   font-weight: 600;
   transition: all 0.15s;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: rgba(252, 128, 25, 0.2);
+  min-height: 44px; /* Minimum touch target size */
+}
+
+@media (max-width: 640px) {
+  .reset-button {
+    min-height: 48px;
+    padding: 0.75rem 1rem;
+  }
 }
 .accessibility-mode .reset-button {
   background-color: #00BFFF;
@@ -873,17 +970,39 @@
   transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
   margin-top: 0;
   width: 100%;
-  overflow-y: auto;
+  /* Let the whole page scroll instead of showing an inner scroll window */
+  overflow-y: visible;
   overflow-x: hidden;
-  max-height: calc(100vh - 10rem);
+  /* Remove inner scroll snapping / momentum; page handles scrolling */
   box-sizing: border-box;
+  position: relative;
+}
+
+@media (max-width: 640px) {
+  .right-panel {
+    padding: 0.75rem;
+    max-height: none;
+    min-height: 400px;
+    flex: 1;
+    overflow-y: visible;
+    overflow-x: hidden;
+    position: relative;
+  }
+}
+
+@media (min-width: 641px) {
+  .right-panel {
+    /* Remove inner max-height so it doesn't create a separate scroll area */
+    max-height: none;
+  }
 }
 @media (min-width: 768px) {
   .right-panel {
     width: 56%;
     flex: 1;
     margin-top: 0;
-    max-height: calc(100vh - 10rem);
+    max-height: none;
+    position: relative;
   }
 }
 @media (min-width: 1024px) {
@@ -944,6 +1063,9 @@
   grid-auto-rows: 180px;
   width: 100%;
   box-sizing: border-box;
+  overflow: visible; /* Ensure items are visible */
+  visibility: visible; /* Ensure items are visible */
+  margin-bottom: 1rem; /* Add bottom margin for better scrolling */
 }
 .menu-loading-message,
 .search-no-results,
@@ -993,11 +1115,15 @@
   gap: 1rem;
   width: 100%;
   box-sizing: border-box;
+  overflow: visible; /* Ensure categories are visible */
+  position: relative; /* Enable proper rendering */
 }
 .category-wrapper {
   border-radius: 0.5rem;
   box-shadow: 0 1px 3px 0 rgba(0,0,0,0.1), 0 1px 2px -1px rgba(0,0,0,0.1);
   transition: all 0.15s;
+  overflow: visible; /* Ensure category content is visible */
+  position: relative; /* Enable proper rendering */
 }
 .accessibility-mode .category-wrapper {
   background-color: rgba(0,0,0,0.6);
@@ -1019,6 +1145,20 @@
   justify-content: space-between;
   align-items: center;
   transition: all 0.15s;
+  touch-action: manipulation; /* Better touch handling */
+  -webkit-tap-highlight-color: rgba(252, 128, 25, 0.2);
+  min-height: 44px; /* Minimum touch target size */
+  border: none; /* Remove default button border */
+  background: transparent; /* Transparent background */
+  cursor: pointer;
+}
+
+@media (max-width: 640px) {
+  .category-button {
+    font-size: 1rem;
+    padding: 0.75rem 1rem;
+    min-height: 48px;
+  }
 }
 .accessibility-mode .category-button {
   color: #00BFFF;
@@ -1034,6 +1174,10 @@
   grid-auto-rows: 180px;
   width: 100%;
   box-sizing: border-box;
+  overflow: visible; /* Ensure items are visible */
+  visibility: visible; /* Ensure items are visible */
+  opacity: 1; /* Ensure items are visible */
+  max-height: none; /* Don't restrict height */
 }
 @media (min-width: 640px) {
   .category-items {
@@ -1061,6 +1205,8 @@
   overflow: hidden;
   box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1);
   cursor: pointer;
+  touch-action: manipulation; /* Better touch handling */
+  -webkit-tap-highlight-color: rgba(252, 128, 25, 0.2); /* Touch feedback */
   width: 100%;
   height: 180px;
   min-width: 0;
@@ -1168,6 +1314,18 @@
   border-radius: 9999px;
   font-weight: 700;
   font-size: 0.75rem;
+  touch-action: manipulation; /* Better touch handling */
+  -webkit-tap-highlight-color: rgba(252, 128, 25, 0.2); /* Touch feedback */
+  min-width: 32px; /* Minimum touch target size */
+  min-height: 32px; /* Minimum touch target size */
+}
+
+@media (max-width: 640px) {
+  .quantity-button {
+    min-width: 44px; /* Larger touch target on mobile */
+    min-height: 44px;
+    padding: 0.5rem;
+  }
 }
 .quantity-button:disabled,
 .quantity-button.disabled {

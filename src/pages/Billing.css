@@ -218,11 +218,14 @@
   .content-wrapper {
     padding: 0 12px 32px 12px;
     padding-top: 80px;
+    min-height: calc(100vh - 80px);
   }
   
   .billing-card {
     padding: 20px;
     max-width: 100%;
+    width: 100%;
+    box-sizing: border-box;
   }
   
   .restaurant-title {
@@ -232,33 +235,65 @@
   
   .accessibility-toggle {
     top: 60px;
-    right: 16px;
-    padding: 8px;
+    right: 12px;
+    padding: 10px;
+    font-size: 18px;
+  }
+  
+  .table-info {
+    font-size: 0.8rem;
+  }
+  
+  .order-item {
+    font-size: 0.8rem;
+  }
+  
+  .totals-section {
+    font-size: 0.8rem;
   }
 }
 
 @media (max-width: 480px) {
+  .content-wrapper {
+    padding: 0 8px 24px 8px;
+    padding-top: 70px;
+  }
+  
   .billing-card {
     padding: 16px;
+    border-radius: 12px;
   }
   
   .restaurant-title {
-    font-size: 1.25rem;
+    font-size: 1.1rem;
+    margin-bottom: 10px;
   }
   
   .table-info .order-info {
-    font-size: 0.875rem;
+    font-size: 0.75rem;
   }
   
   .order-item {
-    font-size: 0.8125rem;
+    font-size: 0.75rem;
   }
   
   .totals-section {
-    font-size: 0.8125rem;
+    font-size: 0.75rem;
   }
   
   .total-row.final-total {
-    font-size: 1rem;
+    font-size: 0.95rem;
+  }
+  
+  .proceed-button {
+    padding: 10px 0;
+    font-size: 0.9rem;
+  }
+  
+  .accessibility-toggle {
+    top: 55px;
+    right: 8px;
+    padding: 8px;
+    font-size: 16px;
   }
 }

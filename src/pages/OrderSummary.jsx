@@ -433,13 +433,6 @@ export default function OrderSummary() {
         </div>
         <div className="bill-modal-actions">
           <button
-            onClick={handlePrintInvoice}
-            disabled={printing}
-            className="invoice-action-btn"
-          >
-            {printing ? "Preparing…" : "Print"}
-          </button>
-          <button
             onClick={handleDownloadInvoice}
             disabled={downloading}
             className="invoice-action-btn download"

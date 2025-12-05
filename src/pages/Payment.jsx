@@ -37,18 +37,26 @@ export default function Payment() {
     try {
       setLoading(true);
       const res = await fetch(`${nodeApi}/api/payments/order/${orderId}/latest`);
+      // Handle both 200 (with null) and 404 gracefully - both mean no payment exists yet
       if (res.status === 404) {
         setPayment(null);
         return;
       }
       if (!res.ok) {
-        throw new Error("Failed to fetch payment status");
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.message || "Failed to fetch payment status");
       }
       const data = await res.json();
-      setPayment(data);
+      // Backend now returns null instead of 404 when no payment exists
+      setPayment(data || null);
     } catch (err) {
-      console.warn("Failed to fetch payment:", err);
-      setPayment(null);
+      // Silently handle expected "not found" scenarios
+      if (err.message?.includes("404") || err.message?.includes("not found")) {
+        setPayment(null);
+      } else {
+        console.warn("Failed to fetch payment:", err);
+        setPayment(null);
+      }
     } finally {
       setLoading(false);
     }
@@ -67,12 +75,20 @@ export default function Payment() {
   const fetchUploadedQR = async () => {
     try {
       const res = await fetch(`${nodeApi}/api/payment-qr/active`);
-      if (res.ok) {
-        const data = await res.json();
-        setUploadedQR(data);
+      // Handle both 200 (with null) and 404 gracefully - both mean no QR code exists yet
+      if (res.status === 404) {
+        setUploadedQR(null);
+        return;
       }
+      if (!res.ok) {
+        setUploadedQR(null);
+        return;
+      }
+      const data = await res.json();
+      // Backend now returns null instead of 404 when no QR code exists
+      setUploadedQR(data || null);
     } catch (err) {
-      // No uploaded QR - that's okay, will use generated QR
+      // Silently handle expected "not found" scenarios - no uploaded QR is okay
       setUploadedQR(null);
     }
   };

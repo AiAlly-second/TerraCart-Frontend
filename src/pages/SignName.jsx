@@ -137,8 +137,8 @@ export default function SignName({ accessibilityMode }) {
         </div>
 
         {/* Sign language images */}
-        <div className="mt-8 w-full overflow-x-auto">
-          <div className="flex justify-center gap-2 px-2 sm:px-4 min-w-fit">
+        <div className="mt-8 w-full overflow-x-auto sm:overflow-x-auto overflow-y-auto sm:overflow-y-visible">
+          <div className="flex flex-col sm:flex-row justify-center items-center gap-4 sm:gap-6 px-2 sm:px-4 min-w-fit">
             <AnimatePresence>
               {shownImages.map((letter, idx) => {
                 const src = `/sign-language/${letter}.jpg`;
@@ -147,15 +147,15 @@ export default function SignName({ accessibilityMode }) {
                     key={idx}
                     src={src}
                     alt={letter}
-                    className="w-14 h-14 sm:w-16 sm:h-16 object-contain shrink-0 rounded-lg"
+                    className="w-36 h-36 sm:w-32 sm:h-32 md:w-40 md:h-40 object-contain shrink-0 rounded-lg shadow-lg p-3"
                     style={{
                       backgroundColor: "#FFF8F1",
-                      border: `1px solid ${peachAccent}`,
+                      border: `2px solid ${peachAccent}`,
                     }}
                     initial={
                       idx === 0
                         ? { opacity: 0, scale: 0.3, rotate: -10 }
-                        : { opacity: 0, x: -50, scale: 0.5 }
+                        : { opacity: 0, y: -30, scale: 0.5 }
                     }
                     animate={
                       idx === 0
@@ -164,7 +164,7 @@ export default function SignName({ accessibilityMode }) {
                             scale: [0.3, 1.1, 0.9, 1],
                             rotate: [-10, 10, -5, 0],
                           }
-                        : { opacity: 1, x: 0, scale: 1 }
+                        : { opacity: 1, y: 0, scale: 1 }
                     }
                     exit={{ opacity: 0 }}
                     transition={{

@@ -14,6 +14,8 @@ import OrderStatus from "../components/OrderStatus";
 import { io } from "socket.io-client";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
+import BlindVoiceAssistant from "../components/BlindVoiceAssistant";
+import blindEyeIcon from "../assets/images/blind-eye-sign.png";
 // import AccessibilityFooter from "../components/AccessibilityFooter";
 const nodeApi = (import.meta.env.VITE_NODE_API_URL || "http://localhost:5001").replace(/\/$/, "");
 // CRITICAL: Flask API URL - default to 5050, but allow override via env
@@ -245,19 +247,22 @@ const TranslatedSummaryItem = ({ item, qty }) => {
 };
 
 // NEW: CategoryBlock.jsx-inlined component
-const CategoryBlock = ({ category, items, openCategory, setOpenCategory, cart, onAdd, onRemove }) => {
+// Updated: each category controls its own open/close state.
+// Opening one category will NOT auto-close others; user controls each independently.
+const CategoryBlock = ({ category, items, cart, onAdd, onRemove }) => {
   const [translatedCategory] = useAITranslation(category);
+  const [isOpen, setIsOpen] = useState(false);
 
   return (
     <div className="category-wrapper">
       <button
-        onClick={() => setOpenCategory(openCategory === category ? null : category)}
+        onClick={() => setIsOpen((prev) => !prev)}
         className="category-button"
       >
-        {translatedCategory} <span>{openCategory === category ? "▲" : "▼"}</span>
+        {translatedCategory} <span>{isOpen ? "▲" : "▼"}</span>
       </button>
 
-      {openCategory === category && (
+      {isOpen && (
         <div className="category-items">
           {items.map((item, idx) => (
             <TranslatedItem
@@ -298,11 +303,17 @@ const setStepState = (index, state) =>
   const [accessibilityMode, setAccessibilityMode] = useState(
     localStorage.getItem("accessibilityMode") === "true"
   );
+  
+  const [showVoiceAssistant, setShowVoiceAssistant] = useState(false);
 
   const toggleAccessibility = () => {
     const newMode = !accessibilityMode;
     setAccessibilityMode(newMode);
     localStorage.setItem("accessibilityMode", newMode.toString());
+  };
+  
+  const handleVoiceAssistant = () => {
+    setShowVoiceAssistant(true);
   };
 
   const [cart, setCart] = useState(() => {
@@ -320,6 +331,7 @@ const setStepState = (index, state) =>
   const [reordering, setReordering] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [returning, setReturning] = useState(false);
+  const [confirmingPayment, setConfirmingPayment] = useState(false);
   const [isOrderingMore, setIsOrderingMore] = useState(false);
   const [openCategory, setOpenCategory] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -377,6 +389,99 @@ const [tableInfo, setTableInfo] = useState(() => {
   }
 });
 const [sessionToken, setSessionToken] = useState(() => localStorage.getItem("terra_sessionToken"));
+
+// Effect to verify active order belongs to current session on mount
+useEffect(() => {
+  const verifyActiveOrderSession = async () => {
+    const storedOrderId = localStorage.getItem("terra_orderId");
+    const currentSessionToken = localStorage.getItem("terra_sessionToken");
+    
+    // If no active order or no session token, nothing to verify
+    if (!storedOrderId || !currentSessionToken) {
+      return;
+    }
+    
+    try {
+      // Fetch the order to check its sessionToken
+      const res = await fetch(`${nodeApi}/api/orders/${storedOrderId}`);
+      if (!res.ok) {
+        // Order doesn't exist - clear it
+        console.log('[Menu] Active order not found, clearing order data');
+        localStorage.removeItem("terra_orderId");
+        localStorage.removeItem("terra_orderStatus");
+        localStorage.removeItem("terra_orderStatusUpdatedAt");
+        setActiveOrderId(null);
+        setOrderStatus(null);
+        setOrderStatusUpdatedAt(null);
+        return;
+      }
+      
+      const order = await res.json();
+      
+      // If order exists but sessionToken doesn't match, clear it (belongs to old session)
+      if (order.sessionToken && order.sessionToken !== currentSessionToken) {
+        console.log('[Menu] Active order belongs to old session, clearing order data');
+        localStorage.removeItem("terra_orderId");
+        localStorage.removeItem("terra_orderStatus");
+        localStorage.removeItem("terra_orderStatusUpdatedAt");
+        localStorage.removeItem("terra_previousOrder");
+        localStorage.removeItem("terra_previousOrderDetail");
+        setActiveOrderId(null);
+        setOrderStatus(null);
+        setOrderStatusUpdatedAt(null);
+        // Update state directly - setters are available from useState above
+        // Note: We can't call persistPreviousOrder functions here as they're defined later,
+        // but the state setters are available and localStorage is already cleared
+      }
+    } catch (err) {
+      console.warn('[Menu] Error verifying active order session:', err);
+      // On error, clear order data to be safe
+      localStorage.removeItem("terra_orderId");
+      localStorage.removeItem("terra_orderStatus");
+      localStorage.removeItem("terra_orderStatusUpdatedAt");
+      setActiveOrderId(null);
+      setOrderStatus(null);
+      setOrderStatusUpdatedAt(null);
+    }
+  };
+  
+  // Run verification on mount
+  verifyActiveOrderSession();
+}, []); // Only run once on mount
+
+// Effect to detect sessionToken changes and clear old order data
+// Note: This useEffect is placed before persistPreviousOrder/persistPreviousOrderDetail definitions,
+// so we only use localStorage directly here (not the helper functions)
+useEffect(() => {
+  const currentToken = localStorage.getItem("terra_sessionToken");
+  const storedToken = sessionToken;
+  
+  // If sessionToken changed (different from state), clear all old order data
+  if (currentToken && storedToken && currentToken !== storedToken) {
+    console.log('[Menu] SessionToken changed - clearing old order data');
+    localStorage.removeItem("terra_orderId");
+    localStorage.removeItem("terra_orderStatus");
+    localStorage.removeItem("terra_orderStatusUpdatedAt");
+    localStorage.removeItem("terra_previousOrder");
+    localStorage.removeItem("terra_previousOrderDetail");
+    localStorage.removeItem("terra_lastPaidOrderId");
+    setActiveOrderId(null);
+    setOrderStatus(null);
+    setOrderStatusUpdatedAt(null);
+    // Note: persistPreviousOrder and persistPreviousOrderDetail are defined later,
+    // but we're already clearing localStorage directly, so no need to call them
+    // Clear service-type-specific keys
+    ["DINE_IN", "TAKEAWAY"].forEach(serviceType => {
+      localStorage.removeItem(`terra_cart_${serviceType}`);
+      localStorage.removeItem(`terra_orderId_${serviceType}`);
+      localStorage.removeItem(`terra_orderStatus_${serviceType}`);
+      localStorage.removeItem(`terra_orderStatusUpdatedAt_${serviceType}`);
+    });
+    // Update state to match localStorage
+    setSessionToken(currentToken);
+  }
+}, [sessionToken]); // Removed persistPreviousOrder and persistPreviousOrderDetail from dependencies
+
 // Customer info for takeaway orders (optional) - loaded from localStorage
 const [customerName] = useState(() => localStorage.getItem("terra_takeaway_customerName") || "");
 const [customerMobile] = useState(() => localStorage.getItem("terra_takeaway_customerMobile") || "");
@@ -714,13 +819,12 @@ const [recordVoiceAria] = useAITranslation("Record voice order");
       } catch (err) {
         console.error("Menu fetch error", err);
         if (cancelled) return;
-        const fallbackCategories = buildCategoriesFromFlatItems(
-          fallbackMenuItems.map((item) => ({ ...item, isAvailable: true }))
-        );
-        setMenuCategories(fallbackCategories);
-        setMenuCatalog(buildCatalogFromCategories(fallbackCategories));
-        setOpenCategory((prev) => prev || fallbackCategories[0]?.name || null);
-        setMenuError("Showing default menu because the live menu could not be loaded.");
+        // Do NOT show fallback menu when backend is not reachable.
+        // Instead, keep menu empty and show a connection message.
+        setMenuCategories([]);
+        setMenuCatalog({});
+        setOpenCategory(null);
+        setMenuError("Trying to connect to live menu... please check your network or ask staff.");
       } finally {
         if (!cancelled) {
           setMenuLoading(false);
@@ -789,15 +893,17 @@ const proceedWithOrder = async () => {
   let existingId = activeOrderId;
   
   // Check if existing order can accept new items
-  // If order is in a final status (Paid, Cancelled, Returned, Served, Finalized), create a new order instead
+  // Allow adding items until payment is done - only block if order is Paid, Cancelled, or Returned
   if (existingId) {
     try {
       const orderRes = await fetch(`${nodeApi}/api/orders/${existingId}`);
       if (orderRes.ok) {
         const existingOrder = await orderRes.json();
-        const finalStatuses = ["Paid", "Cancelled", "Returned", "Served", "Finalized"];
-        if (finalStatuses.includes(existingOrder.status)) {
-          console.log('[Menu] Existing order is in final status, creating new order instead:', existingOrder.status);
+        // Only block adding items if order is Paid, Cancelled, or Returned
+        // Allow adding items for: Pending, Confirmed, Preparing, Ready, Served, Finalized (before payment)
+        const blockedStatuses = ["Paid", "Cancelled", "Returned"];
+        if (blockedStatuses.includes(existingOrder.status)) {
+          console.log('[Menu] Existing order is in blocked status, creating new order instead:', existingOrder.status);
           // Clear the active order ID so we create a new order
           existingId = null;
           setActiveOrderId(null);
@@ -1203,9 +1309,36 @@ const handleOrderAgain = async () => {
       throw new Error(payload?.message || "Failed to refresh table session. Please ask staff for help.");
     }
 
+    // CRITICAL: Check if sessionToken changed - if so, clear all old order data
     if (payload.sessionToken) {
-      localStorage.setItem("terra_sessionToken", payload.sessionToken);
-      setSessionToken(payload.sessionToken);
+      const oldSessionToken = sessionToken || localStorage.getItem("terra_sessionToken");
+      const newSessionToken = payload.sessionToken;
+      
+      if (newSessionToken !== oldSessionToken) {
+        // Session changed - clear all old order data from previous session
+        console.log('[Menu] SessionToken changed - clearing old order data');
+        localStorage.removeItem("terra_orderId");
+        localStorage.removeItem("terra_orderStatus");
+        localStorage.removeItem("terra_orderStatusUpdatedAt");
+        localStorage.removeItem("terra_previousOrder");
+        localStorage.removeItem("terra_previousOrderDetail");
+        localStorage.removeItem("terra_lastPaidOrderId");
+        setActiveOrderId(null);
+        setOrderStatus(null);
+        setOrderStatusUpdatedAt(null);
+        persistPreviousOrder(null);
+        persistPreviousOrderDetail(null);
+        // Clear service-type-specific keys
+        ["DINE_IN", "TAKEAWAY"].forEach(serviceType => {
+          localStorage.removeItem(`terra_cart_${serviceType}`);
+          localStorage.removeItem(`terra_orderId_${serviceType}`);
+          localStorage.removeItem(`terra_orderStatus_${serviceType}`);
+          localStorage.removeItem(`terra_orderStatusUpdatedAt_${serviceType}`);
+        });
+      }
+      
+      localStorage.setItem("terra_sessionToken", newSessionToken);
+      setSessionToken(newSessionToken);
     }
     if (payload.table) {
       localStorage.setItem("terra_selectedTable", JSON.stringify(payload.table));
@@ -1406,6 +1539,70 @@ const handleReturnOrder = async () => {
     alert(err.message || "Unable to return order. Please contact staff.");
   } finally {
     setReturning(false);
+  }
+};
+
+const handleConfirmPayment = async () => {
+  if (!activeOrderId) {
+    alert("No active order found.");
+    return;
+  }
+  if (!window.confirm("Confirm that payment has been completed for this order?")) {
+    return;
+  }
+
+  setConfirmingPayment(true);
+  try {
+    const sessionToken = localStorage.getItem("terra_sessionToken");
+    const res = await fetch(`${nodeApi}/api/orders/${activeOrderId}/confirm-payment`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ 
+        paymentMethod: "CASH",
+        sessionToken: serviceType === "DINE_IN" ? (sessionToken || undefined) : undefined
+      }),
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data?.message || "Failed to confirm payment");
+    }
+
+    const updatedOrder = data?._id ? data : null;
+    const updatedAt = updatedOrder?.updatedAt || new Date().toISOString();
+
+    capturePreviousOrder({
+      orderId: updatedOrder?._id,
+      status: "Paid",
+      updatedAt,
+      tableNumber:
+        updatedOrder?.tableNumber ??
+        tableInfo?.number ??
+        tableInfo?.tableNumber ??
+        null,
+      tableSlug:
+        updatedOrder?.table?.qrSlug ??
+        tableInfo?.qrSlug ??
+        localStorage.getItem("terra_scanToken") ??
+        null,
+      tableInfo: updatedOrder?.table || tableInfo,
+    });
+
+    if (updatedOrder) {
+      persistPreviousOrderDetail(updatedOrder);
+    }
+
+    setOrderStatus("Paid");
+    setOrderStatusUpdatedAt(updatedAt);
+    localStorage.setItem("terra_orderStatus", "Paid");
+    localStorage.setItem("terra_orderStatusUpdatedAt", updatedAt);
+    localStorage.setItem("terra_lastPaidOrderId", activeOrderId);
+    alert("Payment confirmed successfully!");
+  } catch (err) {
+    console.error("handleConfirmPayment error", err);
+    alert(err.message || "Unable to confirm payment. Please contact staff.");
+  } finally {
+    setConfirmingPayment(false);
   }
 };
 
@@ -1648,22 +1845,52 @@ const handleViewPreviousInvoice = useCallback(() => {
     let socket;
     const fetchStatus = async () => {
       try {
+        const currentSessionToken = localStorage.getItem("terra_sessionToken");
+        
         const res = await fetch(`${nodeApi}/api/orders/${activeOrderId}`);
         if (!res.ok) {
-          // If fetch fails, keep the existing orderStatus from localStorage
-          // Don't overwrite it with null/undefined
-          console.warn("Failed to fetch order status, keeping existing status");
+          // If fetch fails, order might not exist - clear it
+          console.warn("Failed to fetch order status, clearing order data");
+          localStorage.removeItem("terra_orderId");
+          localStorage.removeItem("terra_orderStatus");
+          localStorage.removeItem("terra_orderStatusUpdatedAt");
+          setActiveOrderId(null);
+          setOrderStatus(null);
+          setOrderStatusUpdatedAt(null);
           return;
         }
         const data = await res.json();
+        
+        // CRITICAL: Verify order belongs to current session
+        if (currentSessionToken && data.sessionToken && data.sessionToken !== currentSessionToken) {
+          // Order belongs to old session - clear it
+          console.log('[Menu] Order belongs to old session, clearing order data');
+          localStorage.removeItem("terra_orderId");
+          localStorage.removeItem("terra_orderStatus");
+          localStorage.removeItem("terra_orderStatusUpdatedAt");
+          localStorage.removeItem("terra_previousOrder");
+          localStorage.removeItem("terra_previousOrderDetail");
+          setActiveOrderId(null);
+          setOrderStatus(null);
+          setOrderStatusUpdatedAt(null);
+          persistPreviousOrder(null);
+          persistPreviousOrderDetail(null);
+          return;
+        }
+        
         if (data?.status) {
           setOrderStatus(data.status);
           setOrderStatusUpdatedAt(new Date().toISOString());
         }
       } catch (err) {
-        // If fetch fails, keep the existing orderStatus from localStorage
-        // Don't overwrite it with null/undefined
-        console.warn("Error fetching order status, keeping existing status:", err);
+        // If fetch fails, clear order data to be safe
+        console.warn("Error fetching order status, clearing order data:", err);
+        localStorage.removeItem("terra_orderId");
+        localStorage.removeItem("terra_orderStatus");
+        localStorage.removeItem("terra_orderStatusUpdatedAt");
+        setActiveOrderId(null);
+        setOrderStatus(null);
+        setOrderStatusUpdatedAt(null);
       }
     };
 
@@ -1675,6 +1902,9 @@ const handleViewPreviousInvoice = useCallback(() => {
       if (payload?._id === activeOrderId && payload?.status) {
         setOrderStatus(payload.status);
         setOrderStatusUpdatedAt(new Date().toISOString());
+        // Also update localStorage to keep it in sync
+        localStorage.setItem("terra_orderStatus", payload.status);
+        localStorage.setItem("terra_orderStatusUpdatedAt", new Date().toISOString());
       }
     });
     socket.on("orderDeleted", (payload) => {
@@ -1692,6 +1922,22 @@ const handleViewPreviousInvoice = useCallback(() => {
       if (socket) socket.disconnect();
     };
   }, [activeOrderId, isOrderingMore]);
+
+  // Sync orderStatus from localStorage when component mounts or activeOrderId changes
+  // This ensures that when user navigates back from payment page, the status is synced
+  useEffect(() => {
+    if (activeOrderId) {
+      const storedStatus = localStorage.getItem("terra_orderStatus");
+      const storedUpdatedAt = localStorage.getItem("terra_orderStatusUpdatedAt");
+      if (storedStatus && storedStatus !== orderStatus) {
+        console.log('[Menu] Syncing orderStatus from localStorage:', storedStatus);
+        setOrderStatus(storedStatus);
+        if (storedUpdatedAt) {
+          setOrderStatusUpdatedAt(storedUpdatedAt);
+        }
+      }
+    }
+  }, [activeOrderId]); // Only run when activeOrderId changes, not on every render
 
   return (
     <div className={`menu-root ${accessibilityMode ? "accessibility-mode" : ""}`}>
@@ -1776,44 +2022,55 @@ const handleViewPreviousInvoice = useCallback(() => {
                     <OrderStatus status={orderStatus} updatedAt={orderStatusUpdatedAt} />
                   </div>
                   <div className="button-group status-actions" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                    {/* Row 1, Col 1: Complete Payment Button */}
-                    {orderStatus !== "Returned" && orderStatus !== "Cancelled" && (
-                      <button
-                        className="billing-button"
-                        onClick={() => {
-                          if (["Preparing", "Ready", "Served", "Finalized", "Paid"].includes(orderStatus)) {
-                            // For these statuses, Complete Payment shows invoice
-                            handleViewInvoice();
-                          } else {
-                            // For Confirmed and other statuses, navigate to billing
-                            navigate("/billing");
-                          }
-                        }}
-                        disabled={
-                          (["Preparing", "Ready", "Served", "Finalized", "Paid"].includes(orderStatus) && invoiceLoading)
-                        }
-                      >
-                        {invoiceLoading && ["Preparing", "Ready", "Served", "Finalized", "Paid"].includes(orderStatus)
-                          ? "Opening..."
-                          : "Complete Payment"}
-                      </button>
-                    )}
+                    {/* Row 1, Col 1: Cancel Order Button */}
+                    {(() => {
+                      const statusLower = (orderStatus || "").toLowerCase();
+                      // For paid/completed orders: show Return Order
+                      if (["paid", "completed"].includes(statusLower) && RETURN_ALLOWED_STATUSES.includes(orderStatus)) {
+                        return (
+                          <button
+                            className="reset-button return-button"
+                            onClick={handleReturnOrder}
+                            disabled={returning}
+                          >
+                            {returning ? "Processing..." : "Return Order"}
+                          </button>
+                        );
+                      }
+                      // For cancellable orders: show Cancel Order
+                      if (CANCEL_ALLOWED_STATUSES.includes(orderStatus)) {
+                        return (
+                          <button
+                            className="reset-button cancel-button"
+                            onClick={handleCancelOrder}
+                            disabled={cancelling}
+                          >
+                            {cancelling ? "Cancelling..." : "Cancel Order"}
+                          </button>
+                        );
+                      }
+                      // For Returned/Cancelled orders: show disabled button
+                      if (orderStatus === "Returned" || orderStatus === "Cancelled") {
+                        return (
+                          <button
+                            className="billing-button billing-button-disabled"
+                            disabled
+                          >
+                            {orderStatus === "Returned" ? "Order Returned" : "Order Cancelled"}
+                          </button>
+                        );
+                      }
+                      return null;
+                    })()}
                     
-                    {/* Row 1, Col 2: View Invoice Button - Show for Confirmed, Preparing, Ready, Served, Finalized, Paid */}
-                    {["Confirmed", "Preparing", "Ready", "Served", "Finalized", "Paid"].includes(orderStatus) ? (
+                    {/* Row 1, Col 2: View Invoice Button */}
+                    {["Confirmed", "Preparing", "Ready", "Served", "Finalized", "Completed", "Paid"].includes(orderStatus) ? (
                       <button
                         className="billing-button"
                         onClick={handleViewInvoice}
                         disabled={invoiceLoading}
                       >
                         {invoiceLoading ? "Opening..." : "View Invoice"}
-                      </button>
-                    ) : orderStatus === "Returned" || orderStatus === "Cancelled" ? (
-                      <button
-                        className="billing-button billing-button-disabled"
-                        disabled
-                      >
-                        {orderStatus === "Returned" ? "Order Returned" : "Order Cancelled"}
                       </button>
                     ) : null}
                     
@@ -1829,40 +2086,80 @@ const handleViewPreviousInvoice = useCallback(() => {
                       {reordering ? "Please wait..." : "Order More"}
                     </button>
                     
-                    {/* Row 2, Col 2: Cancel Order / Return Order / Share Feedback */}
-                    {orderStatus && CANCEL_ALLOWED_STATUSES.includes(orderStatus) ? (
-                      <button
-                        className="reset-button cancel-button"
-                        onClick={handleCancelOrder}
-                        disabled={cancelling}
-                      >
-                        {cancelling ? "Cancelling..." : "Cancel Order"}
-                      </button>
-                    ) : orderStatus && RETURN_ALLOWED_STATUSES.includes(orderStatus) ? (
-                      <button
-                        className="reset-button return-button"
-                        onClick={handleReturnOrder}
-                        disabled={returning}
-                      >
-                        {returning ? "Processing..." : "Return Order"}
-                      </button>
-                    ) : (orderStatus === "Paid" || orderStatus === "Completed") ? (
-                      <button
-                        className="feedback-button"
-                        onClick={() => {
-                          const orderId = activeOrderId || localStorage.getItem("terra_orderId") || localStorage.getItem("terra_lastPaidOrderId");
-                          navigate("/feedback", { state: { orderId } });
-                        }}
-                        style={{
-                          backgroundColor: '#10b981',
-                          color: '#ffffff',
-                          border: '1px solid #059669',
-                          fontWeight: '600'
-                        }}
-                      >
-                        <span style={{ color: '#ffffff' }}>Share Feedback</span>
-                      </button>
-                    ) : null}
+                    {/* Row 2, Col 2: Complete Payment / Confirm Payment Button */}
+                    {(() => {
+                      const statusLower = (orderStatus || "").toLowerCase();
+                      // For Finalized or Completed orders: show Confirm Payment button
+                      if (["Finalized", "Completed"].includes(orderStatus)) {
+                        return (
+                          <button
+                            className="billing-button"
+                            onClick={handleConfirmPayment}
+                            disabled={confirmingPayment}
+                            style={{
+                              backgroundColor: '#10b981',
+                              color: '#ffffff',
+                              border: "1px solid #059669",
+                              fontWeight: '600'
+                            }}
+                          >
+                            {confirmingPayment ? "Confirming..." : "Confirm Payment"}
+                          </button>
+                        );
+                      }
+                      // For other active orders (not paid/completed/returned/cancelled): show Complete Payment
+                      if (
+                        orderStatus !== "Returned" &&
+                        orderStatus !== "Cancelled" &&
+                        !["paid", "completed"].includes(statusLower)
+                      ) {
+                        return (
+                          <button
+                            className="billing-button"
+                            onClick={() => {
+                              if (["Preparing", "Ready", "Served"].includes(orderStatus)) {
+                                // For these statuses, Complete Payment shows invoice
+                                handleViewInvoice();
+                              } else {
+                                // For Confirmed and other statuses, navigate to billing
+                                navigate("/billing");
+                              }
+                            }}
+                            disabled={
+                              (["Preparing", "Ready", "Served"].includes(orderStatus) && invoiceLoading)
+                            }
+                          >
+                            {invoiceLoading && ["Preparing", "Ready", "Served"].includes(orderStatus)
+                              ? "Opening..."
+                              : "Complete Payment"}
+                          </button>
+                        );
+                      }
+                      // For paid/completed orders: show Share Feedback
+                      if (["paid", "completed"].includes(statusLower)) {
+                        return (
+                          <button
+                            className="feedback-button"
+                            onClick={() => {
+                              const orderId =
+                                activeOrderId ||
+                                localStorage.getItem("terra_orderId") ||
+                                localStorage.getItem("terra_lastPaidOrderId");
+                              navigate("/feedback", { state: { orderId } });
+                            }}
+                            style={{
+                              backgroundColor: '#10b981',
+                              color: '#ffffff',
+                              border: "1px solid #059669",
+                              fontWeight: '600'
+                            }}
+                          >
+                            <span style={{ color: '#ffffff' }}>Share Feedback</span>
+                          </button>
+                        );
+                      }
+                      return null;
+                    })()}
                   </div>
                   <p className="status-hint">
                     Status updates automatically. Please wait while the staff prepares your order.
@@ -1906,7 +2203,8 @@ const handleViewPreviousInvoice = useCallback(() => {
                     >
                       View Invoice
                     </button>
-                    {(previousOrderDetail.status === "Paid" || previousOrderDetail.status === "Completed") && (
+                    {/* Always allow feedback for last order, regardless of final status */}
+                    {previousOrderDetail._id && (
                       <button
                         className="feedback-button"
                         onClick={() => {
@@ -1980,8 +2278,6 @@ const handleViewPreviousInvoice = useCallback(() => {
                         key={category._id || category.name}
                         category={category.name}
                         items={category.items || []}
-                        openCategory={openCategory}
-                        setOpenCategory={setOpenCategory}
                         cart={cart}
                         onAdd={handleAdd}
                         onRemove={handleRemove}
@@ -2016,13 +2312,6 @@ const handleViewPreviousInvoice = useCallback(() => {
               </div>
               <div className="invoice-modal-actions">
                 <button
-                  onClick={handlePrintInvoice}
-                  disabled={!invoiceOrder || printingInvoice}
-                  className="invoice-action-btn"
-                >
-                  {printingInvoice ? "Preparing…" : "Print"}
-                </button>
-                <button
                   onClick={handleDownloadInvoice}
                   disabled={!invoiceOrder || downloadingInvoice}
                   className="invoice-action-btn download"
@@ -2042,7 +2331,7 @@ const handleViewPreviousInvoice = useCallback(() => {
             <div ref={invoiceRef} className="invoice-preview">
               <div className="invoice-top">
                 <div>
-                  <div className="brand-name">{invoiceOrder?.cafe?.cafeName || invoiceOrder?.cafe?.name || "Sarva Cafe"}</div>
+                  <div className="brand-name">{invoiceOrder?.cafe?.cafeName || invoiceOrder?.cafe?.name || "Terra Cart"}</div>
                   <div className="brand-address">
                     {invoiceOrder?.cafe?.address || invoiceOrder?.franchise?.address || "123 Main Street, City"}
                   </div>
@@ -2169,7 +2458,7 @@ const handleViewPreviousInvoice = useCallback(() => {
               </div>
 
               <div className="invoice-footer">
-                Thank you for dining with Sarva Cafe. We hope to see you again!
+                Thank you for dining with Terra Cart. We hope to see you again!
               </div>
             </div>
           </div>
@@ -2180,6 +2469,44 @@ const handleViewPreviousInvoice = useCallback(() => {
         open={processOpen}
         steps={processSteps}
         title="Processing your order"
+      />
+      
+      {/* Blind Support Button - Same level as accessibility button but on right side, with higher z-index than footer */}
+      <motion.button
+        whileHover={{ scale: 1.1 }}
+        whileTap={{ scale: 0.9 }}
+        onClick={handleVoiceAssistant}
+        className="fixed rounded-full shadow-lg bg-orange-500 text-white hover:bg-orange-600 focus:outline-none blind-eye-btn"
+        style={{ 
+          position: 'fixed',
+          bottom: '20px', // Same lower position as accessibility button
+          right: '20px', // Right side instead of left
+          width: '56px',
+          height: '56px',
+          display: 'grid',
+          placeItems: 'center',
+          border: 'none',
+          cursor: 'pointer',
+          boxShadow: '0 6px 18px rgba(0,0,0,0.25)',
+          transition: 'transform .2s ease, box-shadow .2s ease, background .2s ease',
+          zIndex: 10001, // Higher than footer (z-40) to ensure it's on top
+          pointerEvents: 'auto'
+        }}
+        aria-label="Blind Support - Voice Assistant"
+      >
+        <img 
+          src={blindEyeIcon} 
+          alt="Blind Support" 
+          width="24"
+          height="24"
+          style={{ objectFit: "contain", filter: "brightness(0) invert(1)" }}
+        />
+      </motion.button>
+      
+      {/* Blind Voice Assistant Modal */}
+      <BlindVoiceAssistant
+        open={showVoiceAssistant}
+        onClose={() => setShowVoiceAssistant(false)}
       />
     </div>
   );

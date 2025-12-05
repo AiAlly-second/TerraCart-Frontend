@@ -213,38 +213,79 @@
 /* Responsive design */
 @media (max-width: 640px) {
   .main-card {
-    width: 95%;
-    padding: 2rem;
+    width: 100%;
+    max-width: 100%;
+    padding: 1.5rem;
+    box-sizing: border-box;
   }
+  
   .main-title {
-    font-size: 1.875rem;
+    font-size: 1.75rem;
   }
+  
   .accessibility-toggle {
-    top: 1rem;
-    right: 1rem;
-    padding: 0.5rem;
+    top: 60px;
+    right: 12px;
+    padding: 10px;
+    font-size: 18px;
   }
+  
   .welcome-text {
-    font-size: 1.25rem;
+    font-size: 1.2rem;
+  }
+  
+  .welcome-box {
+    padding: 1.5rem 1.75rem;
+  }
+  
+  .language-button {
+    padding: 0.9rem 0;
+    font-size: 1.3rem;
+    min-height: 48px;
   }
 }
 
 @media (max-width: 480px) {
+  .main-card {
+    padding: 1.25rem;
+  }
+  
   .language-grid {
     grid-template-columns: 1fr; /* Keep single column on mobile */
+    gap: 0.75rem;
   }
+  
   .main-title {
     font-size: 1.5rem;
   }
+  
   .welcome-text {
-    font-size: 1.125rem;
+    font-size: 1.1rem;
+  }
+  
+  .welcome-box {
+    padding: 1.25rem 1.5rem;
+  }
+  
+  .language-button {
+    padding: 0.85rem 0;
+    font-size: 1.2rem;
+    min-height: 44px;
+  }
+  
+  .accessibility-toggle {
+    top: 55px;
+    right: 8px;
+    padding: 8px;
+    font-size: 16px;
   }
 }
 
-/* Blind Eye Button Responsive */
+/* Blind Eye Button Responsive - Same lower position as accessibility button */
 @media (max-width: 768px) {
   .blind-eye-btn {
-    bottom: 10px !important;
+    bottom: 20px !important; /* Same lower position as accessibility button */
     right: 10px !important;
+    z-index: 10001 !important; /* Higher than footer (z-40) to ensure it's on top */
   }
 }

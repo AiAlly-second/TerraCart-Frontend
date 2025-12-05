@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { FaWheelchair } from "react-icons/fa";
-import BlindVoiceAssistant from "./BlindVoiceAssistant";
 
 
 const AccessibilityTools = () => {
@@ -8,7 +7,6 @@ const AccessibilityTools = () => {
   const [contrast, setContrast] = useState('normal');     // 'normal' | 'light'
   const [dyslexiaFont, setDyslexiaFont] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
-  const [voiceAssistOpen, setVoiceAssistOpen] = useState(false);
   const panelRef = useRef(null);
   const buttonRef = useRef(null);
 
@@ -345,38 +343,9 @@ const AccessibilityTools = () => {
               <span style={textStyle}>Dyslexia</span>
             </button>
 
-            <button
-              style={buttonStyle(voiceAssistOpen)}
-              onClick={() => {
-                setIsOpen(false);
-                setVoiceAssistOpen(true);
-              }}
-              aria-pressed={voiceAssistOpen}
-              aria-label="Blind voice assistant"
-              title="Blind voice assistant"
-              onMouseOver={(e) => {
-                if (!voiceAssistOpen) {
-                  e.currentTarget.style.background = '#e9ecef';
-                  e.currentTarget.style.transform = 'translateY(-2px)';
-                }
-              }}
-              onMouseOut={(e) => {
-                if (!voiceAssistOpen) {
-                  e.currentTarget.style.background = '#f8f9fa';
-                  e.currentTarget.style.transform = 'translateY(0)';
-                }
-              }}
-            >
-              <span style={iconStyle}>🎙️</span>
-              <span style={textStyle}>Voice</span>
-            </button>
           </div>
         </div>
       )}
-      <BlindVoiceAssistant
-        open={voiceAssistOpen}
-        onClose={() => setVoiceAssistOpen(false)}
-      />
     </div>
   );
 };

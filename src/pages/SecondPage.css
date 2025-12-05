@@ -345,28 +345,35 @@
 /* Responsive Design */
 @media (max-width: 640px) {
   .content-wrapper {
-    padding: 2rem 1rem 5rem;
+    padding: 80px 12px 5rem 12px;
+    min-height: calc(100vh - 80px);
   }
 
   .nav-btn {
     width: 100%;
-    max-width: 18rem;
-    font-size: 1.25rem;
-    padding: 1rem 2rem;
+    max-width: 100%;
+    font-size: 1.1rem;
+    padding: 1rem 1.5rem;
+    min-height: 48px;
+    box-sizing: border-box;
   }
 
   .waitlist-status-card {
-    width: 95%;
+    width: 100%;
+    max-width: 100%;
     padding: 1rem;
+    box-sizing: border-box;
   }
 
   .waitlist-panel {
-    width: 95%;
+    width: 100%;
+    max-width: 100%;
     padding: 1.5rem;
+    box-sizing: border-box;
   }
 
   .waitlist-title {
-    font-size: 1.25rem;
+    font-size: 1.2rem;
   }
 
   .waitlist-text {
@@ -374,20 +381,33 @@
   }
 
   .accessibility-btn {
-    top: 1rem;
-    right: 1rem;
-    padding: 0.5rem;
+    top: 60px;
+    right: 12px;
+    padding: 10px;
+    font-size: 18px;
+  }
+  
+  .back-btn {
+    top: 12px;
+    left: 12px;
+    padding: 8px;
+    font-size: 18px;
   }
 }
 
 @media (max-width: 480px) {
+  .content-wrapper {
+    padding: 70px 8px 4rem 8px;
+  }
+
   .nav-btn {
-    font-size: 1.125rem;
-    padding: 0.875rem 1.5rem;
+    font-size: 1rem;
+    padding: 0.9rem 1.25rem;
+    min-height: 44px;
   }
 
   .waitlist-title {
-    font-size: 1.125rem;
+    font-size: 1.1rem;
   }
 
   .waitlist-text {
@@ -396,16 +416,40 @@
 
   .waitlist-primary,
   .waitlist-secondary {
-    padding: 0.625rem 1.25rem;
-    font-size: 0.875rem;
+    padding: 0.7rem 1.25rem;
+    font-size: 0.9rem;
+    min-height: 44px;
+  }
+  
+  .accessibility-btn {
+    top: 55px;
+    right: 8px;
+    padding: 8px;
+    font-size: 16px;
+  }
+  
+  .back-btn {
+    top: 8px;
+    left: 8px;
+    padding: 6px;
+    font-size: 16px;
+  }
+  
+  .waitlist-panel {
+    padding: 1.25rem;
+  }
+  
+  .waitlist-status-card {
+    padding: 0.9rem;
   }
 }
 
-/* Blind Eye Button Responsive */
+/* Blind Eye Button Responsive - Same lower position as accessibility button */
 @media (max-width: 768px) {
   .blind-eye-btn {
-    bottom: 10px !important;
+    bottom: 20px !important; /* Same lower position as accessibility button */
     right: 10px !important;
+    z-index: 10001 !important; /* Higher than footer (z-40) to ensure it's on top */
   }
 }
 

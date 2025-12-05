@@ -161,12 +161,17 @@
 @media (max-width: 640px) {
   .main-content {
     padding: 80px 12px 32px 12px;
+    align-items: flex-start;
+    min-height: calc(100vh - 80px);
   }
   
   .confirmation-card {
     padding: 20px;
     max-width: 100%;
-    margin-top: -100px;
+    width: 100%;
+    margin-top: 0;
+    box-sizing: border-box;
+    border-radius: 12px;
   }
   
   .card-title {
@@ -176,27 +181,41 @@
   
   .card-description {
     margin-bottom: 20px;
+    font-size: 0.9rem;
+  }
+  
+  .action-button {
+    padding: 10px 0;
+    font-size: 0.9rem;
+    min-height: 44px;
   }
   
   .accessibility-toggle {
     top: 60px;
-    right: 16px;
-    padding: 8px;
+    right: 12px;
+    padding: 10px;
+    font-size: 18px;
   }
 }
 
 @media (max-width: 480px) {
+  .main-content {
+    padding: 70px 8px 24px 8px;
+  }
+  
   .confirmation-card {
     padding: 16px;
-    margin-top: -80px;
+    margin-top: 0;
+    border-radius: 12px;
   }
   
   .card-title {
-    font-size: 1.125rem;
+    font-size: 1.1rem;
+    margin-bottom: 8px;
   }
   
   .card-description {
-    font-size: 0.875rem;
+    font-size: 0.85rem;
     margin-bottom: 16px;
   }
   
@@ -205,7 +224,16 @@
   }
   
   .action-button {
-    font-size: 0.8125rem;
+    font-size: 0.85rem;
+    padding: 10px 0;
+    min-height: 42px;
+  }
+  
+  .accessibility-toggle {
+    top: 55px;
+    right: 8px;
+    padding: 8px;
+    font-size: 16px;
   }
 }
 

@@ -1,0 +1,336 @@
+import { useEffect, useMemo, useState } from "react";
+import { motion } from "framer-motion";
+import { FaQrcode, FaMoneyBillWave, FaArrowLeft } from "react-icons/fa";
+import { MdPayments } from "react-icons/md";
+import { useNavigate } from "react-router-dom";
+import QRCode from "react-qr-code";
+import translations from "../data/translations/payment.json";
+import "./Payment.css";
+
+const nodeApi = (import.meta.env.VITE_NODE_API_URL || "http://localhost:5001").replace(/\/$/, "");
+
+export default function Payment() {
+  const navigate = useNavigate();
+  const [creating, setCreating] = useState(false);
+  const [canceling, setCanceling] = useState(false);
+  const [payment, setPayment] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [uploadedQR, setUploadedQR] = useState(null);
+  const [accessibilityMode, setAccessibilityMode] = useState(
+    localStorage.getItem("accessibilityMode") === "true"
+  );
+
+  const language = localStorage.getItem("language") || "en";
+  const t = (key) => translations[language]?.[key] || key;
+
+  const orderId = localStorage.getItem("terra_orderId");
+
+  const paymentPending = useMemo(
+    () =>
+      payment &&
+      ["PENDING", "PROCESSING", "CASH_PENDING"].includes(payment.status),
+    [payment]
+  );
+
+  const fetchLatestPayment = async () => {
+    if (!orderId) return;
+    try {
+      setLoading(true);
+      const res = await fetch(`${nodeApi}/api/payments/order/${orderId}/latest`);
+      // Handle both 200 (with null) and 404 gracefully - both mean no payment exists yet
+      if (res.status === 404) {
+        setPayment(null);
+        return;
+      }
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.message || "Failed to fetch payment status");
+      }
+      const data = await res.json();
+      // Backend now returns null instead of 404 when no payment exists
+      setPayment(data || null);
+    } catch (err) {
+      // Silently handle expected "not found" scenarios
+      if (err.message?.includes("404") || err.message?.includes("not found")) {
+        setPayment(null);
+      } else {
+        console.warn("Failed to fetch payment:", err);
+        setPayment(null);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!orderId) {
+      alert(t("noOrderFound") || "No order found for payment.");
+      navigate("/menu");
+      return;
+    }
+    fetchLatestPayment();
+    fetchUploadedQR();
+  }, [orderId]);
+
+  const fetchUploadedQR = async () => {
+    try {
+      const res = await fetch(`${nodeApi}/api/payment-qr/active`);
+      // Handle both 200 (with null) and 404 gracefully - both mean no QR code exists yet
+      if (res.status === 404) {
+        setUploadedQR(null);
+        return;
+      }
+      if (!res.ok) {
+        setUploadedQR(null);
+        return;
+      }
+      const data = await res.json();
+      // Backend now returns null instead of 404 when no QR code exists
+      setUploadedQR(data || null);
+    } catch (err) {
+      // Silently handle expected "not found" scenarios - no uploaded QR is okay
+      setUploadedQR(null);
+    }
+  };
+
+  useEffect(() => {
+    if (!paymentPending) return;
+    const interval = setInterval(() => {
+      fetchLatestPayment();
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [paymentPending]);
+
+  useEffect(() => {
+    if (payment?.status === "PAID") {
+      handleCompleteAndRedirect();
+    }
+  }, [payment?.status]);
+
+  const handleCompleteAndRedirect = () => {
+    if (orderId) {
+      localStorage.setItem("terra_orderStatus", "Paid");
+      localStorage.setItem("terra_orderStatusUpdatedAt", new Date().toISOString());
+      localStorage.setItem("terra_lastPaidOrderId", orderId);
+    }
+    localStorage.removeItem("terra_cart");
+    navigate("/order-confirmed", { state: { paid: true } });
+  };
+
+  const createPaymentIntent = async (method) => {
+    if (!orderId) return;
+    setCreating(true);
+    try {
+      const res = await fetch(`${nodeApi}/api/payments/create`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId, method }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.message || "Unable to create payment");
+      }
+      setPayment(data);
+    } catch (err) {
+      alert(err.message || "Unable to create payment");
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleCancelPayment = async () => {
+    if (!payment?.id) return;
+    const confirmCancel = window.confirm(t("cancelPayment") || "Cancel current payment?");
+    if (!confirmCancel) return;
+    setCanceling(true);
+    try {
+      const res = await fetch(`${nodeApi}/api/payments/${payment.id}/cancel`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data?.message || "Unable to cancel payment");
+      }
+      setPayment(null);
+    } catch (err) {
+      alert(err.message || "Unable to cancel payment");
+    } finally {
+      setCanceling(false);
+    }
+  };
+
+  const renderPaymentStatus = () => {
+    if (!payment) return null;
+
+    if (payment.status === "PAID") {
+      return (
+        <div className="payment-status-card success">
+          <p className="payment-status-title">{t("paidMessage")}</p>
+          <button className="payment-button primary" onClick={handleCompleteAndRedirect}>
+            {t("viewOrder")}
+          </button>
+        </div>
+      );
+    }
+
+    if (["CANCELLED", "FAILED"].includes(payment.status)) {
+      return (
+        <div className="payment-status-card warning">
+          <p className="payment-status-title">
+            {payment.status === "FAILED" ? "Payment failed" : "Payment cancelled"}
+          </p>
+          <button className="payment-button primary" onClick={() => setPayment(null)}>
+            {t("retryPayment")}
+          </button>
+        </div>
+      );
+    }
+
+    const showOnline = payment.method === "ONLINE";
+    const showCash = payment.method === "CASH" || payment.status === "CASH_PENDING";
+
+    return (
+      <div className="payment-status-card">
+        <p className="payment-status-title">
+          {showCash ? t("cashPendingTitle") : t("pendingPaymentTitle")}
+        </p>
+        <p className="payment-status-text">
+          {showCash ? t("cashInstructions") : t("onlineInstructions")}
+        </p>
+
+        {showOnline && (
+          <div className="payment-qr-wrapper">
+            {uploadedQR ? (
+              // Show uploaded QR code image
+              <>
+                <img
+                  src={`${nodeApi}${uploadedQR.qrImageUrl}`}
+                  alt="Payment QR Code"
+                  style={{ maxWidth: "180px", maxHeight: "180px", width: "auto", height: "auto" }}
+                />
+                {uploadedQR.upiId && (
+                  <p className="text-sm text-slate-600 mt-2">
+                    UPI ID: <strong>{uploadedQR.upiId}</strong>
+                  </p>
+                )}
+                {payment.upiPayload && (
+                  <>
+                    <textarea
+                      className="payment-qr-text"
+                      readOnly
+                      value={payment.upiPayload}
+                      rows={3}
+                    />
+                    <button
+                      className="payment-button secondary"
+                      onClick={() => navigator.clipboard.writeText(payment.upiPayload)}
+                    >
+                      Copy UPI string
+                    </button>
+                  </>
+                )}
+              </>
+            ) : payment.upiPayload ? (
+              // Fallback to generated QR code from UPI payload
+              <>
+                <QRCode value={payment.upiPayload} size={180} />
+                <textarea
+                  className="payment-qr-text"
+                  readOnly
+                  value={payment.upiPayload}
+                  rows={3}
+                />
+                <button
+                  className="payment-button secondary"
+                  onClick={() => navigator.clipboard.writeText(payment.upiPayload)}
+                >
+                  Copy UPI string
+                </button>
+              </>
+            ) : null}
+          </div>
+        )}
+
+        <div className="payment-action-buttons">
+          <button
+            className={`payment-button danger ${canceling ? "disabled" : ""}`}
+            onClick={handleCancelPayment}
+            disabled={canceling}
+          >
+            {canceling ? t("cancellingPayment") : t("cancelPayment")}
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className={`payment-container ${accessibilityMode ? "accessibility-mode" : ""}`}>
+      <button
+        onClick={() => navigate(-1)}
+        className={`back-button ${accessibilityMode ? "accessibility-mode" : ""}`}
+      >
+        <FaArrowLeft size={18} />
+      </button>
+
+      <motion.div
+        initial={{ y: 40, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ duration: 0.6, ease: "easeOut" }}
+        className={`payment-card ${accessibilityMode ? "accessibility-mode" : ""}`}
+      >
+        <h2 className={`payment-title ${accessibilityMode ? "accessibility-mode" : ""}`}>
+          {t("choosePayment")}
+        </h2>
+
+        {loading ? (
+          <div className="payment-status-card">
+            <p className="payment-status-title">Loading payment details…</p>
+          </div>
+        ) : payment ? (
+          renderPaymentStatus()
+        ) : (
+          <div className="payment-options">
+            <p className="payment-status-text">
+              Choose how you’d like to complete your payment.
+            </p>
+        <div className="payment-buttons">
+          <motion.button
+                whileHover={{ scale: creating ? 1 : 1.03 }}
+                whileTap={{ scale: creating ? 1 : 0.97 }}
+                onClick={() => createPaymentIntent("ONLINE")}
+                disabled={creating}
+            className={`payment-button ${accessibilityMode ? "accessibility-mode" : ""}`}
+          >
+            <FaQrcode size={20} />
+                {creating ? "Starting..." : t("createOnline")}
+          </motion.button>
+
+          <motion.button
+                whileHover={{ scale: creating ? 1 : 1.03 }}
+                whileTap={{ scale: creating ? 1 : 0.97 }}
+                onClick={() => createPaymentIntent("CASH")}
+                disabled={creating}
+            className={`payment-button ${accessibilityMode ? "accessibility-mode" : ""}`}
+          >
+            <FaMoneyBillWave size={20} />
+                {creating ? "Starting..." : t("createCash")}
+          </motion.button>
+
+          <motion.button
+                whileHover={{ scale: creating ? 1 : 1.03 }}
+                whileTap={{ scale: creating ? 1 : 0.97 }}
+                onClick={() => createPaymentIntent("ONLINE")}
+                disabled={creating}
+            className={`payment-button ${accessibilityMode ? "accessibility-mode" : ""}`}
+          >
+            <MdPayments size={20} />
+                {creating ? "Starting..." : t("payOnline")}
+          </motion.button>
+        </div>
+          </div>
+        )}
+      </motion.div>
+    </div>
+  );
+}

@@ -1,0 +1,62 @@
+{
+  "en": {
+    "manualEntry": "Manual Entry",
+    "smartServe": "Smart Serve",
+    "aiOrdered": "AI Ordered:",
+    "orderSummary": "Order Summary:",
+    "confirm": "Confirm",
+    "speakOrder": "Speak Order",
+    "processingVoice": "Processing your voice...",
+    "cartEmpty": "Cart is empty",
+    "resetOrder": "Reset Order",
+    "tapToStop": "Tap to Stop",
+    "tapToOrder": "Tap to Order",
+    "searchPlaceholder": "Search item...",
+    "resetOrderBtn": "Reset Order"
+  },
+  "hi": {
+    "manualEntry": "मैन्युअल प्रवेश",
+    "smartServe": "स्मार्ट सर्व",
+    "aiOrdered": "एआई द्वारा ऑर्डर:",
+    "orderSummary": "ऑर्डर सारांश:",
+    "confirm": "पुष्टि करें",
+    "speakOrder": "ऑर्डर सुनाएं",
+    "processingVoice": "आपकी आवाज़ प्रोसेस हो रही है...",
+    "cartEmpty": "कार्ट खाली है",
+    "resetOrder": "ऑर्डर रीसेट करें",
+    "tapToStop": "रोकने के लिए टैप करें",
+    "tapToOrder": "ऑर्डर करने के लिए टैप करें",
+    "searchPlaceholder": "आइटम खोजें...",
+    "resetOrderBtn": "ऑर्डर रीसेट करें"
+  },
+  "mr": {
+    "manualEntry": "मॅन्युअल नोंद",
+    "smartServe": "स्मार्ट सर्व",
+    "aiOrdered": "एआय ने ऑर्डर केले:",
+    "orderSummary": "ऑर्डर सारांश:",
+    "confirm": "निश्चित करा",
+    "speakOrder": "ऑर्डर बोला",
+    "processingVoice": "तुमचा आवाज प्रोसेस होत आहे...",
+    "cartEmpty": "कार्ट रिकामे आहे",
+    "resetOrder": "ऑर्डर रीसेट करा",
+    "tapToStop": "थांबवण्यासाठी टॅप करा",
+    "tapToOrder": "ऑर्डर करण्यासाठी टॅप करा",
+    "searchPlaceholder": "वस्तू शोधा...",
+    "resetOrderBtn": "ऑर्डर रीसेट करा"
+  },
+  "gu": {
+    "manualEntry": "મેન્યુઅલ એન્ટ્રી",
+    "smartServe": "સ્માર્ટ સર્વ",
+    "aiOrdered": "એઆઈ દ્વારા ઓર્ડર:",
+    "orderSummary": "ઓર્ડર સારાંશ:",
+    "confirm": "પુષ્ટિ કરો",
+    "speakOrder": "ઓર્ડર બોલો",
+    "processingVoice": "તમારો અવાજ પ્રોસેસ થઈ રહ્યો છે...",
+    "cartEmpty": "કાર્ટ ખાલી છે",
+    "resetOrder": "ઓર્ડર રીસેટ કરો",
+    "tapToStop": "રોકવા માટે ટૅપ કરો",
+    "tapToOrder": "ઓર્ડર કરવા માટે ટૅપ કરો",
+    "searchPlaceholder": "વસ્તુ શોધો...",
+    "resetOrderBtn": "ઓર્ડર રીસેટ કરો"
+  }
+}

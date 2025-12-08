@@ -1,0 +1,62 @@
+{
+  "en": {
+    "loading": "Loading billing details...",
+    "fetchFailed": "❌ Failed to fetch order.",
+    "restaurantName": "Terra Cart",
+    "table": "Table",
+    "noOrderFound": "❌ No order found!",
+    "subtotal": "Sub-Total",
+    "tax": "Tax (5%)",
+    "total": "Total",
+    "proceedToPay": "Proceed to Pay",
+    "orderId": "Order ID",
+    "serviceType": "Service",
+    "dineIn": "Dine-In",
+    "takeaway": "Takeaway"
+  },
+  "hi": {
+    "loading": "बिलिंग विवरण लोड हो रहा है...",
+    "fetchFailed": "❌ ऑर्डर प्राप्त करने में विफल।",
+    "restaurantName": "टेरा कार्ट",
+    "table": "टेबल",
+    "noOrderFound": "❌ कोई ऑर्डर नहीं मिला!",
+    "subtotal": "उप-योग",
+    "tax": "कर (5%)",
+    "total": "कुल",
+    "proceedToPay": "भुगतान करें",
+    "orderId": "ऑर्डर आईडी",
+    "serviceType": "सेवा",
+    "dineIn": "डाइन-इन",
+    "takeaway": "पैकेट"
+  },
+  "mr": {
+    "loading": "बिलिंग तपशील लोड होत आहे...",
+    "fetchFailed": "❌ ऑर्डर मिळवण्यात अयशस्वी.",
+    "orderId": "ऑर्डर आयडी",
+    "restaurantName": "टेरा कार्ट",
+    "table": "टेबल",
+    "noOrderFound": "❌ ऑर्डर सापडला नाही!",
+    "subtotal": "उप-एकूण",
+    "tax": "कर (5%)",
+    "total": "एकूण",
+    "proceedToPay": "भरणा करा",
+    "serviceType": "सेवा",
+    "dineIn": "डाइन-इन",
+    "takeaway": "पार्सल"
+  },
+  "gu": {
+    "loading": "બિલિંગ વિગત લોડ થઈ રહી છે...",
+    "fetchFailed": "❌ ઓર્ડર મેળવવામાં નિષ્ફળ.",
+    "orderId": "ઓર્ડર આઈડી",
+    "restaurantName": "ટેરા કાર્ટ",
+    "table": "ટેબલ",
+    "noOrderFound": "❌ કોઈ ઓર્ડર મળ્યો નથી!",
+    "subtotal": "ઉપકુલ",
+    "tax": "કર (5%)",
+    "total": "કુલ",
+    "proceedToPay": "ચુકવણી કરો",
+    "serviceType": "સેવા",
+    "dineIn": "ડાઇન-ઇન",
+    "takeaway": "પાર્સલ"
+  }
+}

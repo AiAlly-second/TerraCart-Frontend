@@ -1,0 +1,26 @@
+{
+  "en": {
+    "back": "Back",
+    "title": "Talk with Gestures",
+    "placeholder": "Enter any word or name",
+    "cta": "Show in sign language"
+  },
+  "hi": {
+    "back": "वापस",
+    "title": "इशारों से बात करें",
+    "placeholder": "कोई भी शब्द या नाम दर्ज करें",
+    "cta": "सांकेतिक भाषा में दिखाएँ"
+  },
+  "mr": {
+    "back": "मागे",
+    "title": "हावभावातून बोला",
+    "placeholder": "कोणतेही शब्द किंवा नाव लिहा",
+    "cta": "सांकेतिक भाषेत दाखवा"
+  },
+  "gu": {
+    "back": "પાછા",
+    "title": "ઇશારાઓથી વાત કરો",
+    "placeholder": "કોઈપણ શબ્દ અથવા નામ લખો",
+    "cta": "સંકેત ભાષામાં બતાવો"
+  }
+}

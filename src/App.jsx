@@ -15,12 +15,16 @@ import SignLanguage from "./pages/SignLanguage";
 import SignName from "./pages/SignName";
 import AccessibilityTools from "./components/AccessibilityTools";
 import Footer from "./components/Footer";
+import { AlertProvider } from "./context/AlertContext";
+import AlertInitializer from "./components/AlertInitializer";
 
 export default function App() {
   const [activeModal, setActiveModal] = useState(null); // "pdf" | "sign" | null
 
   return (
-    <>
+    <AlertProvider>
+      <AlertInitializer />
+      <>
       {/* Uncomment these if you want to use them alongside accessibility tools */}
       {/* <FloatingPDFButton
         accessibilityMode={false}
@@ -53,5 +57,6 @@ export default function App() {
       {/* Footer */}
       <Footer />
     </>
+    </AlertProvider>
   );
 }

@@ -8,6 +8,7 @@ export function buildOrderPayload(cart, options = {}) {
     customerName,
     customerMobile,
     customerEmail,
+    cartId,
   } = options;
   const items = Object.entries(cart).map(([name, quantity]) => {
     const meta = menuCatalog[name];
@@ -49,6 +50,8 @@ export function buildOrderPayload(cart, options = {}) {
     if (customerName) payload.customerName = customerName;
     if (customerMobile) payload.customerMobile = customerMobile;
     if (customerEmail) payload.customerEmail = customerEmail;
+    // Include cartId for takeaway orders so they're assigned to the correct cart
+    if (cartId) payload.cartId = cartId;
   } else {
     payload.tableNumber = String(tableNumber || "TAKEAWAY");
   }

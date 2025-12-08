@@ -1,0 +1,228 @@
+/* Alert Component Styles - Matching Customer Frontend UI */
+.alert {
+  min-width: 300px;
+  max-width: 500px;
+  padding: 1rem 1.25rem;
+  border-radius: 12px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  animation: alertSlideIn 0.3s ease-out;
+  border: 2px solid;
+  position: relative;
+  backdrop-filter: blur(8px);
+}
+
+@keyframes alertSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Success Alert */
+.alert-success {
+  background-color: rgba(240, 253, 244, 0.95);
+  border-color: #10b981;
+  color: #065f46;
+}
+
+.alert-icon-success {
+  color: #10b981;
+  flex-shrink: 0;
+  margin-top: 0.125rem;
+}
+
+/* Error Alert */
+.alert-error {
+  background-color: rgba(254, 242, 242, 0.95);
+  border-color: #ef4444;
+  color: #991b1b;
+}
+
+.alert-icon-error {
+  color: #ef4444;
+  flex-shrink: 0;
+  margin-top: 0.125rem;
+}
+
+/* Warning Alert */
+.alert-warning {
+  background-color: rgba(255, 251, 235, 0.95);
+  border-color: #f59e0b;
+  color: #92400e;
+}
+
+.alert-icon-warning {
+  color: #f59e0b;
+  flex-shrink: 0;
+  margin-top: 0.125rem;
+}
+
+/* Info Alert */
+.alert-info {
+  background-color: rgba(239, 246, 255, 0.95);
+  border-color: #3b82f6;
+  color: #1e40af;
+}
+
+.alert-icon-info {
+  color: #3b82f6;
+  flex-shrink: 0;
+  margin-top: 0.125rem;
+}
+
+/* Accessibility Mode Styles - Check body or any parent with accessibility-mode class */
+body:has(.accessibility-mode) .alert-success,
+.accessibility-mode .alert-success,
+.alert.accessibility-mode.alert-success {
+  background-color: rgba(0, 0, 0, 0.9);
+  border-color: #00bfff;
+  color: #00bfff;
+}
+
+body:has(.accessibility-mode) .alert-error,
+.accessibility-mode .alert-error,
+.alert.accessibility-mode.alert-error {
+  background-color: rgba(0, 0, 0, 0.9);
+  border-color: #ff4444;
+  color: #ff4444;
+}
+
+body:has(.accessibility-mode) .alert-warning,
+.accessibility-mode .alert-warning,
+.alert.accessibility-mode.alert-warning {
+  background-color: rgba(0, 0, 0, 0.9);
+  border-color: #ffaa00;
+  color: #ffaa00;
+}
+
+body:has(.accessibility-mode) .alert-info,
+.accessibility-mode .alert-info,
+.alert.accessibility-mode.alert-info {
+  background-color: rgba(0, 0, 0, 0.9);
+  border-color: #00bfff;
+  color: #00bfff;
+}
+
+body:has(.accessibility-mode) .alert-icon-success,
+body:has(.accessibility-mode) .alert-icon-info,
+.accessibility-mode .alert-icon-success,
+.accessibility-mode .alert-icon-info,
+.alert.accessibility-mode .alert-icon-success,
+.alert.accessibility-mode .alert-icon-info {
+  color: #00bfff;
+}
+
+body:has(.accessibility-mode) .alert-icon-error,
+.accessibility-mode .alert-icon-error,
+.alert.accessibility-mode .alert-icon-error {
+  color: #ff4444;
+}
+
+body:has(.accessibility-mode) .alert-icon-warning,
+.accessibility-mode .alert-icon-warning,
+.alert.accessibility-mode .alert-icon-warning {
+  color: #ffaa00;
+}
+
+/* Alert Content */
+.alert-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.alert-message {
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.5;
+  margin: 0;
+  word-wrap: break-word;
+  white-space: pre-wrap;
+}
+
+/* Alert Icon */
+.alert-icon {
+  font-size: 1.25rem;
+  flex-shrink: 0;
+  margin-top: 0.125rem;
+}
+
+/* Close Button */
+.alert-close-btn {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 0.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  transition: all 0.2s;
+  flex-shrink: 0;
+  opacity: 0.7;
+  font-size: 0.875rem;
+}
+
+.alert-close-btn:hover {
+  opacity: 1;
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+.accessibility-mode .alert-close-btn:hover {
+  background-color: rgba(0, 191, 255, 0.2);
+}
+
+/* Responsive Design */
+@media (max-width: 640px) {
+  .alert {
+    min-width: 280px;
+    max-width: calc(100vw - 2rem);
+    padding: 0.875rem 1rem;
+  }
+
+  .alert-message {
+    font-size: 0.8125rem;
+  }
+
+  .alert-icon {
+    font-size: 1.125rem;
+  }
+}
+
+/* Alert Container */
+.alert-container {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  pointer-events: none;
+  max-width: calc(100vw - 2rem);
+}
+
+.alert-container > * {
+  pointer-events: auto;
+}
+
+@media (max-width: 640px) {
+  .alert-container {
+    top: 0.75rem;
+    right: 0.75rem;
+    left: 0.75rem;
+    max-width: none;
+  }
+
+  .alert {
+    max-width: 100%;
+  }
+}
+

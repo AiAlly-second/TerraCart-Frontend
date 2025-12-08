@@ -954,6 +954,28 @@ const proceedWithOrder = async () => {
     const storedCustomerMobile = serviceType === "TAKEAWAY" ? (localStorage.getItem("terra_takeaway_customerMobile") || "") : "";
     const storedCustomerEmail = serviceType === "TAKEAWAY" ? (localStorage.getItem("terra_takeaway_customerEmail") || "") : "";
 
+    // Get cartId from localStorage for takeaway orders (from table selection)
+    let cartId = null;
+    if (serviceType === "TAKEAWAY") {
+      try {
+        const tableData = JSON.parse(localStorage.getItem(TABLE_SELECTION_KEY) || '{}');
+        let rawCartId = tableData.cartId || tableData.cafeId || null;
+        // Handle case where cartId might be an object (populated from MongoDB)
+        if (rawCartId) {
+          if (typeof rawCartId === 'object' && rawCartId._id) {
+            cartId = rawCartId._id;
+          } else if (typeof rawCartId === 'string') {
+            cartId = rawCartId;
+          } else {
+            cartId = String(rawCartId);
+          }
+        }
+        console.log('[Menu] Using cartId for takeaway order:', cartId);
+      } catch (e) {
+        console.warn('[Menu] Could not get cartId from table data for takeaway order:', e);
+      }
+    }
+
     const orderPayload = buildOrderPayload(cart, {
       serviceType,
       tableId: tableInfo?.id || tableInfo?._id,
@@ -964,6 +986,8 @@ const proceedWithOrder = async () => {
       customerName: serviceType === "TAKEAWAY" && storedCustomerName?.trim() ? storedCustomerName.trim() : undefined,
       customerMobile: serviceType === "TAKEAWAY" && storedCustomerMobile?.trim() ? storedCustomerMobile.trim() : undefined,
       customerEmail: serviceType === "TAKEAWAY" && storedCustomerEmail?.trim() ? storedCustomerEmail.trim() : undefined,
+      // Include cartId for takeaway orders
+      cartId: serviceType === "TAKEAWAY" ? cartId : undefined,
     });
     
     console.log('[Menu] Order payload:', JSON.stringify(orderPayload, null, 2));

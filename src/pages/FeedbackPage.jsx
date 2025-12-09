@@ -12,6 +12,20 @@ export default function FeedbackPage() {
   const location = useLocation();
   const orderId = location.state?.orderId || localStorage.getItem("terra_orderId") || localStorage.getItem("terra_lastPaidOrderId");
   
+  // Get table info from localStorage to help identify cafeId
+  const getTableInfo = () => {
+    try {
+      const tableData = JSON.parse(localStorage.getItem("terra_tableSelection") || localStorage.getItem("tableSelection") || '{}');
+      return {
+        tableId: tableData.id || tableData._id || tableData.tableId,
+        cartId: tableData.cartId || tableData.cafeId,
+      };
+    } catch (e) {
+      return {};
+    }
+  };
+  const tableInfo = getTableInfo();
+  
   const [accessibilityMode, setAccessibilityMode] = useState(
     localStorage.getItem("accessibilityMode") === "true"
   );
@@ -72,6 +86,7 @@ export default function FeedbackPage() {
     try {
       const feedbackData = {
         orderId: orderId || undefined,
+        tableId: tableInfo.tableId || undefined,
         overallRating,
         orderFeedback: {
           foodQuality: foodQuality || undefined,

@@ -24,7 +24,7 @@ export default function App() {
   return (
     <AlertProvider>
       <AlertInitializer />
-      <>
+    <>
       {/* Uncomment these if you want to use them alongside accessibility tools */}
       {/* <FloatingPDFButton
         accessibilityMode={false}

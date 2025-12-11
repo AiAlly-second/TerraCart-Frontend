@@ -42,27 +42,219 @@ export default function TableServicePopup({ showCard, setShowCard, currentTable,
   const [customRequest, setCustomRequest] = useState("");
   const [recording, setRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isSendingRequest, setIsSendingRequest] = useState(false);
 
   const recognitionRef = useRef(null);
 
-  const handleServiceRequest = (serviceKey) => {
-    const selectedTable = currentTable || localStorage.getItem('selectedTable');
-    if (!selectedTable) {
-      alert(t.alerts.selectTable);
-      return;
-    }
-    alert(`${t.alerts.requestSentPrefix} ${t.services[serviceKey]} - Table ${selectedTable}`);
-    setShowCard(false);
+  // Map service keys to backend request types
+  const getRequestType = (serviceKey) => {
+    const mapping = {
+      water: "water",
+      saltPepper: "assistance",
+      plates: "assistance",
+      cutlery: "cutlery",
+      napkins: "napkins",
+      cleanTable: "assistance",
+      menuCard: "menu",
+      bill: "bill",
+      sauce: "assistance",
+      softDrinks: "assistance",
+      lemonWater: "water",
+      callWaiter: "assistance",
+    };
+    return mapping[serviceKey] || "assistance";
   };
 
-  const handleSendCustom = () => {
+  const handleServiceRequest = async (serviceKey) => {
+    if (isSendingRequest) return; // Prevent multiple clicks
+    
+    try {
+      setIsSendingRequest(true);
+      
+      // Get table info from localStorage
+      const tableDataStr = localStorage.getItem('terra_selectedTable');
+      if (!tableDataStr) {
+        alert(t.alerts.selectTable || "Please select a table first");
+        return;
+      }
+
+      const tableData = JSON.parse(tableDataStr);
+      const tableId = tableData.id || tableData._id;
+      const tableNumber = tableData.number || tableData.tableNumber || currentTable;
+
+      if (!tableId) {
+        alert("Table information is incomplete. Please scan the QR code again.");
+        return;
+      }
+
+      // Get order ID if available
+      const orderId = localStorage.getItem('terra_orderId') || null;
+
+      // Get API URL
+      const nodeApi = (import.meta.env.VITE_NODE_API_URL || "http://localhost:5001").replace(/\/$/, "");
+
+      // Prepare request data
+      const requestData = {
+        tableId: tableId,
+        requestType: getRequestType(serviceKey),
+        customerNotes: t.services[serviceKey] || serviceKey,
+        ...(orderId && { orderId: orderId }),
+      };
+
+      // Send request to backend
+      const response = await fetch(`${nodeApi}/api/customer-requests`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(requestData),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.message || "Failed to send request");
+      }
+
+      // Success
+      alert(`✅ ${t.alerts.requestSentPrefix || "Request sent"}: ${t.services[serviceKey]} - Table ${tableNumber}`);
+      setShowCard(false);
+    } catch (error) {
+      console.error("Error sending service request:", error);
+      alert(`❌ Failed to send request: ${error.message}`);
+    } finally {
+      setIsSendingRequest(false);
+    }
+  };
+
+  const handleSendCustom = async () => {
     if (!customRequest.trim()) {
-      alert(t.alerts.emptyRequest);
+      alert(t.alerts.emptyRequest || "Please enter your request");
       return;
     }
-    alert(`${t.alerts.requestSentPrefix} ${customRequest.trim()}`);
-    setCustomRequest("");
-    setShowCard(false);
+
+    if (isSendingRequest) return; // Prevent multiple clicks
+
+    try {
+      setIsSendingRequest(true);
+      
+      // Get table info from localStorage
+      const tableDataStr = localStorage.getItem('terra_selectedTable');
+      if (!tableDataStr) {
+        alert(t.alerts.selectTable || "Please select a table first");
+        return;
+      }
+
+      const tableData = JSON.parse(tableDataStr);
+      const tableId = tableData.id || tableData._id;
+      const tableNumber = tableData.number || tableData.tableNumber || currentTable;
+
+      if (!tableId) {
+        alert("Table information is incomplete. Please scan the QR code again.");
+        return;
+      }
+
+      // Get order ID if available
+      const orderId = localStorage.getItem('terra_orderId') || null;
+
+      // Get API URL
+      const nodeApi = (import.meta.env.VITE_NODE_API_URL || "http://localhost:5001").replace(/\/$/, "");
+
+      // Prepare request data
+      const requestData = {
+        tableId: tableId,
+        requestType: "assistance",
+        customerNotes: customRequest.trim(),
+        ...(orderId && { orderId: orderId }),
+      };
+
+      // Send request to backend
+      const response = await fetch(`${nodeApi}/api/customer-requests`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(requestData),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.message || "Failed to send request");
+      }
+
+      // Success
+      alert(`✅ ${t.alerts.requestSentPrefix || "Request sent"}: ${customRequest.trim()}`);
+      setCustomRequest("");
+      setShowCard(false);
+    } catch (error) {
+      console.error("Error sending custom request:", error);
+      alert(`❌ Failed to send request: ${error.message}`);
+    } finally {
+      setIsSendingRequest(false);
+    }
+  };
+
+  const handleUrgentCall = async () => {
+    if (isSendingRequest) return;
+    
+    try {
+      setIsSendingRequest(true);
+      
+      // Get table info from localStorage
+      const tableDataStr = localStorage.getItem('terra_selectedTable');
+      if (!tableDataStr) {
+        alert(t.alerts.selectTable || "Please select a table first");
+        return;
+      }
+
+      const tableData = JSON.parse(tableDataStr);
+      const tableId = tableData.id || tableData._id;
+      const tableNumber = tableData.number || tableData.tableNumber || currentTable;
+
+      if (!tableId) {
+        alert("Table information is incomplete. Please scan the QR code again.");
+        return;
+      }
+
+      // Get order ID if available
+      const orderId = localStorage.getItem('terra_orderId') || null;
+
+      // Get API URL
+      const nodeApi = (import.meta.env.VITE_NODE_API_URL || "http://localhost:5001").replace(/\/$/, "");
+
+      // Prepare urgent request data
+      const requestData = {
+        tableId: tableId,
+        requestType: "assistance",
+        customerNotes: "URGENT: Call waiter immediately",
+        ...(orderId && { orderId: orderId }),
+      };
+
+      // Send request to backend
+      const response = await fetch(`${nodeApi}/api/customer-requests`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(requestData),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.message || "Failed to send urgent request");
+      }
+
+      // Success
+      alert(t.alerts.urgentCalled || "✅ Urgent request sent! A waiter will be with you shortly.");
+      setShowCard(false);
+    } catch (error) {
+      console.error("Error sending urgent request:", error);
+      alert(`❌ Failed to send urgent request: ${error.message}`);
+    } finally {
+      setIsSendingRequest(false);
+    }
   };
 
   const stopRecordingCleanup = () => {
@@ -331,18 +523,20 @@ export default function TableServicePopup({ showCard, setShowCard, currentTable,
               <button
                 key={index}
                 onClick={() => handleServiceRequest(service.key)}
+                disabled={isSendingRequest}
                 style={{
                   padding: 12,
                   borderRadius: 8,
                   border: "1px solid #e5e7eb",
                   backgroundColor: "white",
-                  cursor: "pointer",
+                  cursor: isSendingRequest ? "not-allowed" : "pointer",
                   display: "flex",
                   flexDirection: "column",
                   alignItems: "center",
                   gap: 8,
                   transition: "all 0.2s",
-                  boxShadow: "0 1px 3px 0 rgba(0,0,0,0.1)"
+                  boxShadow: "0 1px 3px 0 rgba(0,0,0,0.1)",
+                  opacity: isSendingRequest ? 0.6 : 1
                 }}
                 onMouseOver={(e) => {
                   e.currentTarget.style.borderColor = "#fb923c";
@@ -426,7 +620,7 @@ export default function TableServicePopup({ showCard, setShowCard, currentTable,
 
             <button
               onClick={handleSendCustom}
-              disabled={isProcessing}
+              disabled={isProcessing || isSendingRequest}
               style={{
                 width: "100%",
                 marginTop: 10,
@@ -437,9 +631,9 @@ export default function TableServicePopup({ showCard, setShowCard, currentTable,
                 backgroundColor: "#f97316",
                 color: "white",
                 border: "none",
-                cursor: "pointer",
+                cursor: (isProcessing || isSendingRequest) ? "not-allowed" : "pointer",
                 boxShadow: "0 4px 6px -1px rgba(0,0,0,0.1)",
-                opacity: isProcessing ? 0.7 : 1
+                opacity: (isProcessing || isSendingRequest) ? 0.7 : 1
               }}
               onMouseOver={(e) => {
                 e.currentTarget.style.backgroundColor = "#ea580c";
@@ -463,7 +657,7 @@ export default function TableServicePopup({ showCard, setShowCard, currentTable,
                 {t.listening}
               </p>
             )}
-            {isProcessing && (
+            {(isProcessing || isSendingRequest) && (
               <p
                 style={{
                   marginTop: 6,
@@ -472,17 +666,15 @@ export default function TableServicePopup({ showCard, setShowCard, currentTable,
                   textAlign: "right"
                 }}
               >
-                {t.processing}
+                {isSendingRequest ? (t.sending || "Sending request...") : t.processing}
               </p>
             )}
           </div>
 
           {/* Emergency Call Button */}
-          <button
-            onClick={() => {
-              alert(t.alerts.urgentCalled);
-              setShowCard(false);
-            }}
+              <button
+                onClick={handleUrgentCall}
+                disabled={isSendingRequest}
             style={{
               width: "100%",
               marginTop: 16,
@@ -493,8 +685,9 @@ export default function TableServicePopup({ showCard, setShowCard, currentTable,
               backgroundColor: "#dc2626",
               color: "white",
               border: "none",
-              cursor: "pointer",
-              boxShadow: "0 4px 6px -1px rgba(0,0,0,0.1)"
+              cursor: isSendingRequest ? "not-allowed" : "pointer",
+              boxShadow: "0 4px 6px -1px rgba(0,0,0,0.1)",
+              opacity: isSendingRequest ? 0.6 : 1
             }}
             onMouseOver={(e) => {
               e.currentTarget.style.backgroundColor = "#b91c1c";

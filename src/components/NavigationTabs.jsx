@@ -26,6 +26,24 @@ export default function NavigationTabs({
   // Internal state for Table Service popup
   const [showCard, setShowCard] = useState(false);
 
+  // Get assigned table from QR (read-only)
+  const tableNumber = useMemo(() => {
+    try {
+      const cached =
+        localStorage.getItem("terra_selectedTable") ||
+        localStorage.getItem("tableSelection") ||
+        localStorage.getItem("tableNumber");
+      if (!cached) return "";
+      if (cached.startsWith("{")) {
+        const parsed = JSON.parse(cached);
+        return parsed?.number || parsed?.tableNumber || "";
+      }
+      return cached;
+    } catch {
+      return "";
+    }
+  }, []);
+
   // Updated color themes - plain white with black text and orange borders
   const buttonBase = "bg-white text-black border-orange-500";
   const inactiveTab = "bg-white text-black hover:bg-gray-50";
@@ -80,6 +98,7 @@ export default function NavigationTabs({
         setShowCard={setShowCard}
         language={language}
         accessibilityMode={accessibilityMode}
+        currentTable={tableNumber}
       />
     </>
   );

@@ -101,6 +101,22 @@ const BlindVoiceAssistant = ({ open, onClose }) => {
   const { recognition: recognitionLang, speech: speechLang } =
     langSpeechMap[language] || langSpeechMap.en;
 
+  // Get table info from localStorage to show in the assistance panel
+  const tableInfo = useMemo(() => {
+    try {
+      const stored =
+        localStorage.getItem("terra_selectedTable") ||
+        localStorage.getItem("tableSelection");
+      const parsed = stored ? JSON.parse(stored) : null;
+      if (parsed) return parsed;
+      // Fallback: use scan token only for display
+      const slug = localStorage.getItem("terra_scanToken");
+      return slug ? { qrSlug: slug } : null;
+    } catch (e) {
+      return null;
+    }
+  }, []);
+
   const stopRecognition = useCallback(() => {
     restartRef.current = false;
     if (recognitionRef.current) {
@@ -282,17 +298,29 @@ const BlindVoiceAssistant = ({ open, onClose }) => {
           </button>
         </div>
 
-        <div style={chipStyle}>
-          <span
-            style={{
-              width: 12,
-              height: 12,
-              borderRadius: "50%",
-              background: listening ? "#22c55e" : "#f97316",
-              display: "inline-block",
-            }}
-          />
-          {listening ? "Listening..." : "Paused"}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginBottom: "8px" }}>
+          <div style={chipStyle}>
+            <span
+              style={{
+                width: 12,
+                height: 12,
+                borderRadius: "50%",
+                background: listening ? "#22c55e" : "#f97316",
+                display: "inline-block",
+              }}
+            />
+            {listening ? "Listening..." : "Paused"}
+          </div>
+          {tableInfo?.number && (
+            <div style={{ ...chipStyle, background: "#ecfeff", color: "#0e7490" }}>
+              Table {tableInfo.number}
+            </div>
+          )}
+          {!tableInfo?.number && tableInfo?.qrSlug && (
+            <div style={{ ...chipStyle, background: "#ecfeff", color: "#0e7490" }}>
+              Table QR: {tableInfo.qrSlug}
+            </div>
+          )}
         </div>
 
         {error && (

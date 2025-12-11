@@ -99,8 +99,19 @@ export default function Landing() {
         const url = `${nodeApi}/api/tables/lookup/${slug}${
           query.toString() ? `?${query.toString()}` : ""
         }`;
+        console.log('[Landing] Table lookup URL:', url);
         console.log('[Landing] Table lookup with waitToken:', storedWait || 'No');
-        const res = await fetch(url);
+        console.log('[Landing] Backend API URL:', nodeApi);
+        
+        const res = await fetch(url, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        }).catch((fetchError) => {
+          console.error('[Landing] Fetch error:', fetchError);
+          throw new Error(`Network error: ${fetchError.message}. Please check if the backend is accessible and CORS is configured correctly.`);
+        });
         
         // Parse JSON response - 423 status is expected for locked tables
         let payload = {};
@@ -138,12 +149,29 @@ export default function Landing() {
         // 423 is expected for locked tables - don't treat it as an error
         // 400 with isMerged flag means table is merged - handle specially
         if (!res.ok && res.status !== 423) {
+          console.error('[Landing] Table lookup failed:', {
+            status: res.status,
+            statusText: res.statusText,
+            payload: payload,
+            url: url,
+            nodeApi: nodeApi
+          });
+          
+          if (res.status === 404) {
+            throw new Error("Table not found. The QR code may be invalid or the table may have been deleted. Please contact staff.");
+          }
+          
           if (res.status === 400 && payload?.isMerged) {
             // Table is merged - show special message
             alert(payload.message || "This table has been merged with another table. Please scan the primary table's QR code.");
             throw new Error(payload.message || "Table is merged");
           }
-          throw new Error(payload?.message || "Failed to fetch table");
+          
+          if (res.status === 0 || !res.status) {
+            throw new Error("Cannot connect to server. This is likely a CORS issue. Please ensure the backend ALLOWED_ORIGINS includes: https://terra-cart-frontend-eta.vercel.app");
+          }
+          
+          throw new Error(payload?.message || `Failed to fetch table (Status: ${res.status}). Check browser console for details.`);
         }
         
         // Log for debugging

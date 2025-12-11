@@ -733,14 +733,8 @@ const [recordVoiceAria] = useAITranslation("Record voice order");
           return;
         }
 
-        // STRONG: Only mark as occupied if table is currently AVAILABLE
-        // This ensures first user doesn't get waitlisted and table stays available until menu entry
-        if (tableData.status !== "AVAILABLE") {
-          // Table already occupied or has other status - don't mark again
-          return;
-        }
-
-        // Call API to mark table as occupied ONLY when entering menu page
+        // Call API to mark table as occupied when entering menu page
+        // Even if local status isn't AVAILABLE, ensure backend marks OCCUPIED so admin sees it
         const res = await fetch(`${nodeApi}/api/tables/${tableId}/occupy`, {
           method: 'POST',
           headers: {

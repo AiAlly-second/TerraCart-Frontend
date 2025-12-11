@@ -256,34 +256,52 @@ export default function TableServicePopup({ showCard, setShowCard, currentTable,
 
         {/* Table Selection */}
         <div style={{ padding: 16, borderBottom: "1px solid #e5e7eb" }}>
-          <p style={{ fontSize: 14, marginBottom: 8, fontWeight: 500 }}>Select Table:</p>
-          <div style={{ 
-            display: "grid", 
-            gridTemplateColumns: "repeat(5, 1fr)", 
-            gap: 8 
-          }}>
-            {tables.map((table) => (
-              <button
-                key={table}
-                onClick={() => {
-                  setSelectedTable(table);
-                  localStorage.setItem('selectedTable', table);
-                  if (onTableSelect) onTableSelect(table);
-                }}
-                style={{
-                  padding: 8,
-                  borderRadius: 6,
-                  border: "1px solid #e5e7eb",
-                  backgroundColor: selectedTable === table ? "#16a34a" : "white",
-                  color: selectedTable === table ? "white" : "#374151",
-                  cursor: "pointer",
-                  fontWeight: "500"
-                }}
-              >
-                {table}
-              </button>
-            ))}
-          </div>
+          <p style={{ fontSize: 14, marginBottom: 8, fontWeight: 500 }}>
+            {currentTable ? "Assigned Table" : "Select Table:"}
+          </p>
+          {currentTable ? (
+            <div
+              style={{
+                padding: 12,
+                borderRadius: 8,
+                border: "1px solid #dbeafe",
+                backgroundColor: "#eff6ff",
+                color: "#1d4ed8",
+                fontWeight: 600,
+                textAlign: "center",
+              }}
+            >
+              Table {currentTable}
+            </div>
+          ) : (
+            <div style={{ 
+              display: "grid", 
+              gridTemplateColumns: "repeat(5, 1fr)", 
+              gap: 8 
+            }}>
+              {tables.map((table) => (
+                <button
+                  key={table}
+                  onClick={() => {
+                    setSelectedTable(table);
+                    localStorage.setItem('selectedTable', table);
+                    if (onTableSelect) onTableSelect(table);
+                  }}
+                  style={{
+                    padding: 8,
+                    borderRadius: 6,
+                    border: "1px solid #e5e7eb",
+                    backgroundColor: selectedTable === table ? "#16a34a" : "white",
+                    color: selectedTable === table ? "white" : "#374151",
+                    cursor: "pointer",
+                    fontWeight: "500"
+                  }}
+                >
+                  {table}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Scrollable content */}

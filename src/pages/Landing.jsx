@@ -12,11 +12,13 @@ const languages = [
   { code: "gu", label: "ગુજરાતી" },
 ];
 
-const nodeApi = (import.meta.env.VITE_NODE_API_URL || "http://localhost:5001").replace(/\/$/, "");
+const nodeApi = (
+  import.meta.env.VITE_NODE_API_URL || "http://localhost:5001"
+).replace(/\/$/, "");
 
 // Helper function to clear all old order data when session changes
 function clearOldOrderData() {
-  console.log('[Landing] Clearing old order data due to session change');
+  console.log("[Landing] Clearing old order data due to session change");
   localStorage.removeItem("terra_orderId");
   localStorage.removeItem("terra_cart");
   localStorage.removeItem("terra_orderStatus");
@@ -25,7 +27,7 @@ function clearOldOrderData() {
   localStorage.removeItem("terra_previousOrderDetail");
   localStorage.removeItem("terra_lastPaidOrderId");
   // Clear service-type-specific keys
-  ["DINE_IN", "TAKEAWAY"].forEach(serviceType => {
+  ["DINE_IN", "TAKEAWAY"].forEach((serviceType) => {
     localStorage.removeItem(`terra_cart_${serviceType}`);
     localStorage.removeItem(`terra_orderId_${serviceType}`);
     localStorage.removeItem(`terra_orderStatus_${serviceType}`);
@@ -75,7 +77,7 @@ export default function Landing() {
         const previousSlug = localStorage.getItem("terra_scanToken");
         const storedSession = localStorage.getItem("terra_sessionToken");
         const storedWait = localStorage.getItem("terra_waitToken");
-        
+
         // CRITICAL: If this is a new QR scan (different slug or first time), clear takeaway customer data
         const isNewScan = !previousSlug || previousSlug !== slug;
         if (isNewScan) {
@@ -83,9 +85,11 @@ export default function Landing() {
           localStorage.removeItem("terra_takeaway_customerName");
           localStorage.removeItem("terra_takeaway_customerMobile");
           localStorage.removeItem("terra_takeaway_customerEmail");
-          console.log('[Landing] New QR scan detected, cleared takeaway customer data');
+          console.log(
+            "[Landing] New QR scan detected, cleared takeaway customer data"
+          );
         }
-        
+
         // CRITICAL: Pass waitToken if it exists - this prevents duplicate waitlist entries
         // Backend will check table status first and only use waitToken if table is NOT available
         const query = new URLSearchParams();
@@ -99,25 +103,30 @@ export default function Landing() {
         const url = `${nodeApi}/api/tables/lookup/${slug}${
           query.toString() ? `?${query.toString()}` : ""
         }`;
-        console.log('[Landing] Table lookup URL:', url);
-        console.log('[Landing] Table lookup with waitToken:', storedWait || 'No');
-        console.log('[Landing] Backend API URL:', nodeApi);
-        
+        console.log("[Landing] Table lookup URL:", url);
+        console.log(
+          "[Landing] Table lookup with waitToken:",
+          storedWait || "No"
+        );
+        console.log("[Landing] Backend API URL:", nodeApi);
+
         const res = await fetch(url, {
-          method: 'GET',
+          method: "GET",
           headers: {
-            'Content-Type': 'application/json',
+            "Content-Type": "application/json",
           },
         }).catch((fetchError) => {
-          console.error('[Landing] Fetch error:', fetchError);
-          throw new Error(`Network error: ${fetchError.message}. Please check if the backend is accessible and CORS is configured correctly.`);
+          console.error("[Landing] Fetch error:", fetchError);
+          throw new Error(
+            `Network error: ${fetchError.message}. Please check if the backend is accessible and CORS is configured correctly.`
+          );
         });
-        
+
         // Parse JSON response - 423 status is expected for locked tables
         let payload = {};
-        const contentType = res.headers.get('content-type');
-        const isJson = contentType && contentType.includes('application/json');
-        
+        const contentType = res.headers.get("content-type");
+        const isJson = contentType && contentType.includes("application/json");
+
         try {
           if (isJson) {
             // Try to parse as JSON first
@@ -130,7 +139,12 @@ export default function Landing() {
             }
           }
         } catch (parseErr) {
-          console.warn('[Landing] Failed to parse response:', parseErr, 'Status:', res.status);
+          console.warn(
+            "[Landing] Failed to parse response:",
+            parseErr,
+            "Status:",
+            res.status
+          );
           // For 423 status, we still want to proceed - it's expected behavior
           if (res.status === 423) {
             // Create a default payload for 423 if parsing fails
@@ -138,8 +152,8 @@ export default function Landing() {
             payload = {
               message: "Table is currently occupied. Please wait.",
               table: {
-                status: "OCCUPIED" // Default to occupied if we can't parse
-              }
+                status: "OCCUPIED", // Default to occupied if we can't parse
+              },
             };
           } else {
             throw new Error("Failed to parse server response");
@@ -149,34 +163,47 @@ export default function Landing() {
         // 423 is expected for locked tables - don't treat it as an error
         // 400 with isMerged flag means table is merged - handle specially
         if (!res.ok && res.status !== 423) {
-          console.error('[Landing] Table lookup failed:', {
+          console.error("[Landing] Table lookup failed:", {
             status: res.status,
             statusText: res.statusText,
             payload: payload,
             url: url,
-            nodeApi: nodeApi
+            nodeApi: nodeApi,
           });
-          
+
           if (res.status === 404) {
-            throw new Error("Table not found. The QR code may be invalid or the table may have been deleted. Please contact staff.");
+            throw new Error(
+              "Table not found. The QR code may be invalid or the table may have been deleted. Please contact staff."
+            );
           }
-          
+
           if (res.status === 400 && payload?.isMerged) {
             // Table is merged - show special message
-            alert(payload.message || "This table has been merged with another table. Please scan the primary table's QR code.");
+            alert(
+              payload.message ||
+                "This table has been merged with another table. Please scan the primary table's QR code."
+            );
             throw new Error(payload.message || "Table is merged");
           }
-          
+
           if (res.status === 0 || !res.status) {
-            throw new Error("Cannot connect to server. This is likely a CORS issue. Please ensure the backend ALLOWED_ORIGINS includes: https://terra-cart-frontend-eta.vercel.app");
+            throw new Error(
+              "Cannot connect to server. This is likely a CORS issue. Please ensure the backend ALLOWED_ORIGINS includes: https://terra-cart-frontend-eta.vercel.app"
+            );
           }
-          
-          throw new Error(payload?.message || `Failed to fetch table (Status: ${res.status}). Check browser console for details.`);
+
+          throw new Error(
+            payload?.message ||
+              `Failed to fetch table (Status: ${res.status}). Check browser console for details.`
+          );
         }
-        
+
         // Log for debugging
         if (res.status === 423) {
-          console.log('[Landing] Table locked (423), waitlist info:', payload.waitlist);
+          console.log(
+            "[Landing] Table locked (423), waitlist info:",
+            payload.waitlist
+          );
         }
 
         const tableData = payload.table || payload;
@@ -195,38 +222,44 @@ export default function Landing() {
           localStorage.removeItem("terra_serviceType");
           localStorage.removeItem("terra_waitToken");
           localStorage.removeItem("terra_sessionToken");
-          
+
           // Clear takeaway customer data for new users
           localStorage.removeItem("terra_takeaway_customerName");
           localStorage.removeItem("terra_takeaway_customerMobile");
           localStorage.removeItem("terra_takeaway_customerEmail");
-          
+
           // Clear service-type-specific keys (for both DINE_IN and TAKEAWAY)
-          ["DINE_IN", "TAKEAWAY"].forEach(serviceType => {
+          ["DINE_IN", "TAKEAWAY"].forEach((serviceType) => {
             localStorage.removeItem(`terra_cart_${serviceType}`);
             localStorage.removeItem(`terra_orderId_${serviceType}`);
             localStorage.removeItem(`terra_orderStatus_${serviceType}`);
-            localStorage.removeItem(`terra_orderStatusUpdatedAt_${serviceType}`);
+            localStorage.removeItem(
+              `terra_orderStatusUpdatedAt_${serviceType}`
+            );
             localStorage.removeItem(`terra_lastTableId_${serviceType}`);
             localStorage.removeItem(`terra_lastTableSlug_${serviceType}`);
           });
-          
-          console.log('[Landing] New table detected, cleared all cart, order, and customer data');
+
+          console.log(
+            "[Landing] New table detected, cleared all cart, order, and customer data"
+          );
         }
 
         localStorage.setItem("terra_selectedTable", JSON.stringify(tableData));
         localStorage.setItem("terra_scanToken", slug);
 
         // STRONG LOGIC: Check table status from response
-        const tableStatus = tableData.status || (res.status === 423 ? "OCCUPIED" : "AVAILABLE");
-        
+        const tableStatus =
+          tableData.status || (res.status === 423 ? "OCCUPIED" : "AVAILABLE");
+
         // CRITICAL: If table is AVAILABLE, NO WAITLIST LOGIC - clear all waitlist state
         if (res.status === 200 && tableStatus === "AVAILABLE") {
           // Table is available - clear ALL waitlist-related state
           localStorage.removeItem("terra_waitToken");
-          
+
           // CRITICAL: Check if sessionToken changed - if so, clear all old order data
-          const newSessionToken = payload.sessionToken || tableData.sessionToken;
+          const newSessionToken =
+            payload.sessionToken || tableData.sessionToken;
           updateSessionToken(newSessionToken, storedSession);
           // First user can proceed directly - NO WAITLIST LOGIC APPLIED
           return;
@@ -235,9 +268,10 @@ export default function Landing() {
         // CRITICAL: Double-check - if table status is AVAILABLE, skip all waitlist logic
         if (tableStatus === "AVAILABLE") {
           localStorage.removeItem("terra_waitToken");
-          
+
           // CRITICAL: Check if sessionToken changed - if so, clear all old order data
-          const newSessionToken = payload.sessionToken || tableData.sessionToken;
+          const newSessionToken =
+            payload.sessionToken || tableData.sessionToken;
           updateSessionToken(newSessionToken, storedSession);
           return; // No waitlist logic for available tables
         }
@@ -246,7 +280,8 @@ export default function Landing() {
         if (res.status === 423) {
           localStorage.removeItem("terra_sessionToken");
         } else {
-          const newSessionToken = payload.sessionToken || tableData.sessionToken;
+          const newSessionToken =
+            payload.sessionToken || tableData.sessionToken;
           updateSessionToken(newSessionToken, storedSession);
         }
 
@@ -271,18 +306,22 @@ export default function Landing() {
         if (res.status === 423) {
           // Verify table status from response - if available, clear waitlist
           const actualTableStatus = tableData?.status || "OCCUPIED";
-          
+
           // STRONG CHECK: If table is actually AVAILABLE, clear waitlist and return
           if (actualTableStatus === "AVAILABLE") {
             localStorage.removeItem("terra_waitToken");
-            const newSessionToken = payload.sessionToken || tableData?.sessionToken;
+            const newSessionToken =
+              payload.sessionToken || tableData?.sessionToken;
             updateSessionToken(newSessionToken, storedSession);
             return; // Table is available, no waitlist needed
           }
-          
+
           // Table is actually OCCUPIED - apply waitlist logic
-          console.log('[Landing] Table locked (423), waitlist info:', payload.waitlist);
-          
+          console.log(
+            "[Landing] Table locked (423), waitlist info:",
+            payload.waitlist
+          );
+
           // Only store waitlist token if table is NOT available
           if (actualTableStatus !== "AVAILABLE" && payload.waitlist?.token) {
             // User is on waitlist - store waitlist token
@@ -300,7 +339,7 @@ export default function Landing() {
                 "This table is currently assigned to another guest. Please wait or contact staff."
             );
           }
-          
+
           // Continue with the flow - don't throw error, allow user to proceed
           return; // Exit early, user can proceed to next page
         }
@@ -315,7 +354,9 @@ export default function Landing() {
             return;
           }
           localStorage.removeItem("terra_scanToken");
-          alert("This table is currently occupied. Please ask the staff for assistance.");
+          alert(
+            "This table is currently occupied. Please ask the staff for assistance."
+          );
         } else if (err.message && err.message.includes("merged")) {
           // Table is merged - message already shown in the check above
           localStorage.removeItem("terra_scanToken");
@@ -328,13 +369,17 @@ export default function Landing() {
           localStorage.removeItem("terra_sessionToken");
           // Only show generic error if it wasn't already shown (merged table case)
           if (!err.message || !err.message.includes("merged")) {
-            alert("We couldn't detect your table. Please rescan the table QR or contact staff.");
+            alert(
+              "We couldn't detect your table. Please rescan the table QR or contact staff."
+            );
           }
         }
       } finally {
         params.delete("table");
         const newQuery = params.toString();
-        const newUrl = `${window.location.pathname}${newQuery ? `?${newQuery}` : ""}${window.location.hash}`;
+        const newUrl = `${window.location.pathname}${
+          newQuery ? `?${newQuery}` : ""
+        }${window.location.hash}`;
         window.history.replaceState({}, "", newUrl);
       }
     };
@@ -349,75 +394,84 @@ export default function Landing() {
   };
 
   const recognitionRef = useRef(null);
-const [shouldContinueListening, setShouldContinueListening] = useState(true);
+  const [shouldContinueListening, setShouldContinueListening] = useState(true);
 
-const clickButtonByText = (text) => {
-  const buttons = document.querySelectorAll("button");
-  for (let btn of buttons) {
-    if (btn.innerText.trim().toLowerCase() === text.toLowerCase()) {
-      btn.click();
+  const clickButtonByText = (text) => {
+    const buttons = document.querySelectorAll("button");
+    for (let btn of buttons) {
+      if (btn.innerText.trim().toLowerCase() === text.toLowerCase()) {
+        btn.click();
 
-      // ✅ Stop listening after clicking button
-      setShouldContinueListening(false);
-      if (recognitionRef.current) {
-        recognitionRef.current.onend = null; // prevent auto-restart
-        recognitionRef.current.stop();
-        recognitionRef.current = null;
+        // ✅ Stop listening after clicking button
+        setShouldContinueListening(false);
+        if (recognitionRef.current) {
+          recognitionRef.current.onend = null; // prevent auto-restart
+          recognitionRef.current.stop();
+          recognitionRef.current = null;
+        }
+        return true;
       }
-      return true;
     }
-  }
-  return false;
-};
-
-const startListening = () => {
-  const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
-  recognition.lang = "en-US";
-  recognition.interimResults = false;
-  recognition.maxAlternatives = 1;
-
-  recognition.onstart = () => {
-    console.log("Listening...");
+    return false;
   };
 
-  recognition.onresult = (event) => {
-    const transcript = event.results[0][0].transcript.trim().toLowerCase();
-    console.log("User said:", transcript);
+  const startListening = () => {
+    const recognition = new (window.SpeechRecognition ||
+      window.webkitSpeechRecognition)();
+    recognition.lang = "en-US";
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
 
-    let matched = false;
+    recognition.onstart = () => {
+      console.log("Listening...");
+    };
 
-    if (transcript.includes("english") || transcript.includes("इंग्लिश")) {
-      matched = clickButtonByText("English");
-    } else if (transcript.includes("hindi") || transcript.includes("हिंदी")) {
-      matched = clickButtonByText("हिन्दी");
-    } else if (transcript.includes("marathi") || transcript.includes("मराठी")) {
-      matched = clickButtonByText("मराठी");
-    } else if (transcript.includes("gujarati") || transcript.includes("ગુજરાતી")) {
-      matched = clickButtonByText("ગુજરાતી");
-    }
+    recognition.onresult = (event) => {
+      const transcript = event.results[0][0].transcript.trim().toLowerCase();
+      console.log("User said:", transcript);
 
-    if (matched) return;
+      let matched = false;
 
-    // If no match
-    const utterance = new SpeechSynthesisUtterance("Your voice was not clear, please repeat again.");
-    utterance.voice = window.speechSynthesis.getVoices()[0];
-    utterance.onend = () => {
-      if (shouldContinueListening && recognitionRef.current) {
-        recognitionRef.current.start();
+      if (transcript.includes("english") || transcript.includes("इंग्लिश")) {
+        matched = clickButtonByText("English");
+      } else if (transcript.includes("hindi") || transcript.includes("हिंदी")) {
+        matched = clickButtonByText("हिन्दी");
+      } else if (
+        transcript.includes("marathi") ||
+        transcript.includes("मराठी")
+      ) {
+        matched = clickButtonByText("मराठी");
+      } else if (
+        transcript.includes("gujarati") ||
+        transcript.includes("ગુજરાતી")
+      ) {
+        matched = clickButtonByText("ગુજરાતી");
+      }
+
+      if (matched) return;
+
+      // If no match
+      const utterance = new SpeechSynthesisUtterance(
+        "Your voice was not clear, please repeat again."
+      );
+      utterance.voice = window.speechSynthesis.getVoices()[0];
+      utterance.onend = () => {
+        if (shouldContinueListening && recognitionRef.current) {
+          recognitionRef.current.start();
+        }
+      };
+      window.speechSynthesis.speak(utterance);
+    };
+
+    recognition.onend = () => {
+      if (shouldContinueListening && !window.speechSynthesis.speaking) {
+        recognition.start();
       }
     };
-    window.speechSynthesis.speak(utterance);
-  };
 
-  recognition.onend = () => {
-    if (shouldContinueListening && !window.speechSynthesis.speaking) {
-      recognition.start();
-    }
+    recognitionRef.current = recognition; // ✅ save to ref
+    recognition.start();
   };
-
-  recognitionRef.current = recognition; // ✅ save to ref
-  recognition.start();
-};
   // 🔊 Read Page Aloud + then Listen
   const readPageAloud = () => {
     window.speechSynthesis.cancel();
@@ -469,7 +523,6 @@ const startListening = () => {
 
       <div className="relative">
         <div className="absolute inset-0 bg-white" />
-
 
         <div className="relative z-10 flex flex-col items-center justify-center min-h-[calc(100vh-5rem)] px-4 py-4 sm:py-6 md:py-8">
           {/* Title box */}
@@ -544,26 +597,27 @@ const startListening = () => {
         whileTap={{ scale: 0.9 }}
         onClick={readPageAloud}
         className="fixed rounded-full shadow-lg bg-orange-600 text-white hover:bg-orange-700 focus:outline-none blind-eye-btn"
-        style={{ 
-          position: 'fixed',
-          bottom: '20px', // Same lower position as accessibility button
-          right: '20px', // Right side instead of left
-          width: '56px',
-          height: '56px',
-          display: 'grid',
-          placeItems: 'center',
-          border: 'none',
-          cursor: 'pointer',
-          boxShadow: '0 6px 18px rgba(0,0,0,0.25)',
-          transition: 'transform .2s ease, box-shadow .2s ease, background .2s ease',
+        style={{
+          position: "fixed",
+          bottom: "20px", // Same lower position as accessibility button
+          right: "20px", // Right side instead of left
+          width: "56px",
+          height: "56px",
+          display: "grid",
+          placeItems: "center",
+          border: "none",
+          cursor: "pointer",
+          boxShadow: "0 6px 18px rgba(0,0,0,0.25)",
+          transition:
+            "transform .2s ease, box-shadow .2s ease, background .2s ease",
           zIndex: 10001, // Higher than footer (z-40) to ensure it's on top
-          pointerEvents: 'auto'
+          pointerEvents: "auto",
         }}
         aria-label="Blind Support - Read Page Aloud"
       >
-        <img 
-          src={blindEyeIcon} 
-          alt="Blind Support" 
+        <img
+          src={blindEyeIcon}
+          alt="Blind Support"
           width="24"
           height="24"
           style={{ objectFit: "contain", filter: "brightness(0) invert(1)" }}

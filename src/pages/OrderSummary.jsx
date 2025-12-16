@@ -10,7 +10,9 @@ import "./OrderSummary.css";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 
-const nodeApi = (import.meta.env.VITE_NODE_API_URL || "http://localhost:5001").replace(/\/$/, "");
+const nodeApi = (
+  import.meta.env.VITE_NODE_API_URL || "http://localhost:5001"
+).replace(/\/$/, "");
 const socket = io(nodeApi);
 
 /* helpers */
@@ -58,18 +60,18 @@ const calculateTotalsFromItems = (mergedItems) => {
   const subtotalInPaise = mergedItems.reduce((sum, item) => {
     const priceInPaise = Number(item.price) || 0;
     const quantity = Number(item.quantity) || 0;
-    return sum + (priceInPaise * quantity);
+    return sum + priceInPaise * quantity;
   }, 0);
-  
+
   // Convert to rupees and round to 2 decimal places
   const subtotal = Number((subtotalInPaise / 100).toFixed(2));
-  
+
   // Calculate GST (5%)
   const gst = Number((subtotal * 0.05).toFixed(2));
-  
+
   // Calculate total amount
   const totalAmount = Number((subtotal + gst).toFixed(2));
-  
+
   return {
     subtotal,
     gst,
@@ -80,7 +82,7 @@ const calculateTotalsFromItems = (mergedItems) => {
 const sumTotals = (kotLines = []) => {
   // Merge all items from all KOTs
   const mergedItems = mergeKotLines(kotLines);
-  
+
   // Calculate totals from actual items
   return calculateTotalsFromItems(mergedItems);
 };
@@ -111,7 +113,7 @@ export default function OrderSummary() {
   const [accessibility] = useState(
     localStorage.getItem("accessibilityMode") === "true"
   );
-  
+
   const statusMessages = {
     Pending: "📝 Order is being processed...",
     Confirmed: "👨‍🍳 Order confirmed! Kitchen is getting ready.",
@@ -120,64 +122,96 @@ export default function OrderSummary() {
     Served: "🍽️ Enjoy your meal!",
     Finalized: "📋 Order completed, preparing bill",
     Paid: "✅ Thank you for dining with us!",
-  Cancelled: "❌ Order has been cancelled",
-  Returned: "↩️ Order has been returned. Please contact staff if you need assistance.",
+    Cancelled: "❌ Order has been cancelled",
+    Returned:
+      "↩️ Order has been returned. Please contact staff if you need assistance.",
   };
 
   const language = localStorage.getItem("language") || "en";
-  const t  = k => translations[language]?.[k] || k;
-  const bt = floatingButtonTranslations[language] || floatingButtonTranslations.en;
+  const t = (k) => translations[language]?.[k] || k;
+  const bt =
+    floatingButtonTranslations[language] || floatingButtonTranslations.en;
+
+  // Read current order ID from localStorage (used by the effect)
+  const orderId = localStorage.getItem("terra_orderId");
 
   // Listen for real-time order updates
   useEffect(() => {
-    const id = localStorage.getItem("terra_orderId");
-    if (!id) return;
+    if (!orderId) return;
 
     // Initial order fetch
-    const fetchOrder = () => {
-      fetch(`${nodeApi}/api/orders/${id}`)
-        .then(r => r.json())
-        .then(data => {
-          setOrder(data);
-          
-          // If cancelled or returned, clear storage and redirect
-          if (data.status === "Cancelled" || data.status === "Returned") {
-            localStorage.removeItem("terra_orderId");
-            localStorage.removeItem("terra_cart");
-            alert(
-              data.status === "Returned"
-                ? "Order has been returned."
-                : (translations[language]?.orderCancelled || "Order cancelled")
-            );
+    const fetchOrder = async () => {
+      try {
+        const res = await fetch(`${nodeApi}/api/orders/${orderId}`);
+        if (!res.ok) {
+          if (res.status === 404) {
+            alert(translations[language]?.noOrderFound || "No order found");
             navigate("/menu");
+            return;
           }
-        })
-        .catch(() => alert(translations[language]?.noOrderFound || "No order found"));
+          throw new Error(`Failed to fetch order: ${res.status}`);
+        }
+        const data = await res.json();
+        if (!data) {
+          alert(translations[language]?.noOrderFound || "No order found");
+          navigate("/menu");
+          return;
+        }
+        setOrder(data);
+
+        // If cancelled or returned, clear storage and redirect
+        if (data.status === "Cancelled" || data.status === "Returned") {
+          localStorage.removeItem("terra_orderId");
+          localStorage.removeItem("terra_cart");
+          alert(
+            data.status === "Returned"
+              ? "Order has been returned."
+              : translations[language]?.orderCancelled || "Order cancelled"
+          );
+          navigate("/menu");
+        }
+      } catch (err) {
+        console.error("Error fetching order:", err);
+        alert(translations[language]?.noOrderFound || "No order found");
+      }
     };
 
     fetchOrder();
 
-    // Listen for real-time updates
-    socket.on("orderUpdated", (updatedOrder) => {
-      if (updatedOrder._id === id) {
+    // Define event handler
+    const handleOrderUpdated = (updatedOrder) => {
+      if (updatedOrder?._id === orderId) {
         setOrder(updatedOrder);
-        
+
         // Handle cancellation / return
-        if (updatedOrder.status === "Cancelled" || updatedOrder.status === "Returned") {
+        if (
+          updatedOrder.status === "Cancelled" ||
+          updatedOrder.status === "Returned"
+        ) {
           localStorage.removeItem("terra_orderId");
           localStorage.removeItem("terra_cart");
           alert(
             updatedOrder.status === "Returned"
               ? "Order has been returned."
-              : (translations[language]?.orderCancelled || "Order cancelled")
+              : translations[language]?.orderCancelled || "Order cancelled"
           );
           navigate("/menu");
         }
       }
-    });
+    };
 
-    return () => socket.off("orderUpdated");
-  }, [language, navigate]); // Removed 't' from dependencies to prevent infinite loop
+    // Listen for real-time updates
+    socket.on("orderUpdated", handleOrderUpdated);
+
+    // Cleanup: Remove event listener on unmount
+    return () => {
+      socket.off("orderUpdated", handleOrderUpdated);
+    };
+
+    return () => {
+      socket.off("orderUpdated", handleOrderUpdated);
+    };
+  }, [orderId, language, navigate]);
 
   if (!order) {
     return (
@@ -186,13 +220,13 @@ export default function OrderSummary() {
   }
 
   const combinedItems = mergeKotLines(order.kotLines);
-  const totals        = sumTotals(order.kotLines);
-  const totalQty      = combinedItems.reduce((n, i) => n + i.quantity, 0);
-  const isTakeaway    = order.serviceType === "TAKEAWAY";
+  const totals = sumTotals(order.kotLines);
+  const totalQty = combinedItems.reduce((n, i) => n + i.quantity, 0);
+  const isTakeaway = order.serviceType === "TAKEAWAY";
   const baseTableNumber = order.table?.number ?? order.tableNumber ?? "—";
-  const tableName     = order.table?.name;
-  const serviceValue  = isTakeaway ? t("takeawayLabel") : t("dineInLabel");
-  const invoiceId     = buildInvoiceId(order);
+  const tableName = order.table?.name;
+  const serviceValue = isTakeaway ? t("takeawayLabel") : t("dineInLabel");
+  const invoiceId = buildInvoiceId(order);
 
   const handlePrintInvoice = () => {
     if (!invoiceRef.current || printing) return;
@@ -298,7 +332,7 @@ export default function OrderSummary() {
       const pdf = new jsPDF({
         orientation: "portrait",
         unit: "mm",
-        format: [80, "auto"]
+        format: [80, "auto"],
       });
       const pdfWidth = 80;
       const pdfHeight = pdf.internal.pageSize.getHeight();
@@ -317,7 +351,14 @@ export default function OrderSummary() {
       while (heightLeft > 0) {
         pdf.addPage();
         position = margin - (imgHeight - heightLeft);
-        pdf.addImage(imageData, "PNG", margin, position, usableWidth, imgHeight);
+        pdf.addImage(
+          imageData,
+          "PNG",
+          margin,
+          position,
+          usableWidth,
+          imgHeight
+        );
         heightLeft -= pdfHeight - margin * 2;
       }
 
@@ -331,9 +372,15 @@ export default function OrderSummary() {
   };
 
   return (
-    <div className={`order-summary-page ${accessibility ? "accessibility" : ""}`}>
+    <div
+      className={`order-summary-page ${accessibility ? "accessibility" : ""}`}
+    >
       <div className="background-container">
-        <img src={bgImage} alt={t("restaurantName")} className="background-image" />
+        <img
+          src={bgImage}
+          alt={t("restaurantName")}
+          className="background-image"
+        />
         <div className="background-overlay" />
       </div>
 
@@ -363,7 +410,7 @@ export default function OrderSummary() {
                 </div>
               )}
             </div>
-            
+
             {/* Order Status */}
             <div className="mb-6">
               <OrderStatus status={order.status} className="mb-2" />
@@ -390,9 +437,7 @@ export default function OrderSummary() {
                       )}
                     </span>
                     <span>
-                      {it.quantity > 0
-                        ? `₹${formatMoney(amount)}`
-                        : "Returned"}
+                      {it.quantity > 0 ? `₹${formatMoney(amount)}` : "Returned"}
                     </span>
                   </div>
                 );
@@ -400,18 +445,33 @@ export default function OrderSummary() {
             </div>
 
             <div className="summary-totals">
-              <div className="total-row"><span>{t("totalItems")}</span><span>{totalQty}</span></div>
-              <div className="total-row"><span>{t("subtotal")}</span><span>₹{totals.subtotal.toFixed(2)}</span></div>
-              <div className="total-row"><span>{t("gst")}</span><span>₹{totals.gst.toFixed(2)}</span></div>
-              <div className="total-row total-bold"><span>{t("total")}</span><span>₹{totals.totalAmount.toFixed(2)}</span></div>
+              <div className="total-row">
+                <span>{t("totalItems")}</span>
+                <span>{totalQty}</span>
+              </div>
+              <div className="total-row">
+                <span>{t("subtotal")}</span>
+                <span>₹{totals.subtotal.toFixed(2)}</span>
+              </div>
+              <div className="total-row">
+                <span>{t("gst")}</span>
+                <span>₹{totals.gst.toFixed(2)}</span>
+              </div>
+              <div className="total-row total-bold">
+                <span>{t("total")}</span>
+                <span>₹{totals.totalAmount.toFixed(2)}</span>
+              </div>
             </div>
 
             <div className="buttons-row">
-              {/* Confirm shows the KOT confirmation screen */}
-              <button onClick={() => navigate("/order-confirmed")} className="primary-btn">
+              {/* Confirm order and go back to menu */}
+              <button onClick={() => navigate("/menu")} className="primary-btn">
                 {t("confirmOrder")}
               </button>
-              <button onClick={() => setShowBill(true)} className="secondary-btn">
+              <button
+                onClick={() => setShowBill(true)}
+                className="secondary-btn"
+              >
                 {t("viewBill")}
               </button>
             </div>
@@ -420,158 +480,172 @@ export default function OrderSummary() {
       </div>
 
       {/* Bill Popup Modal */}
-{showBill && (
-  <div className="bill-modal-overlay">
-    <div className="bill-modal">
-      <div className="bill-modal-header">
-        <div>
-          <h3>Invoice</h3>
-          <p className="invoice-meta">
-            <span>{t("orderId")} {order._id}</span>
-            <span>{new Date(order.createdAt).toLocaleString()}</span>
-          </p>
-        </div>
-        <div className="bill-modal-actions">
-          <button
-            onClick={handleDownloadInvoice}
-            disabled={downloading}
-            className="invoice-action-btn download"
-          >
-            {downloading ? "Preparing…" : "Download"}
-          </button>
-          <button onClick={() => setShowBill(false)} className="invoice-close-btn">
-            ✕
-          </button>
-        </div>
-      </div>
+      {showBill && (
+        <div className="bill-modal-overlay">
+          <div className="bill-modal">
+            <div className="bill-modal-header">
+              <div>
+                <h3>Invoice</h3>
+                <p className="invoice-meta">
+                  <span>
+                    {t("orderId")} {order._id}
+                  </span>
+                  <span>{new Date(order.createdAt).toLocaleString()}</span>
+                </p>
+              </div>
+              <div className="bill-modal-actions">
+                <button
+                  onClick={handleDownloadInvoice}
+                  disabled={downloading}
+                  className="invoice-action-btn download"
+                >
+                  {downloading ? "Preparing…" : "Download"}
+                </button>
+                <button
+                  onClick={() => setShowBill(false)}
+                  className="invoice-close-btn"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
 
-      <div ref={invoiceRef} className="invoice-preview">
-        <div className="invoice-top">
-          <div>
-            <div className="brand-name">Terra Cart</div>
-            <div className="brand-address">123 Main Street, City</div>
-            <div className="brand-address">GSTIN: 22AAAAA0000A1Z5</div>
-          </div>
-          <div className="invoice-meta-block">
-            <div className="meta-line">
-              <span>Invoice No:</span>
-              <span>{invoiceId}</span>
-            </div>
-            <div className="meta-line">
-              <span>Date:</span>
-              <span>{new Date(order.paidAt || order.updatedAt || order.createdAt).toLocaleDateString()}</span>
-            </div>
-            <div className="meta-line">
-              <span>Time:</span>
-              <span>{new Date(order.paidAt || order.updatedAt || order.createdAt).toLocaleTimeString()}</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="invoice-billed">
-          <div className="meta-line">
-            <span>{t("serviceTypeLabel")}:</span>
-            <span>{serviceValue}</span>
-          </div>
-          <div className="meta-line">
-            <span>{t("tableLabel")}:</span>
-            <span>
-              {isTakeaway ? t("takeawayLabel") : baseTableNumber}
-              {!isTakeaway && tableName ? ` · ${tableName}` : ""}
-            </span>
-          </div>
-          {/* Customer information for takeaway orders */}
-          {isTakeaway && (order.customerName || order.customerMobile) && (
-            <>
-              {order.customerName && (
-                <div className="meta-line">
-                  <span>Customer Name:</span>
-                  <span>{order.customerName}</span>
+            <div ref={invoiceRef} className="invoice-preview">
+              <div className="invoice-top">
+                <div>
+                  <div className="brand-name">Terra Cart</div>
+                  <div className="brand-address">123 Main Street, City</div>
+                  <div className="brand-address">GSTIN: 22AAAAA0000A1Z5</div>
                 </div>
-              )}
-              {order.customerMobile && (
-                <div className="meta-line">
-                  <span>Mobile Number:</span>
-                  <span>{order.customerMobile}</span>
+                <div className="invoice-meta-block">
+                  <div className="meta-line">
+                    <span>Invoice No:</span>
+                    <span>{invoiceId}</span>
+                  </div>
+                  <div className="meta-line">
+                    <span>Date:</span>
+                    <span>
+                      {new Date(
+                        order.paidAt || order.updatedAt || order.createdAt
+                      ).toLocaleDateString()}
+                    </span>
+                  </div>
+                  <div className="meta-line">
+                    <span>Time:</span>
+                    <span>
+                      {new Date(
+                        order.paidAt || order.updatedAt || order.createdAt
+                      ).toLocaleTimeString()}
+                    </span>
+                  </div>
                 </div>
-              )}
-            </>
-          )}
-        </div>
+              </div>
 
-        <table className="invoice-table">
-          <thead>
-            <tr>
-              <th>{t("itemHeader") || "Item"}</th>
-              <th>{t("quantityHeader") || "Qty"}</th>
-              <th>{t("priceHeader") || "Price (₹)"}</th>
-              <th className="align-right">{t("amountHeader") || "Amount (₹)"}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {combinedItems.length > 0 ? (
-              combinedItems.map((it) => {
-                const unitPrice = (it.price || 0) / 100;
-                const amount = unitPrice * (it.quantity || 0);
-                return (
-                  <tr key={it.name}>
-                    <td>
-                      <div className="flex flex-col gap-0.5">
-                        <span>{it.name}</span>
-                        {it.returned && (
-                          <span className="invoice-returned-note">
-                            Returned {it.returnedQuantity}
-                          </span>
-                        )}
+              <div className="invoice-billed">
+                <div className="meta-line">
+                  <span>{t("serviceTypeLabel")}:</span>
+                  <span>{serviceValue}</span>
+                </div>
+                <div className="meta-line">
+                  <span>{t("tableLabel")}:</span>
+                  <span>
+                    {isTakeaway ? t("takeawayLabel") : baseTableNumber}
+                    {!isTakeaway && tableName ? ` · ${tableName}` : ""}
+                  </span>
+                </div>
+                {/* Customer information for takeaway orders */}
+                {isTakeaway && (order.customerName || order.customerMobile) && (
+                  <>
+                    {order.customerName && (
+                      <div className="meta-line">
+                        <span>Customer Name:</span>
+                        <span>{order.customerName}</span>
                       </div>
-                    </td>
-                    <td>{it.quantity > 0 ? it.quantity : "—"}</td>
-                    <td>₹{formatMoney(unitPrice)}</td>
-                    <td className="align-right">
-                      {it.quantity > 0
-                        ? `₹${formatMoney(amount)}`
-                        : "Returned"}
-                    </td>
+                    )}
+                    {order.customerMobile && (
+                      <div className="meta-line">
+                        <span>Mobile Number:</span>
+                        <span>{order.customerMobile}</span>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              <table className="invoice-table">
+                <thead>
+                  <tr>
+                    <th>{t("itemHeader") || "Item"}</th>
+                    <th>{t("quantityHeader") || "Qty"}</th>
+                    <th>{t("priceHeader") || "Price (₹)"}</th>
+                    <th className="align-right">
+                      {t("amountHeader") || "Amount (₹)"}
+                    </th>
                   </tr>
-                );
-              })
-            ) : (
-              <tr>
-                <td colSpan={4} className="empty-row">
-                  No items found
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+                </thead>
+                <tbody>
+                  {combinedItems.length > 0 ? (
+                    combinedItems.map((it) => {
+                      const unitPrice = (it.price || 0) / 100;
+                      const amount = unitPrice * (it.quantity || 0);
+                      return (
+                        <tr key={it.name}>
+                          <td>
+                            <div className="flex flex-col gap-0.5">
+                              <span>{it.name}</span>
+                              {it.returned && (
+                                <span className="invoice-returned-note">
+                                  Returned {it.returnedQuantity}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td>{it.quantity > 0 ? it.quantity : "—"}</td>
+                          <td>₹{formatMoney(unitPrice)}</td>
+                          <td className="align-right">
+                            {it.quantity > 0
+                              ? `₹${formatMoney(amount)}`
+                              : "Returned"}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  ) : (
+                    <tr>
+                      <td colSpan={4} className="empty-row">
+                        No items found
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
 
-        <div className="invoice-totals">
-          <div className="meta-line">
-            <span>{t("totalItems")}</span>
-            <span>{totalQty}</span>
-          </div>
-          <div className="meta-line">
-            <span>{t("subtotal")}</span>
-            <span>₹{formatMoney(totals.subtotal)}</span>
-          </div>
-          <div className="meta-line">
-            <span>{t("gst")}</span>
-            <span>₹{formatMoney(totals.gst)}</span>
-          </div>
-          <div className="meta-line total">
-            <span>{t("total")}</span>
-            <span>₹{formatMoney(totals.totalAmount)}</span>
+              <div className="invoice-totals">
+                <div className="meta-line">
+                  <span>{t("totalItems")}</span>
+                  <span>{totalQty}</span>
+                </div>
+                <div className="meta-line">
+                  <span>{t("subtotal")}</span>
+                  <span>₹{formatMoney(totals.subtotal)}</span>
+                </div>
+                <div className="meta-line">
+                  <span>{t("gst")}</span>
+                  <span>₹{formatMoney(totals.gst)}</span>
+                </div>
+                <div className="meta-line total">
+                  <span>{t("total")}</span>
+                  <span>₹{formatMoney(totals.totalAmount)}</span>
+                </div>
+              </div>
+
+              <div className="invoice-footer">
+                Thank you for dining with Terra Cart. We hope to see you again!
+              </div>
+            </div>
           </div>
         </div>
-
-        <div className="invoice-footer">
-          Thank you for dining with Terra Cart. We hope to see you again!
-        </div>
-      </div>
-    </div>
-  </div>
-)}
-
+      )}
     </div>
   );
 }

@@ -1105,30 +1105,41 @@ export default function MenuPage() {
           ? localStorage.getItem("terra_takeaway_customerEmail") || ""
           : "";
 
-      // Get cartId from localStorage for takeaway orders (from table selection)
+      // Get cartId for takeaway orders:
+      // 1) Prefer explicit cartId from takeaway QR (terra_takeaway_cartId)
+      // 2) Fallback to cartId/cafeId from table selection if available
       let cartId = null;
       if (serviceType === "TAKEAWAY") {
-        try {
-          const tableData = JSON.parse(
-            localStorage.getItem(TABLE_SELECTION_KEY) || "{}"
-          );
-          let rawCartId = tableData.cartId || tableData.cafeId || null;
-          // Handle case where cartId might be an object (populated from MongoDB)
-          if (rawCartId) {
-            if (typeof rawCartId === "object" && rawCartId._id) {
-              cartId = rawCartId._id;
-            } else if (typeof rawCartId === "string") {
-              cartId = rawCartId;
-            } else {
-              cartId = String(rawCartId);
+        const qrCartId = localStorage.getItem("terra_takeaway_cartId");
+        if (qrCartId) {
+          cartId = qrCartId;
+          console.log("[Menu] Using cartId from takeaway QR:", cartId);
+        } else {
+          try {
+            const tableData = JSON.parse(
+              localStorage.getItem(TABLE_SELECTION_KEY) || "{}"
+            );
+            let rawCartId = tableData.cartId || tableData.cafeId || null;
+            // Handle case where cartId might be an object (populated from MongoDB)
+            if (rawCartId) {
+              if (typeof rawCartId === "object" && rawCartId._id) {
+                cartId = rawCartId._id;
+              } else if (typeof rawCartId === "string") {
+                cartId = rawCartId;
+              } else {
+                cartId = String(rawCartId);
+              }
             }
+            console.log(
+              "[Menu] Using cartId from table data for takeaway:",
+              cartId
+            );
+          } catch (e) {
+            console.warn(
+              "[Menu] Could not get cartId from table data for takeaway order:",
+              e
+            );
           }
-          console.log("[Menu] Using cartId for takeaway order:", cartId);
-        } catch (e) {
-          console.warn(
-            "[Menu] Could not get cartId from table data for takeaway order:",
-            e
-          );
         }
       }
 

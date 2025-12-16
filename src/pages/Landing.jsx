@@ -64,6 +64,25 @@ export default function Landing() {
     };
   }, []);
 
+  // Read takeaway QR parameters from URL (takeaway-only mode and cart binding)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const takeawayParam = params.get("takeaway");
+    const cartParam = params.get("cart");
+
+    if (takeawayParam) {
+      // Enable takeaway-only mode for this session
+      localStorage.setItem("terra_takeaway_only", "true");
+      if (cartParam) {
+        localStorage.setItem("terra_takeaway_cartId", cartParam);
+      }
+    } else {
+      // If no takeaway flag in URL, clear any previous takeaway-only mode
+      localStorage.removeItem("terra_takeaway_only");
+      localStorage.removeItem("terra_takeaway_cartId");
+    }
+  }, []);
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const slug = params.get("table");

@@ -129,6 +129,36 @@ export default function SecondPage() {
     return localStorage.getItem("terra_takeaway_customerEmail") || "";
   });
   const [showCustomerInfoModal, setShowCustomerInfoModal] = useState(false);
+  const [showWaitlistInfoModal, setShowWaitlistInfoModal] = useState(false);
+  const [waitlistGuestName, setWaitlistGuestName] = useState("");
+  const [waitlistPartySize, setWaitlistPartySize] = useState("1");
+  const [takeawayOnly, setTakeawayOnly] = useState(
+    () => localStorage.getItem("terra_takeaway_only") === "true"
+  );
+
+  // Keep takeaway-only flag in sync with localStorage (set on Landing via QR params)
+  useEffect(() => {
+    const flag = localStorage.getItem("terra_takeaway_only") === "true";
+    setTakeawayOnly(flag);
+    // #region agent log
+    fetch("http://127.0.0.1:7242/ingest/660a5fbf-4359-420f-956f-3831103456fb", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionId: "debug-session",
+        runId: "takeaway-qr-flow",
+        hypothesisId: "TAKEAWAY-ONLY-1",
+        location: "SecondPage.jsx:useEffect-takeawayOnly",
+        message: "SecondPage loaded with takeawayOnly flag",
+        data: {
+          takeawayOnly: flag,
+          raw: localStorage.getItem("terra_takeaway_only"),
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion agent log
+  }, []);
 
   // Clear customer data when component mounts if this is a new QR scan
   useEffect(() => {
@@ -167,6 +197,13 @@ export default function SecondPage() {
 
   // STRONG LOGIC: Check if table is occupied based on actual table.status field
   useEffect(() => {
+    // For takeaway-only QR flow, completely skip waitlist + table occupancy logic
+    if (takeawayOnly) {
+      setIsTableOccupied(false);
+      setShowWaitlistModal(false);
+      return;
+    }
+
     if (!tableInfo) {
       setIsTableOccupied(false);
       setShowWaitlistModal(false);
@@ -197,10 +234,16 @@ export default function SecondPage() {
     } else {
       setShowWaitlistModal(false);
     }
-  }, [tableInfo, waitlistToken]);
+  }, [tableInfo, waitlistToken, takeawayOnly]);
 
   // Poll waitlist status ONLY if user is in waitlist AND table is NOT available
   useEffect(() => {
+    // For takeaway-only QR flow, completely skip waitlist polling
+    if (takeawayOnly) {
+      setWaitlistInfo(null);
+      return;
+    }
+
     // CRITICAL: No waitlist logic if table is available
     if (!tableInfo || tableInfo.status === "AVAILABLE") {
       if (waitlistToken) {
@@ -260,7 +303,7 @@ export default function SecondPage() {
     const interval = setInterval(checkWaitlistStatus, 15000); // Poll every 15 seconds
 
     return () => clearInterval(interval);
-  }, [waitlistToken, tableInfo]);
+  }, [waitlistToken, tableInfo, takeawayOnly]);
 
   // Load table info on mount
   useEffect(() => {
@@ -642,29 +685,44 @@ export default function SecondPage() {
     navigate("/menu", { state: { serviceType: "TAKEAWAY" } });
   }, [navigate]);
 
-  // Join waitlist - STRICT: ONLY when table is NOT available
-  const handleJoinWaitlist = useCallback(async () => {
+  // Open waitlist info modal when user clicks "Join Waitlist"
+  const handleOpenWaitlistInfo = useCallback(() => {
+    setShowWaitlistInfoModal(true);
+  }, []);
+
+  // Handle waitlist info modal submit
+  const handleWaitlistInfoSubmit = useCallback(async () => {
     // CRITICAL: No waitlist if table is available
     if (!tableInfo) {
       alert("We couldn't detect your table. Please ask staff for help.");
+      setShowWaitlistInfoModal(false);
       return;
     }
 
     const tableStatus = tableInfo.status || "AVAILABLE";
     if (tableStatus === "AVAILABLE") {
       alert("Table is available. You can proceed directly without waitlist.");
+      setShowWaitlistInfoModal(false);
       return;
     }
 
     if (!isTableOccupied) {
       alert("Table is not occupied. You can proceed directly.");
+      setShowWaitlistInfoModal(false);
       return;
     }
 
     const tableId = tableInfo?.id || tableInfo?._id;
     if (!tableId) {
       alert("We couldn't detect your table. Please ask staff for help.");
+      setShowWaitlistInfoModal(false);
       return;
+    }
+
+    // Parse party size
+    let partySize = parseInt(waitlistPartySize, 10);
+    if (!Number.isFinite(partySize) || partySize <= 0) {
+      partySize = 1;
     }
 
     try {
@@ -679,6 +737,11 @@ export default function SecondPage() {
             sessionToken ||
             localStorage.getItem("terra_sessionToken") ||
             undefined,
+          name:
+            waitlistGuestName && waitlistGuestName.trim()
+              ? waitlistGuestName.trim()
+              : undefined,
+          partySize,
         }),
       });
 
@@ -694,8 +757,15 @@ export default function SecondPage() {
         token: data.token,
         status: "WAITING",
         position: data.position || 1,
+        name:
+          data.name || (waitlistGuestName && waitlistGuestName.trim()) || null,
+        partySize: data.partySize || partySize || 1,
       });
       setShowWaitlistModal(false);
+      setShowWaitlistInfoModal(false);
+      // Reset form
+      setWaitlistGuestName("");
+      setWaitlistPartySize("1");
 
       const position = data.position || 1;
       if (data.message === "Already in waitlist") {
@@ -708,7 +778,21 @@ export default function SecondPage() {
     } finally {
       setJoiningWaitlist(false);
     }
-  }, [tableInfo, isTableOccupied, waitlistToken]);
+  }, [
+    tableInfo,
+    isTableOccupied,
+    waitlistToken,
+    waitlistGuestName,
+    waitlistPartySize,
+    sessionToken,
+  ]);
+
+  // Handle skip waitlist info (close modal without joining)
+  const handleSkipWaitlistInfo = useCallback(() => {
+    setShowWaitlistInfoModal(false);
+    setWaitlistGuestName("");
+    setWaitlistPartySize("1");
+  }, []);
 
   // Leave waitlist
   const handleLeaveWaitlist = useCallback(async () => {
@@ -876,43 +960,45 @@ export default function SecondPage() {
 
         <div className="content-wrapper">
           <div className="buttons-container">
-            <button
-              onClick={() => {
-                // STRONG LOGIC: Check actual table status before allowing Dine In
-                if (!tableInfo) {
-                  alert(
-                    "We couldn't detect your table. Please scan the table QR again."
-                  );
-                  return;
-                }
+            {!takeawayOnly && (
+              <button
+                onClick={() => {
+                  // STRONG LOGIC: Check actual table status before allowing Dine In
+                  if (!tableInfo) {
+                    alert(
+                      "We couldn't detect your table. Please scan the table QR again."
+                    );
+                    return;
+                  }
 
-                const tableStatus = tableInfo.status || "AVAILABLE";
+                  const tableStatus = tableInfo.status || "AVAILABLE";
 
-                // CRITICAL: If table status is AVAILABLE, allow direct access (no waitlist)
-                if (tableStatus === "AVAILABLE") {
-                  // Table is available - proceed directly without waitlist
+                  // CRITICAL: If table status is AVAILABLE, allow direct access (no waitlist)
+                  if (tableStatus === "AVAILABLE") {
+                    // Table is available - proceed directly without waitlist
+                    startDineInFlow();
+                    return;
+                  }
+
+                  // Table is occupied - check if user is in waitlist
+                  if (tableStatus !== "AVAILABLE" && !waitlistToken) {
+                    alert(
+                      "Table is currently occupied. You must join the waitlist to access Dine In."
+                    );
+                    setShowWaitlistModal(true);
+                    return;
+                  }
+
+                  // Table is occupied but user is in waitlist - proceed to check status
                   startDineInFlow();
-                  return;
-                }
-
-                // Table is occupied - check if user is in waitlist
-                if (tableStatus !== "AVAILABLE" && !waitlistToken) {
-                  alert(
-                    "Table is currently occupied. You must join the waitlist to access Dine In."
-                  );
-                  setShowWaitlistModal(true);
-                  return;
-                }
-
-                // Table is occupied but user is in waitlist - proceed to check status
-                startDineInFlow();
-              }}
-              className={`nav-btn ${
-                accessibilityMode ? "nav-btn-accessibility" : "nav-btn-normal"
-              }`}
-            >
-              {t("dineIn")}
-            </button>
+                }}
+                className={`nav-btn ${
+                  accessibilityMode ? "nav-btn-accessibility" : "nav-btn-normal"
+                }`}
+              >
+                {t("dineIn")}
+              </button>
+            )}
 
             <button
               onClick={startTakeawayFlow}
@@ -924,8 +1010,9 @@ export default function SecondPage() {
             </button>
           </div>
 
-          {/* Waitlist Status Card - only show if user is in waitlist AND table is NOT available */}
-          {waitlistToken &&
+          {/* Waitlist Status Card - only for dine-in (not for takeaway-only QR) */}
+          {!takeawayOnly &&
+            waitlistToken &&
             waitlistInfo &&
             tableInfo?.status !== "AVAILABLE" && (
               <div className="waitlist-status-card">
@@ -980,8 +1067,9 @@ export default function SecondPage() {
           <div className="spacer" />
         </div>
 
-        {/* Waitlist Modal - STRICT: only show when table is occupied (NOT available) */}
-        {showWaitlistModal &&
+        {/* Waitlist Modal - STRICT: only show when table is occupied (NOT available) and not in takeaway-only QR mode */}
+        {!takeawayOnly &&
+          showWaitlistModal &&
           isTableOccupied &&
           tableInfo?.status !== "AVAILABLE" &&
           !waitlistToken && (
@@ -996,12 +1084,10 @@ export default function SecondPage() {
                 <div className="waitlist-actions">
                   <button
                     className="waitlist-primary"
-                    onClick={handleJoinWaitlist}
+                    onClick={handleOpenWaitlistInfo}
                     disabled={joiningWaitlist}
                   >
-                    {joiningWaitlist
-                      ? t("waitlistJoining") || "Joining..."
-                      : t("waitlistJoin") || "Join Waitlist"}
+                    {t("waitlistJoin") || "Join Waitlist"}
                   </button>
                   <button
                     className="waitlist-secondary"
@@ -1019,6 +1105,98 @@ export default function SecondPage() {
               </div>
             </div>
           )}
+
+        {/* Waitlist Info Modal - Collect name and party size */}
+        {showWaitlistInfoModal && (
+          <div
+            className="customer-info-modal-overlay"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) {
+                handleSkipWaitlistInfo();
+              }
+            }}
+          >
+            <div
+              className="customer-info-modal"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="customer-info-modal-header">
+                <h3>Join Waitlist</h3>
+                <button
+                  className="customer-info-close-btn"
+                  onClick={handleSkipWaitlistInfo}
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="customer-info-modal-body">
+                <p
+                  style={{
+                    marginBottom: "16px",
+                    color: "#666",
+                    fontSize: "0.9rem",
+                  }}
+                >
+                  Please provide your details to join the waitlist:
+                </p>
+                <div className="customer-info-form">
+                  <div className="customer-info-field">
+                    <label htmlFor="waitlistGuestName">Your Name</label>
+                    <input
+                      type="text"
+                      id="waitlistGuestName"
+                      value={waitlistGuestName}
+                      onChange={(e) => setWaitlistGuestName(e.target.value)}
+                      placeholder="Enter your name"
+                      className="customer-info-input"
+                    />
+                  </div>
+                  <div className="customer-info-field">
+                    <label htmlFor="waitlistPartySize">Number of Seats *</label>
+                    <input
+                      type="number"
+                      id="waitlistPartySize"
+                      value={waitlistPartySize}
+                      onChange={(e) => setWaitlistPartySize(e.target.value)}
+                      placeholder="Enter number of seats"
+                      className="customer-info-input"
+                      min="1"
+                      required
+                    />
+                    <p
+                      style={{
+                        marginTop: "4px",
+                        fontSize: "0.75rem",
+                        color: "#666",
+                      }}
+                    >
+                      How many people are in your party?
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className="customer-info-modal-footer">
+                <button
+                  className="customer-info-skip-btn"
+                  onClick={handleSkipWaitlistInfo}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="customer-info-submit-btn"
+                  onClick={handleWaitlistInfoSubmit}
+                  disabled={
+                    joiningWaitlist ||
+                    !waitlistPartySize ||
+                    parseInt(waitlistPartySize, 10) <= 0
+                  }
+                >
+                  {joiningWaitlist ? "Joining..." : "Join Waitlist"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Customer Info Modal for Takeaway Orders */}
         {showCustomerInfoModal && (

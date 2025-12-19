@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { FaQrcode, FaMoneyBillWave, FaArrowLeft } from "react-icons/fa";
 import { MdPayments } from "react-icons/md";
@@ -25,7 +25,13 @@ export default function Payment() {
   const language = localStorage.getItem("language") || "en";
   const t = (key) => translations[language]?.[key] || key;
 
-  const orderId = localStorage.getItem("terra_orderId");
+  // Read current order ID from localStorage (service-type aware)
+  const serviceType = localStorage.getItem("terra_serviceType") || "DINE_IN";
+  const orderId =
+    serviceType === "TAKEAWAY"
+      ? localStorage.getItem("terra_orderId_TAKEAWAY") ||
+        localStorage.getItem("terra_orderId")
+      : localStorage.getItem("terra_orderId");
 
   const paymentPending = useMemo(
     () =>
@@ -35,7 +41,7 @@ export default function Payment() {
     [payment]
   );
 
-  const fetchLatestPayment = async () => {
+  const fetchLatestPayment = useCallback(async () => {
     if (!orderId) return;
     try {
       setLoading(true);
@@ -65,19 +71,9 @@ export default function Payment() {
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    if (!orderId) {
-      alert(t("noOrderFound") || "No order found for payment.");
-      navigate("/menu");
-      return;
-    }
-    fetchLatestPayment();
-    fetchUploadedQR();
   }, [orderId]);
 
-  const fetchUploadedQR = async () => {
+  const fetchUploadedQR = useCallback(async () => {
     try {
       const res = await fetch(`${nodeApi}/api/payment-qr/active`);
       // Handle both 200 (with null) and 404 gracefully - both mean no QR code exists yet
@@ -96,7 +92,17 @@ export default function Payment() {
       // Silently handle expected "not found" scenarios - no uploaded QR is okay
       setUploadedQR(null);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (!orderId) {
+      alert(t("noOrderFound") || "No order found for payment.");
+      navigate("/menu");
+      return;
+    }
+    fetchLatestPayment();
+    fetchUploadedQR();
+  }, [orderId, fetchLatestPayment, fetchUploadedQR, navigate, t]);
 
   useEffect(() => {
     if (!paymentPending) return;
@@ -104,15 +110,15 @@ export default function Payment() {
       fetchLatestPayment();
     }, 10000);
     return () => clearInterval(interval);
-  }, [paymentPending]);
+  }, [paymentPending, fetchLatestPayment]);
 
   useEffect(() => {
     if (payment?.status === "PAID") {
       handleCompleteAndRedirect();
     }
-  }, [payment?.status]);
+  }, [payment?.status, handleCompleteAndRedirect]);
 
-  const handleCompleteAndRedirect = () => {
+  const handleCompleteAndRedirect = useCallback(() => {
     if (orderId) {
       // CRITICAL: Preserve orderId so Menu page can display order data
       localStorage.setItem("terra_orderId", orderId);
@@ -133,6 +139,13 @@ export default function Payment() {
           "terra_orderStatusUpdatedAt_TAKEAWAY",
           new Date().toISOString()
         );
+
+        // CRITICAL: Clear takeaway customer data after order is paid
+        // This ensures new customers don't see previous customer's data
+        localStorage.removeItem("terra_takeaway_customerName");
+        localStorage.removeItem("terra_takeaway_customerMobile");
+        localStorage.removeItem("terra_takeaway_customerEmail");
+        console.log("[Payment] Cleared takeaway customer data after payment");
       } else {
         localStorage.setItem("terra_orderId_DINE_IN", orderId);
         localStorage.setItem("terra_orderStatus_DINE_IN", "Paid");
@@ -145,7 +158,7 @@ export default function Payment() {
     // Only remove cart, keep order data
     localStorage.removeItem("terra_cart");
     navigate("/menu");
-  };
+  }, [orderId, navigate]);
 
   const createPaymentIntent = async (method) => {
     if (!orderId) return;

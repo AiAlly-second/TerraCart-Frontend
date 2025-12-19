@@ -11,7 +11,9 @@ export default function Header({ showNavigationTabs = true, isFixed = true }) {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const [language, setLanguage] = useState(localStorage.getItem("language") || "en");
+  const [language, setLanguage] = useState(
+    localStorage.getItem("language") || "en"
+  );
   const t = translations[language];
   const [showCard, setShowCard] = useState(false);
   const [recording, setRecording] = useState(false);
@@ -26,7 +28,9 @@ export default function Header({ showNavigationTabs = true, isFixed = true }) {
 
   useEffect(() => {
     const handleStorageChange = () => {
-      setAccessibilityMode(localStorage.getItem("accessibilityMode") === "true");
+      setAccessibilityMode(
+        localStorage.getItem("accessibilityMode") === "true"
+      );
       setLanguage(localStorage.getItem("language") || "en");
     };
     window.addEventListener("storage", handleStorageChange);
@@ -59,8 +63,8 @@ export default function Header({ showNavigationTabs = true, isFixed = true }) {
 
   // CHANGE 2: Define conditional classes based on the 'isFixed' prop.
   const positionClasses = isFixed
-    ? 'fixed top-0 left-0 z-20' // Classes for a fixed header
-    : 'relative';               // Classes for a scrolling header
+    ? "fixed top-0 left-0 z-20" // Classes for a fixed header
+    : "relative"; // Classes for a scrolling header
 
   return (
     <>
@@ -70,7 +74,7 @@ export default function Header({ showNavigationTabs = true, isFixed = true }) {
       >
         {/* The rest of your header's internal JSX remains unchanged */}
         <div className="w-full flex items-center justify-center relative h-20">
-          {location.pathname !== '/' && (
+          {location.pathname !== "/" && (
             <button
               onClick={() => navigate(-1)}
               className={`absolute left-4 p-2 rounded-full transition ${
@@ -84,7 +88,7 @@ export default function Header({ showNavigationTabs = true, isFixed = true }) {
           )}
           <img src={logo} alt="Logo" className="h-12 object-contain" />
         </div>
-        
+
         {showNavigationTabs && (
           <NavigationTabs
             activeTab={activeTab}
@@ -107,7 +111,7 @@ export default function Header({ showNavigationTabs = true, isFixed = true }) {
               exit={{ opacity: 0 }}
             />
             <motion.div
-              className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50"
+              className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-md mx-auto p-3 sm:p-4 max-h-[90vh] overflow-y-auto"
               initial={{ opacity: 0, scale: 0.7 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.7 }}

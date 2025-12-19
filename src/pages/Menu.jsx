@@ -14,7 +14,6 @@ import OrderStatus from "../components/OrderStatus";
 import { io } from "socket.io-client";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
-import BlindVoiceAssistant from "../components/BlindVoiceAssistant";
 import blindEyeIcon from "../assets/images/blind-eye-sign.png";
 // import AccessibilityFooter from "../components/AccessibilityFooter";
 const nodeApi = (
@@ -24,7 +23,7 @@ const nodeApi = (
 const flaskApi = (
   import.meta.env.VITE_FLASK_API_URL || "http://localhost:5050"
 ).replace(/\/$/, "");
-console.log("[Menu] Flask API URL:", flaskApi); // Debug log
+// Flask API URL configured
 
 // Helper function to normalize image URLs
 // If image URL is relative (starts with /), prepend API base URL
@@ -350,8 +349,6 @@ export default function MenuPage() {
     localStorage.getItem("accessibilityMode") === "true"
   );
 
-  const [showVoiceAssistant, setShowVoiceAssistant] = useState(false);
-
   const toggleAccessibility = () => {
     const newMode = !accessibilityMode;
     setAccessibilityMode(newMode);
@@ -359,7 +356,7 @@ export default function MenuPage() {
   };
 
   const handleVoiceAssistant = () => {
-    setShowVoiceAssistant(true);
+    // Modal removed - button kept for visual consistency
   };
 
   const [cart, setCart] = useState(() => {
@@ -417,21 +414,49 @@ export default function MenuPage() {
   const recognitionRef = useRef(null);
   const invoiceRef = useRef(null);
   const [activeOrderId, setActiveOrderId] = useState(() => {
-    const stored = localStorage.getItem("terra_orderId");
+    // Check service type specific order ID ONLY - never mix TAKEAWAY and DINE_IN orders
+    const serviceType = localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN";
+    let stored = null;
+    if (serviceType === "TAKEAWAY") {
+      // For TAKEAWAY: Only read from TAKEAWAY-specific key, ignore generic terra_orderId
+      stored = localStorage.getItem("terra_orderId_TAKEAWAY");
+    } else {
+      // For DINE_IN: Read from DINE_IN-specific key first, fallback to generic for backward compatibility
+      stored =
+        localStorage.getItem("terra_orderId_DINE_IN") ||
+        localStorage.getItem("terra_orderId");
+    }
     return stored || null;
   });
   const [orderStatus, setOrderStatus] = useState(() => {
-    const stored = localStorage.getItem("terra_orderStatus");
+    // Check service type specific status first, then fallback to general
+    const serviceType = localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN";
+    const stored =
+      serviceType === "TAKEAWAY"
+        ? localStorage.getItem("terra_orderStatus_TAKEAWAY") ||
+          localStorage.getItem("terra_orderStatus")
+        : localStorage.getItem("terra_orderStatus");
     return stored || null;
   });
   const [orderStatusUpdatedAt, setOrderStatusUpdatedAt] = useState(() => {
-    const stored = localStorage.getItem("terra_orderStatusUpdatedAt");
+    // Check service type specific updatedAt first, then fallback to general
+    const serviceType = localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN";
+    const stored =
+      serviceType === "TAKEAWAY"
+        ? localStorage.getItem("terra_orderStatusUpdatedAt_TAKEAWAY") ||
+          localStorage.getItem("terra_orderStatusUpdatedAt")
+        : localStorage.getItem("terra_orderStatusUpdatedAt");
     return stored || null;
   });
 
-  const [serviceType, setServiceType] = useState(
-    () => localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN"
-  );
+  const [serviceType, setServiceType] = useState(() => {
+    // Check if this is a takeaway-only QR flow
+    const takeawayOnly = localStorage.getItem("terra_takeaway_only") === "true";
+    if (takeawayOnly) {
+      return "TAKEAWAY";
+    }
+    return localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN";
+  });
   const [tableInfo, setTableInfo] = useState(() => {
     try {
       const stored = localStorage.getItem(TABLE_SELECTION_KEY);
@@ -448,6 +473,14 @@ export default function MenuPage() {
   // Effect to verify active order belongs to current session on mount
   useEffect(() => {
     const verifyActiveOrderSession = async () => {
+      // Only run this strict session check for DINE_IN flows.
+      // For TAKEAWAY we rely on dedicated takeaway session handling elsewhere.
+      const currentServiceType =
+        localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN";
+      if (currentServiceType === "TAKEAWAY") {
+        return;
+      }
+
       const storedOrderId = localStorage.getItem("terra_orderId");
       const currentSessionToken = localStorage.getItem("terra_sessionToken");
 
@@ -498,7 +531,7 @@ export default function MenuPage() {
         // If order exists but sessionToken doesn't match, clear it (belongs to old session)
         if (order.sessionToken && order.sessionToken !== currentSessionToken) {
           console.log(
-            "[Menu] Active order belongs to old session, clearing order data"
+            "[Menu] Clearing stale dine-in order data for old session"
           );
           localStorage.removeItem("terra_orderId");
           localStorage.removeItem("terra_orderStatus");
@@ -532,32 +565,59 @@ export default function MenuPage() {
   useEffect(() => {
     const currentToken = localStorage.getItem("terra_sessionToken");
     const storedToken = sessionToken;
+    const currentServiceType =
+      localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN";
 
-    // If sessionToken changed (different from state), clear all old order data
+    // If sessionToken changed (different from state), clear old DINE_IN order data only
+    // IMPORTANT: Do NOT clear takeaway order data - takeaway uses separate sessionToken
     if (currentToken && storedToken && currentToken !== storedToken) {
-      console.log("[Menu] SessionToken changed - clearing old order data");
-      localStorage.removeItem("terra_orderId");
-      localStorage.removeItem("terra_orderStatus");
-      localStorage.removeItem("terra_orderStatusUpdatedAt");
-      localStorage.removeItem("terra_previousOrder");
-      localStorage.removeItem("terra_previousOrderDetail");
-      localStorage.removeItem("terra_lastPaidOrderId");
-      setActiveOrderId(null);
-      setOrderStatus(null);
-      setOrderStatusUpdatedAt(null);
-      // Note: persistPreviousOrder and persistPreviousOrderDetail are defined later,
-      // but we're already clearing localStorage directly, so no need to call them
-      // Clear service-type-specific keys
-      ["DINE_IN", "TAKEAWAY"].forEach((serviceType) => {
-        localStorage.removeItem(`terra_cart_${serviceType}`);
-        localStorage.removeItem(`terra_orderId_${serviceType}`);
-        localStorage.removeItem(`terra_orderStatus_${serviceType}`);
-        localStorage.removeItem(`terra_orderStatusUpdatedAt_${serviceType}`);
-      });
+      // Only clear dine-in order data, not takeaway
+      if (currentServiceType !== "TAKEAWAY") {
+        console.log(
+          "[Menu] SessionToken changed - clearing old dine-in order data"
+        );
+        localStorage.removeItem("terra_orderId");
+        localStorage.removeItem("terra_orderStatus");
+        localStorage.removeItem("terra_orderStatusUpdatedAt");
+        localStorage.removeItem("terra_previousOrder");
+        localStorage.removeItem("terra_previousOrderDetail");
+        localStorage.removeItem("terra_lastPaidOrderId");
+        localStorage.removeItem("terra_cart_DINE_IN");
+        localStorage.removeItem("terra_orderId_DINE_IN");
+        localStorage.removeItem("terra_orderStatus_DINE_IN");
+        localStorage.removeItem("terra_orderStatusUpdatedAt_DINE_IN");
+        setActiveOrderId(null);
+        setOrderStatus(null);
+        setOrderStatusUpdatedAt(null);
+      }
       // Update state to match localStorage
       setSessionToken(currentToken);
     }
   }, [sessionToken]); // Removed persistPreviousOrder and persistPreviousOrderDetail from dependencies
+
+  // Sync activeOrderId when serviceType changes or on mount
+  useEffect(() => {
+    const currentServiceType =
+      localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN";
+
+    // CRITICAL: Only read from service-type-specific keys, never mix TAKEAWAY and DINE_IN orders
+    let orderId = null;
+    if (currentServiceType === "TAKEAWAY") {
+      // For TAKEAWAY: Only read from TAKEAWAY-specific key, ignore generic terra_orderId
+      orderId = localStorage.getItem("terra_orderId_TAKEAWAY");
+    } else {
+      // For DINE_IN: Read from DINE_IN-specific key first, fallback to generic for backward compatibility
+      orderId =
+        localStorage.getItem("terra_orderId_DINE_IN") ||
+        localStorage.getItem("terra_orderId");
+    }
+
+    if (orderId && orderId !== activeOrderId) {
+      setActiveOrderId(orderId);
+    } else if (!orderId && activeOrderId) {
+      setActiveOrderId(null);
+    }
+  }, [serviceType, activeOrderId]);
 
   // Customer info for takeaway orders (optional) - loaded from localStorage
   const [customerName] = useState(
@@ -788,9 +848,40 @@ export default function MenuPage() {
   ]);
 
   useEffect(() => {
+    // CRITICAL: On mount/refresh, check localStorage first to preserve serviceType
+    // This ensures takeaway mode is maintained across page refreshes
+    const storedServiceType = localStorage.getItem(SERVICE_TYPE_KEY);
+    const takeawayOnly = localStorage.getItem("terra_takeaway_only") === "true";
+    const hasTakeawayOrder = localStorage.getItem("terra_orderId_TAKEAWAY");
+
+    // If we have a takeaway order or takeaway-only flag, ensure serviceType is TAKEAWAY
+    if (
+      (hasTakeawayOrder || takeawayOnly) &&
+      storedServiceType !== "TAKEAWAY"
+    ) {
+      console.log(
+        "[Menu] Detected takeaway order or takeaway-only mode on refresh, setting serviceType to TAKEAWAY"
+      );
+      setServiceType("TAKEAWAY");
+      localStorage.setItem(SERVICE_TYPE_KEY, "TAKEAWAY");
+      return; // Don't override with location.state if we have takeaway data
+    }
+
     if (location.state?.serviceType) {
       setServiceType(location.state.serviceType);
       localStorage.setItem(SERVICE_TYPE_KEY, location.state.serviceType);
+    } else if (storedServiceType) {
+      // Restore serviceType from localStorage on refresh
+      setServiceType(storedServiceType);
+    } else {
+      // If no serviceType in state or localStorage, check if this is a takeaway-only QR flow
+      if (takeawayOnly) {
+        console.log(
+          "[Menu] Detected takeaway-only QR flow, setting serviceType to TAKEAWAY"
+        );
+        setServiceType("TAKEAWAY");
+        localStorage.setItem(SERVICE_TYPE_KEY, "TAKEAWAY");
+      }
     }
 
     if (location.state?.table) {
@@ -800,10 +891,173 @@ export default function MenuPage() {
         JSON.stringify(location.state.table)
       );
     }
-  }, [location.state]);
+  }, [location.state, setServiceType]);
 
   useEffect(() => {
     let cancelled = false;
+
+    // CRITICAL: Check waitlist status - block access if user is in WAITING status
+    const checkWaitlistAccess = async () => {
+      const currentServiceType =
+        localStorage.getItem(SERVICE_TYPE_KEY) ||
+        location.state?.serviceType ||
+        "DINE_IN";
+
+      // Only check waitlist for DINE_IN orders
+      if (currentServiceType !== "DINE_IN") {
+        return true; // Allow access for takeaway
+      }
+
+      // CRITICAL: First check if user has an active order - verify on backend
+      // This handles cases where user was seated and has an order
+      const existingOrderId =
+        localStorage.getItem("terra_orderId") ||
+        localStorage.getItem("terra_orderId_DINE_IN");
+      const existingOrderStatus =
+        localStorage.getItem("terra_orderStatus") ||
+        localStorage.getItem("terra_orderStatus_DINE_IN");
+      const hasActiveOrderInStorage =
+        existingOrderId &&
+        existingOrderStatus &&
+        !["Paid", "Cancelled", "Returned", "Completed"].includes(
+          existingOrderStatus
+        );
+
+      // If we have an order in storage, verify it exists on backend
+      if (hasActiveOrderInStorage && existingOrderId) {
+        try {
+          const orderRes = await fetch(
+            `${nodeApi}/api/orders/${existingOrderId}`
+          );
+          if (orderRes.ok) {
+            const orderData = await orderRes.json();
+            // Verify order is still active (not paid/cancelled/returned)
+            if (
+              orderData.status &&
+              !["Paid", "Cancelled", "Returned", "Completed"].includes(
+                orderData.status
+              )
+            ) {
+              console.log(
+                "[Menu] User has verified active order - allowing access, skipping waitlist check"
+              );
+              return true; // User has verified active order, allow access
+            }
+          }
+        } catch (err) {
+          console.warn("[Menu] Failed to verify order on backend:", err);
+          // If verification fails but we have order in storage, still allow access
+          // (don't block on network errors)
+          if (hasActiveOrderInStorage) {
+            console.log(
+              "[Menu] Order verification failed but order exists in storage - allowing access"
+            );
+            return true;
+          }
+        }
+      }
+
+      // CRITICAL: Also check if user has sessionToken matching table
+      // This indicates they own the table session
+      const sessionToken = localStorage.getItem("terra_sessionToken");
+      const selectedTable = localStorage.getItem("terra_selectedTable");
+      if (sessionToken && selectedTable) {
+        try {
+          const tableData = JSON.parse(selectedTable);
+          // Check if sessionToken matches OR if table has an active order for this session
+          if (tableData.sessionToken === sessionToken) {
+            console.log(
+              "[Menu] User has matching sessionToken - allowing access, skipping waitlist check"
+            );
+            return true; // User owns the table session, allow access
+          }
+
+          // Also verify on backend that this session owns the table
+          const slug =
+            tableData.qrSlug || localStorage.getItem("terra_scanToken");
+          if (slug) {
+            try {
+              const tableRes = await fetch(
+                `${nodeApi}/api/tables/lookup/${slug}?sessionToken=${sessionToken}`
+              );
+              if (tableRes.ok) {
+                const tablePayload = await tableRes.json();
+                const tableSessionToken = tablePayload?.table?.sessionToken;
+                // If table sessionToken matches OR table has active order for this session
+                if (
+                  tableSessionToken === sessionToken ||
+                  tablePayload?.table?.activeOrder
+                ) {
+                  console.log(
+                    "[Menu] Backend confirms user owns table session - allowing access"
+                  );
+                  return true;
+                }
+              }
+            } catch (tableErr) {
+              console.warn(
+                "[Menu] Failed to verify table session on backend:",
+                tableErr
+              );
+              // If verification fails but sessionToken matches locally, still allow
+              if (tableData.sessionToken === sessionToken) {
+                return true;
+              }
+            }
+          }
+        } catch (err) {
+          console.warn("[Menu] Failed to check sessionToken:", err);
+        }
+      }
+
+      // Only check waitlist if user doesn't have active order or session
+      // CRITICAL: Clear waitlist token if user has active order (they shouldn't be in waitlist)
+      const waitlistToken = localStorage.getItem("terra_waitToken");
+      if (hasActiveOrderInStorage && waitlistToken) {
+        console.log(
+          "[Menu] User has active order but also has waitlist token - clearing waitlist token"
+        );
+        localStorage.removeItem("terra_waitToken");
+        return true; // User has active order, allow access
+      }
+
+      if (!waitlistToken) {
+        return true; // No waitlist token, allow access
+      }
+
+      try {
+        const res = await fetch(
+          `${nodeApi}/api/waitlist/status?token=${waitlistToken}`
+        );
+        if (res.ok) {
+          const waitlistData = await res.json();
+          // Only allow access if status is NOTIFIED or SEATED
+          // Block access if status is WAITING
+          if (waitlistData.status === "WAITING") {
+            console.log(
+              "[Menu] User is in WAITING status - blocking menu access"
+            );
+            alert(
+              "You are currently in the waitlist. Please wait for your turn. You will be notified when the table is ready."
+            );
+            navigate("/secondpage");
+            return false;
+          }
+          // Allow access for NOTIFIED or SEATED
+          if (
+            waitlistData.status === "NOTIFIED" ||
+            waitlistData.status === "SEATED"
+          ) {
+            return true;
+          }
+        }
+      } catch (err) {
+        console.error("[Menu] Failed to check waitlist status:", err);
+        // If check fails, allow access (don't block on network errors)
+      }
+
+      return true; // Default: allow access
+    };
 
     // CRITICAL: Mark table as OCCUPIED ONLY when user enters menu page for DINE_IN (not on landing/second page)
     const markTableOccupied = async () => {
@@ -818,7 +1072,9 @@ export default function MenuPage() {
         }
 
         const selectedTable = localStorage.getItem("terra_selectedTable");
-        const sessionToken = localStorage.getItem("terra_sessionToken");
+        // CRITICAL: Always use the latest sessionToken from localStorage
+        // This ensures we use the token that might have been updated by table refresh
+        let sessionToken = localStorage.getItem("terra_sessionToken");
         const scanToken = localStorage.getItem("terra_scanToken");
 
         if (!selectedTable || !scanToken) {
@@ -830,6 +1086,358 @@ export default function MenuPage() {
 
         if (!tableId) {
           return;
+        }
+
+        // CRITICAL: Refresh table status from backend to get the latest sessionToken
+        // This prevents "Invalid session token" errors
+        let shouldMarkOccupied = true;
+        try {
+          const slug = tableData.qrSlug || scanToken;
+          if (slug) {
+            // NOTE: 423 (Locked) responses are EXPECTED when table is occupied
+            // Browser console may show this as an error, but it's normal behavior
+            const refreshRes = await fetch(
+              `${nodeApi}/api/tables/lookup/${slug}${
+                sessionToken ? `?sessionToken=${sessionToken}` : ""
+              }`
+            ).catch((fetchErr) => {
+              // Only log actual network errors, not 423 status codes
+              console.warn(
+                "[Menu] Network error during table lookup:",
+                fetchErr
+              );
+              throw fetchErr; // Re-throw to be handled by outer catch
+            });
+
+            // Handle 423 (Locked) response - table is occupied
+            // NOTE: 423 is EXPECTED when table is occupied - browser console shows this as an error
+            // but it's normal behavior and is handled gracefully below
+            if (refreshRes.status === 423) {
+              let lockedPayload = {};
+              try {
+                lockedPayload = await refreshRes.json();
+              } catch (parseErr) {
+                // Silently handle parse errors for 423 - it's expected behavior
+                console.warn(
+                  "[Menu] Failed to parse 423 response (expected for occupied tables):",
+                  parseErr
+                );
+              }
+              // Log that we're handling 423 (this is expected, not an error)
+              console.log(
+                "[Menu] Table lookup returned 423 (Locked - expected for occupied tables) - handling gracefully"
+              );
+
+              // Check if we have an active order for this table
+              const existingOrderId =
+                localStorage.getItem("terra_orderId") ||
+                localStorage.getItem("terra_orderId_DINE_IN");
+
+              if (existingOrderId) {
+                try {
+                  const orderRes = await fetch(
+                    `${nodeApi}/api/orders/${existingOrderId}`
+                  );
+                  if (orderRes.ok) {
+                    const orderData = await orderRes.json();
+                    const orderTableId =
+                      orderData.table?.toString() ||
+                      orderData.tableId?.toString();
+
+                    if (orderTableId === tableId?.toString()) {
+                      // Order belongs to this table - use order's sessionToken
+                      if (orderData.sessionToken) {
+                        sessionToken = orderData.sessionToken;
+                        localStorage.setItem(
+                          "terra_sessionToken",
+                          sessionToken
+                        );
+                        setSessionToken(sessionToken);
+                        console.log(
+                          "[Menu] Table is locked but user has active order - using order's sessionToken:",
+                          sessionToken
+                        );
+                      }
+                      // Table is already occupied by this user's order - skip marking as occupied
+                      console.log(
+                        "[Menu] Table is already occupied by user's active order - skipping markTableOccupied"
+                      );
+                      shouldMarkOccupied = false;
+                      return; // Skip marking as occupied
+                    }
+                  }
+                } catch (orderErr) {
+                  console.warn(
+                    "[Menu] Failed to verify order when table is locked:",
+                    orderErr
+                  );
+                }
+              }
+
+              // Table is locked and user has no active order for this table
+              // Try to extract table data from 423 response if available
+              if (lockedPayload?.table) {
+                // Update table data even from 423 response
+                const updatedTableData = {
+                  ...tableData,
+                  ...lockedPayload.table,
+                  qrSlug: tableData.qrSlug || lockedPayload.table.qrSlug,
+                };
+                localStorage.setItem(
+                  "terra_selectedTable",
+                  JSON.stringify(updatedTableData)
+                );
+
+                // If 423 response has sessionToken, check if it matches ours
+                if (lockedPayload.table.sessionToken) {
+                  const tableSessionToken = lockedPayload.table.sessionToken;
+                  if (tableSessionToken === sessionToken) {
+                    // Session matches - we own this table, can proceed
+                    console.log(
+                      "[Menu] Table is locked but sessionToken matches - we own this table"
+                    );
+                    // Update sessionToken to ensure it's in sync
+                    localStorage.setItem("terra_sessionToken", sessionToken);
+                    setSessionToken(sessionToken);
+                    // Continue with marking as occupied since we own it
+                    shouldMarkOccupied = true;
+                  } else {
+                    // Session doesn't match - but check if we have a sessionToken in localStorage
+                    // that might be valid (user might have just scanned and got a new token)
+                    const storedToken =
+                      localStorage.getItem("terra_sessionToken");
+                    if (storedToken && storedToken === tableSessionToken) {
+                      // Our stored token matches table's token - we own it
+                      console.log(
+                        "[Menu] Table is locked but stored sessionToken matches table's token - we own this table"
+                      );
+                      sessionToken = storedToken;
+                      localStorage.setItem("terra_sessionToken", sessionToken);
+                      setSessionToken(sessionToken);
+                      shouldMarkOccupied = true;
+                    } else {
+                      // Session doesn't match - table is occupied by another user
+                      console.warn(
+                        "[Menu] Table is locked and sessionToken doesn't match - table belongs to another user"
+                      );
+                      shouldMarkOccupied = false;
+                      return; // Skip marking as occupied
+                    }
+                  }
+                } else {
+                  // No sessionToken in 423 response - check if we have one in localStorage
+                  // If we have a sessionToken, it might be valid (table might not have sent it in response)
+                  if (sessionToken) {
+                    // We have a sessionToken - try to proceed (backend will validate)
+                    console.log(
+                      "[Menu] Table is locked and no sessionToken in response, but we have one - proceeding (backend will validate)"
+                    );
+                    // Continue with marking as occupied - backend will check if token is valid
+                    shouldMarkOccupied = true;
+                  } else {
+                    // No sessionToken at all - table is occupied by another user
+                    console.warn(
+                      "[Menu] Table is locked and no sessionToken available - table belongs to another user"
+                    );
+                    shouldMarkOccupied = false;
+                    return; // Skip marking as occupied
+                  }
+                }
+              } else {
+                // No table data in 423 response - check if we have sessionToken
+                if (sessionToken) {
+                  // We have a sessionToken - try to proceed (backend will validate)
+                  console.log(
+                    "[Menu] Table is locked and no table data in response, but we have sessionToken - proceeding (backend will validate)"
+                  );
+                  shouldMarkOccupied = true;
+                } else {
+                  // No table data and no sessionToken - table is occupied by another user
+                  console.warn(
+                    "[Menu] Table is locked and user has no active order for this table - skipping markTableOccupied"
+                  );
+                  shouldMarkOccupied = false;
+                  return; // Skip marking as occupied
+                }
+              }
+            }
+
+            if (refreshRes.ok) {
+              const refreshPayload = await refreshRes.json();
+              if (refreshPayload?.table) {
+                const backendTable = refreshPayload.table;
+                const backendSessionToken = backendTable.sessionToken;
+
+                // Update local table data with backend data
+                const updatedTableData = {
+                  ...tableData,
+                  ...backendTable,
+                  qrSlug: tableData.qrSlug || backendTable.qrSlug,
+                };
+                localStorage.setItem(
+                  "terra_selectedTable",
+                  JSON.stringify(updatedTableData)
+                );
+
+                // If backend table has a sessionToken that doesn't match ours
+                if (
+                  backendSessionToken &&
+                  backendSessionToken !== sessionToken
+                ) {
+                  // Check if we have an active order for this table
+                  const existingOrderId =
+                    localStorage.getItem("terra_orderId") ||
+                    localStorage.getItem("terra_orderId_DINE_IN");
+
+                  if (existingOrderId) {
+                    try {
+                      const orderRes = await fetch(
+                        `${nodeApi}/api/orders/${existingOrderId}`
+                      );
+                      if (orderRes.ok) {
+                        const orderData = await orderRes.json();
+                        const orderTableId =
+                          orderData.table?.toString() ||
+                          orderData.tableId?.toString();
+                        if (orderTableId === tableId?.toString()) {
+                          // Order belongs to this table - use order's sessionToken
+                          if (orderData.sessionToken) {
+                            sessionToken = orderData.sessionToken;
+                            localStorage.setItem(
+                              "terra_sessionToken",
+                              sessionToken
+                            );
+                            setSessionToken(sessionToken);
+                            console.log(
+                              "[Menu] Using order's sessionToken:",
+                              sessionToken
+                            );
+                          } else {
+                            // Use backend table's sessionToken
+                            sessionToken = backendSessionToken;
+                            localStorage.setItem(
+                              "terra_sessionToken",
+                              sessionToken
+                            );
+                            setSessionToken(sessionToken);
+                            console.log(
+                              "[Menu] Using backend table's sessionToken:",
+                              sessionToken
+                            );
+                          }
+                        } else {
+                          // Order doesn't belong to this table - skip marking as occupied
+                          console.warn(
+                            "[Menu] User has order but not for this table - skipping markTableOccupied"
+                          );
+                          shouldMarkOccupied = false;
+                        }
+                      }
+                    } catch (err) {
+                      console.warn("[Menu] Failed to verify order:", err);
+                      // If verification fails, use backend table's sessionToken
+                      sessionToken = backendSessionToken;
+                      localStorage.setItem("terra_sessionToken", sessionToken);
+                      setSessionToken(sessionToken);
+                    }
+                  } else {
+                    // No active order and table has different sessionToken
+                    // Table is occupied by someone else - don't mark as occupied
+                    console.warn(
+                      "[Menu] Table has different sessionToken and user has no active order - skipping markTableOccupied"
+                    );
+                    shouldMarkOccupied = false;
+                  }
+                } else if (
+                  backendSessionToken &&
+                  backendSessionToken === sessionToken
+                ) {
+                  // SessionToken matches - proceed
+                  console.log(
+                    "[Menu] SessionToken matches - proceeding with markTableOccupied"
+                  );
+                } else if (!backendSessionToken) {
+                  // Table has no sessionToken - it's available, proceed
+                  console.log(
+                    "[Menu] Table has no sessionToken - proceeding with markTableOccupied"
+                  );
+                }
+              }
+            }
+            // Note: 423 status is already handled above in the first if block
+            // No need for duplicate else if check here
+          }
+        } catch (refreshErr) {
+          // Only log actual errors, not expected 423 responses
+          // 423 responses are handled above and don't throw errors
+          if (refreshErr?.status !== 423) {
+            console.warn(
+              "[Menu] Failed to refresh table status before markTableOccupied:",
+              refreshErr
+            );
+          }
+          // Continue with marking as occupied if refresh fails (unless it was a 423)
+          // 423 responses are already handled above and set shouldMarkOccupied appropriately
+        }
+
+        // If we determined we shouldn't mark as occupied, return early
+        if (!shouldMarkOccupied) {
+          return;
+        }
+
+        // CRITICAL: Before marking table as occupied, check if user already has an active order
+        // If they do, we don't need to mark it as occupied again (it's already occupied by them)
+        const existingOrderId =
+          localStorage.getItem("terra_orderId") ||
+          localStorage.getItem("terra_orderId_DINE_IN");
+        const existingOrderStatus =
+          localStorage.getItem("terra_orderStatus") ||
+          localStorage.getItem("terra_orderStatus_DINE_IN");
+        const hasActiveOrder =
+          existingOrderId &&
+          existingOrderStatus &&
+          !["Paid", "Cancelled", "Returned", "Completed"].includes(
+            existingOrderStatus
+          );
+
+        // If user has active order, verify it's still valid before skipping occupy call
+        if (hasActiveOrder && existingOrderId) {
+          try {
+            const orderRes = await fetch(
+              `${nodeApi}/api/orders/${existingOrderId}`
+            );
+            if (orderRes.ok) {
+              const orderData = await orderRes.json();
+              // If order is still active and belongs to this table, skip marking as occupied
+              if (
+                orderData.status &&
+                !["Paid", "Cancelled", "Returned", "Completed"].includes(
+                  orderData.status
+                ) &&
+                (orderData.table?.toString() === tableId?.toString() ||
+                  orderData.tableId?.toString() === tableId?.toString())
+              ) {
+                console.log(
+                  "[Menu] User has active order for this table - skipping markTableOccupied"
+                );
+                // Still update sessionToken if order has one
+                if (orderData.sessionToken) {
+                  localStorage.setItem(
+                    "terra_sessionToken",
+                    orderData.sessionToken
+                  );
+                  setSessionToken(orderData.sessionToken);
+                }
+                return; // Skip marking as occupied - already occupied by this user's order
+              }
+            }
+          } catch (err) {
+            console.warn(
+              "[Menu] Failed to verify order before markTableOccupied:",
+              err
+            );
+            // Continue with marking as occupied if verification fails
+          }
         }
 
         // Call API to mark table as occupied when entering menu page
@@ -848,15 +1456,27 @@ export default function MenuPage() {
           // Update local table data to reflect occupied status
           const updatedTable = await res.json().catch(() => null);
           if (updatedTable?.table) {
+            const newSessionToken =
+              updatedTable.table.sessionToken || sessionToken;
             const updatedTableData = {
               ...tableData,
               status: updatedTable.table.status || "OCCUPIED",
-              sessionToken: updatedTable.table.sessionToken || sessionToken,
+              sessionToken: newSessionToken,
             };
             localStorage.setItem(
               "terra_selectedTable",
               JSON.stringify(updatedTableData)
             );
+            // CRITICAL: Update sessionToken in localStorage and state
+            // This ensures subsequent table lookups use the correct token
+            if (newSessionToken && newSessionToken !== sessionToken) {
+              localStorage.setItem("terra_sessionToken", newSessionToken);
+              setSessionToken(newSessionToken);
+              console.log(
+                "[Menu] Updated sessionToken after marking table occupied:",
+                newSessionToken
+              );
+            }
           } else {
             // Fallback: update status locally
             tableData.status = "OCCUPIED";
@@ -866,7 +1486,41 @@ export default function MenuPage() {
             );
           }
         } else {
-          console.warn("Failed to mark table as occupied:", await res.text());
+          const errorText = await res.text().catch(() => "Unknown error");
+          console.warn("Failed to mark table as occupied:", errorText);
+
+          // If the error is 423 (table already occupied), check if it's occupied by us
+          if (res.status === 423) {
+            // Try to refresh table status to get the current sessionToken
+            try {
+              const slug =
+                tableData.qrSlug || localStorage.getItem("terra_scanToken");
+              if (slug) {
+                const refreshRes = await fetch(
+                  `${nodeApi}/api/tables/lookup/${slug}?sessionToken=${
+                    sessionToken || ""
+                  }`
+                );
+                if (refreshRes.ok) {
+                  const refreshPayload = await refreshRes
+                    .json()
+                    .catch(() => ({}));
+                  if (refreshPayload?.table?.sessionToken) {
+                    // Table is occupied by us - update sessionToken
+                    const newSessionToken = refreshPayload.table.sessionToken;
+                    localStorage.setItem("terra_sessionToken", newSessionToken);
+                    setSessionToken(newSessionToken);
+                    console.log(
+                      "[Menu] Table already occupied by us, updated sessionToken:",
+                      newSessionToken
+                    );
+                  }
+                }
+              }
+            } catch (refreshErr) {
+              console.warn("Failed to refresh table status:", refreshErr);
+            }
+          }
         }
       } catch (err) {
         console.warn("Error marking table as occupied:", err);
@@ -879,6 +1533,13 @@ export default function MenuPage() {
         setMenuLoading(true);
         setMenuError(null);
 
+        // Check waitlist access first - block if user is in WAITING status
+        const hasAccess = await checkWaitlistAccess();
+        if (!hasAccess) {
+          setMenuLoading(false);
+          return; // Blocked - user will be redirected
+        }
+
         // Mark table as occupied when menu page loads
         await markTableOccupied();
 
@@ -889,9 +1550,9 @@ export default function MenuPage() {
             localStorage.getItem(TABLE_SELECTION_KEY) || "{}"
           );
           cartId = tableData.cartId || tableData.cafeId || "";
-          console.log("[Menu] Loading menu for cartId:", cartId);
+          // Loading menu
         } catch (e) {
-          console.warn("[Menu] Could not get cartId from table data");
+          // Could not get cartId from table data
         }
 
         const menuUrl = cartId
@@ -1004,6 +1665,191 @@ export default function MenuPage() {
     error: 1000, // how long to keep error visible
   };
 
+  // CRITICAL: Centralized session token recovery function
+  // Tries multiple sources in priority order to recover session token
+  const recoverSessionToken = async (options = {}) => {
+    const {
+      existingOrderId = null,
+      tableInfo: providedTableInfo = null,
+      refreshedTableInfo: providedRefreshedTableInfo = null,
+      performTableLookup = false,
+    } = options;
+
+    // recoverSessionToken called
+
+    // Priority 1: Try to get sessionToken from existing active order
+    if (existingOrderId) {
+      try {
+        const orderRes = await fetch(
+          `${nodeApi}/api/orders/${existingOrderId}`
+        );
+        if (orderRes.ok) {
+          const orderData = await orderRes.json();
+          if (orderData?.sessionToken) {
+            console.log(
+              "[Menu] recoverSessionToken: Found in existing order:",
+              orderData.sessionToken
+            );
+            localStorage.setItem("terra_sessionToken", orderData.sessionToken);
+            setSessionToken(orderData.sessionToken);
+            return orderData.sessionToken;
+          }
+        }
+      } catch (err) {
+        console.warn(
+          "[Menu] recoverSessionToken: Failed to get from existing order:",
+          err
+        );
+      }
+    }
+
+    // Priority 2: Try refreshedTableInfo (from recent table lookup)
+    if (providedRefreshedTableInfo?.sessionToken) {
+      console.log(
+        "[Menu] recoverSessionToken: Found in refreshedTableInfo:",
+        providedRefreshedTableInfo.sessionToken
+      );
+      localStorage.setItem(
+        "terra_sessionToken",
+        providedRefreshedTableInfo.sessionToken
+      );
+      setSessionToken(providedRefreshedTableInfo.sessionToken);
+      return providedRefreshedTableInfo.sessionToken;
+    }
+
+    // Priority 3: Try tableInfo state
+    const currentTableInfo = providedTableInfo || tableInfo;
+    if (currentTableInfo?.sessionToken) {
+      console.log(
+        "[Menu] recoverSessionToken: Found in tableInfo:",
+        currentTableInfo.sessionToken
+      );
+      localStorage.setItem("terra_sessionToken", currentTableInfo.sessionToken);
+      setSessionToken(currentTableInfo.sessionToken);
+      return currentTableInfo.sessionToken;
+    }
+
+    // Priority 4: Try localStorage.terra_sessionToken
+    const storedToken = localStorage.getItem("terra_sessionToken");
+    if (storedToken) {
+      console.log(
+        "[Menu] recoverSessionToken: Found in localStorage:",
+        storedToken
+      );
+      return storedToken;
+    }
+
+    // Priority 5: Try localStorage.terra_selectedTable
+    try {
+      const selectedTable = localStorage.getItem("terra_selectedTable");
+      if (selectedTable) {
+        const tableData = JSON.parse(selectedTable);
+        if (tableData?.sessionToken) {
+          console.log(
+            "[Menu] recoverSessionToken: Found in terra_selectedTable:",
+            tableData.sessionToken
+          );
+          localStorage.setItem("terra_sessionToken", tableData.sessionToken);
+          setSessionToken(tableData.sessionToken);
+          return tableData.sessionToken;
+        }
+      }
+    } catch (e) {
+      console.warn(
+        "[Menu] recoverSessionToken: Failed to parse terra_selectedTable:",
+        e
+      );
+    }
+
+    // Priority 6: Perform fresh table lookup if requested
+    if (performTableLookup) {
+      try {
+        const slug =
+          currentTableInfo?.qrSlug || localStorage.getItem("terra_scanToken");
+        if (slug) {
+          const lookupRes = await fetch(`${nodeApi}/api/tables/lookup/${slug}`);
+          let lookupPayload = null;
+          if (lookupRes.ok) {
+            lookupPayload = await lookupRes.json();
+          } else if (lookupRes.status === 423) {
+            // 423 is expected - extract table data anyway
+            try {
+              lookupPayload = await lookupRes.json();
+            } catch (e) {
+              console.warn(
+                "[Menu] recoverSessionToken: Failed to parse 423 response:",
+                e
+              );
+            }
+          }
+
+          if (lookupPayload?.table?.sessionToken) {
+            console.log(
+              "[Menu] recoverSessionToken: Found in fresh table lookup:",
+              lookupPayload.table.sessionToken
+            );
+            localStorage.setItem(
+              "terra_sessionToken",
+              lookupPayload.table.sessionToken
+            );
+            setSessionToken(lookupPayload.table.sessionToken);
+            return lookupPayload.table.sessionToken;
+          }
+        }
+      } catch (err) {
+        console.warn(
+          "[Menu] recoverSessionToken: Failed to perform table lookup:",
+          err
+        );
+      }
+    }
+
+    console.warn("[Menu] recoverSessionToken: No sessionToken found");
+    return null;
+  };
+
+  // CRITICAL: Get session token with multi-source retrieval
+  // This function tries multiple sources in priority order
+  const getSessionToken = async (options = {}) => {
+    const {
+      existingOrderId = null,
+      refreshedTableInfo: providedRefreshedTableInfo = null,
+      tableInfo: providedTableInfo = null,
+    } = options;
+
+    // For DINE_IN orders, we need a sessionToken
+    if (serviceType === "DINE_IN") {
+      // Try recoverSessionToken first
+      const recoveredToken = await recoverSessionToken({
+        existingOrderId,
+        tableInfo: providedTableInfo || tableInfo,
+        refreshedTableInfo: providedRefreshedTableInfo,
+        performTableLookup: false, // Don't do lookup here, do it explicitly if needed
+      });
+
+      if (recoveredToken) {
+        return recoveredToken;
+      }
+
+      // If still no token, try one more table lookup
+      const finalToken = await recoverSessionToken({
+        existingOrderId,
+        tableInfo: providedTableInfo || tableInfo,
+        refreshedTableInfo: providedRefreshedTableInfo,
+        performTableLookup: true,
+      });
+
+      return finalToken;
+    }
+
+    // For TAKEAWAY orders, sessionToken is optional
+    return (
+      localStorage.getItem("terra_takeaway_sessionToken") ||
+      localStorage.getItem("terra_sessionToken") ||
+      null
+    );
+  };
+
   // REPLACE the whole handleContinue with this
   const handleContinue = async () => {
     if (Object.keys(cart).length === 0) return alert(cartEmptyText);
@@ -1042,9 +1888,19 @@ export default function MenuPage() {
             // Clear the active order ID so we create a new order
             existingId = null;
             setActiveOrderId(null);
-            localStorage.removeItem("terra_orderId");
-            localStorage.removeItem("terra_orderStatus");
-            localStorage.removeItem("terra_orderStatusUpdatedAt");
+            // Clear service-type-specific keys
+            if (serviceType === "TAKEAWAY") {
+              localStorage.removeItem("terra_orderId_TAKEAWAY");
+              localStorage.removeItem("terra_orderStatus_TAKEAWAY");
+              localStorage.removeItem("terra_orderStatusUpdatedAt_TAKEAWAY");
+            } else {
+              localStorage.removeItem("terra_orderId");
+              localStorage.removeItem("terra_orderId_DINE_IN");
+              localStorage.removeItem("terra_orderStatus");
+              localStorage.removeItem("terra_orderStatus_DINE_IN");
+              localStorage.removeItem("terra_orderStatusUpdatedAt");
+              localStorage.removeItem("terra_orderStatusUpdatedAt_DINE_IN");
+            }
           }
         } else {
           // Order not found or error, create new order
@@ -1053,9 +1909,19 @@ export default function MenuPage() {
           );
           existingId = null;
           setActiveOrderId(null);
-          localStorage.removeItem("terra_orderId");
-          localStorage.removeItem("terra_orderStatus");
-          localStorage.removeItem("terra_orderStatusUpdatedAt");
+          // Clear service-type-specific keys
+          if (serviceType === "TAKEAWAY") {
+            localStorage.removeItem("terra_orderId_TAKEAWAY");
+            localStorage.removeItem("terra_orderStatus_TAKEAWAY");
+            localStorage.removeItem("terra_orderStatusUpdatedAt_TAKEAWAY");
+          } else {
+            localStorage.removeItem("terra_orderId");
+            localStorage.removeItem("terra_orderId_DINE_IN");
+            localStorage.removeItem("terra_orderStatus");
+            localStorage.removeItem("terra_orderStatus_DINE_IN");
+            localStorage.removeItem("terra_orderStatusUpdatedAt");
+            localStorage.removeItem("terra_orderStatusUpdatedAt_DINE_IN");
+          }
         }
       } catch (err) {
         console.warn(
@@ -1064,9 +1930,19 @@ export default function MenuPage() {
         );
         existingId = null;
         setActiveOrderId(null);
-        localStorage.removeItem("terra_orderId");
-        localStorage.removeItem("terra_orderStatus");
-        localStorage.removeItem("terra_orderStatusUpdatedAt");
+        // Clear service-type-specific keys
+        if (serviceType === "TAKEAWAY") {
+          localStorage.removeItem("terra_orderId_TAKEAWAY");
+          localStorage.removeItem("terra_orderStatus_TAKEAWAY");
+          localStorage.removeItem("terra_orderStatusUpdatedAt_TAKEAWAY");
+        } else {
+          localStorage.removeItem("terra_orderId");
+          localStorage.removeItem("terra_orderId_DINE_IN");
+          localStorage.removeItem("terra_orderStatus");
+          localStorage.removeItem("terra_orderStatus_DINE_IN");
+          localStorage.removeItem("terra_orderStatusUpdatedAt");
+          localStorage.removeItem("terra_orderStatusUpdatedAt_DINE_IN");
+        }
       }
     }
 
@@ -1091,6 +1967,9 @@ export default function MenuPage() {
       setStepState(2, "active");
       await wait(DUR.beforeSend);
 
+      // Use existing tableInfo - no complex refresh logic
+      let refreshedTableInfo = tableInfo;
+
       // Get customer info from localStorage for takeaway orders (in case state wasn't updated)
       const storedCustomerName =
         serviceType === "TAKEAWAY"
@@ -1113,7 +1992,7 @@ export default function MenuPage() {
         const qrCartId = localStorage.getItem("terra_takeaway_cartId");
         if (qrCartId) {
           cartId = qrCartId;
-          console.log("[Menu] Using cartId from takeaway QR:", cartId);
+          // Using cartId from takeaway QR
         } else {
           try {
             const tableData = JSON.parse(
@@ -1143,12 +2022,69 @@ export default function MenuPage() {
         }
       }
 
+      // Customer info is optional for takeaway orders - no validation needed
+
+      // Get sessionToken from localStorage - unified approach for both table QR and takeaway-only QR
+      // CRITICAL: Both takeaway flows (table QR and takeaway-only QR) must use the same sessionToken logic
+      let finalSessionToken = null;
+      if (serviceType === "TAKEAWAY") {
+        // For TAKEAWAY: Always use takeaway-specific sessionToken (works for both table QR and takeaway-only QR)
+        // This ensures both flows work identically - same sessionToken generation and usage
+        finalSessionToken = localStorage.getItem("terra_takeaway_sessionToken");
+
+        // If no takeaway sessionToken exists, generate one (same format as SecondPage)
+        // This happens when user skips customer info or if sessionToken wasn't set
+        if (!finalSessionToken) {
+          finalSessionToken = `TAKEAWAY-${Date.now()}-${Math.random()
+            .toString(36)
+            .substr(2, 9)}`;
+          localStorage.setItem(
+            "terra_takeaway_sessionToken",
+            finalSessionToken
+          );
+          console.log(
+            "[Menu] Generated new takeaway sessionToken (unified for both flows):",
+            finalSessionToken
+          );
+        } else {
+          console.log(
+            "[Menu] Using existing takeaway sessionToken (unified for both flows):",
+            finalSessionToken
+          );
+        }
+      } else {
+        // For DINE_IN: Use regular sessionToken
+        finalSessionToken = localStorage.getItem("terra_sessionToken");
+
+        // If no sessionToken exists for DINE_IN, generate a simple one
+        if (!finalSessionToken) {
+          finalSessionToken = `session_${Date.now()}_${Math.random()
+            .toString(36)
+            .substr(2, 9)}`;
+          localStorage.setItem("terra_sessionToken", finalSessionToken);
+          setSessionToken(finalSessionToken);
+          console.log(
+            "[Menu] Generated new DINE_IN sessionToken:",
+            finalSessionToken
+          );
+        }
+      }
+
       const orderPayload = buildOrderPayload(cart, {
         serviceType,
-        tableId: tableInfo?.id || tableInfo?._id,
-        tableNumber: tableInfo?.number ?? tableInfo?.tableNumber,
+        tableId:
+          refreshedTableInfo?.id ||
+          refreshedTableInfo?._id ||
+          tableInfo?.id ||
+          tableInfo?._id,
+        tableNumber:
+          refreshedTableInfo?.number ??
+          refreshedTableInfo?.tableNumber ??
+          tableInfo?.number ??
+          tableInfo?.tableNumber,
         menuCatalog,
-        sessionToken: localStorage.getItem("terra_sessionToken"),
+        // CRITICAL: Use the latest sessionToken we just determined
+        sessionToken: finalSessionToken,
         // Only include customer info if it's not empty (avoid sending empty strings)
         customerName:
           serviceType === "TAKEAWAY" && storedCustomerName?.trim()
@@ -1166,14 +2102,64 @@ export default function MenuPage() {
         cartId: serviceType === "TAKEAWAY" ? cartId : undefined,
       });
 
-      console.log(
-        "[Menu] Order payload:",
-        JSON.stringify(orderPayload, null, 2)
+      // CRITICAL: Validate order payload before sending
+      if (
+        !orderPayload.items ||
+        !Array.isArray(orderPayload.items) ||
+        orderPayload.items.length === 0
+      ) {
+        console.error("[Menu] Invalid order payload - no items:", orderPayload);
+        alert(
+          "❌ Your cart is empty. Please add items before placing an order."
+        );
+        setStepState(2, "error");
+        await wait(DUR.error);
+        setProcessOpen(false);
+        return;
+      }
+
+      // Validate each item has required fields
+      const invalidItems = orderPayload.items.filter(
+        (item) =>
+          !item.name ||
+          typeof item.quantity !== "number" ||
+          item.quantity <= 0 ||
+          typeof item.price !== "number" ||
+          item.price < 0
       );
-      console.log(
-        "[Menu] Using existing order ID:",
-        existingId || "none (creating new order)"
-      );
+      if (invalidItems.length > 0) {
+        console.error(
+          "[Menu] Invalid order payload - invalid items:",
+          invalidItems
+        );
+        alert(
+          "❌ Some items in your cart are invalid. Please refresh the page and try again."
+        );
+        setStepState(2, "error");
+        await wait(DUR.error);
+        setProcessOpen(false);
+        return;
+      }
+
+      // Simple validation for DINE_IN orders - just ensure sessionToken exists
+      if (
+        orderPayload.serviceType === "DINE_IN" &&
+        !orderPayload.sessionToken
+      ) {
+        // Use the finalSessionToken we already determined
+        if (finalSessionToken) {
+          orderPayload.sessionToken = finalSessionToken;
+        } else {
+          // Generate a new one if still missing
+          orderPayload.sessionToken = `session_${Date.now()}_${Math.random()
+            .toString(36)
+            .substr(2, 9)}`;
+          localStorage.setItem("terra_sessionToken", orderPayload.sessionToken);
+          setSessionToken(orderPayload.sessionToken);
+        }
+      }
+
+      // Order payload prepared
       const url = existingId
         ? `${nodeApi}/api/orders/${existingId}/kot`
         : `${nodeApi}/api/orders`;
@@ -1186,6 +2172,7 @@ export default function MenuPage() {
       });
 
       let data;
+      let orderCreated = false; // Track if order was successfully created (including retry)
       try {
         data = await res.json();
       } catch (jsonError) {
@@ -1194,18 +2181,83 @@ export default function MenuPage() {
         throw new Error(`Invalid response format: ${text}`);
       }
 
-      if (!(res.ok && data?._id)) {
+      // Handle 403 errors - simple error display, no retry logic
+      if (res.status === 403) {
+        const errorMessage =
+          data?.message || "Access denied. Please try refreshing the page.";
+        console.error("[Menu] Order save failed (403 Forbidden):", {
+          status: res.status,
+          error: data,
+          orderPayload,
+        });
+      }
+
+      if (!(res.ok && data?._id) && !orderCreated) {
         // Backend failed → mark error on step 2
         setStepState(2, "error");
-        // Show more detailed error message from backend if available
-        const errorMessage =
-          data?.message || data?.error || "Failed to save order.";
-        console.error("[Menu] Order save failed:", {
-          status: res.status,
-          statusText: res.statusText,
-          error: data,
-        });
-        alert(`❌ ${errorMessage}`);
+
+        // Handle 403 Forbidden errors (retry already attempted above, this is for other 403 cases)
+        if (res.status === 403 && !orderCreated) {
+          const errorMessage =
+            data?.message || "Access denied. Please try refreshing the page.";
+
+          // If error is about table assignment and retry didn't work
+          if (
+            errorMessage.includes("assigned to another guest") ||
+            errorMessage.includes("table")
+          ) {
+            alert(
+              `⚠️ ${errorMessage}\n\nPlease scan the table QR code again or contact staff for assistance.`
+            );
+          } else {
+            alert(`❌ ${errorMessage}`);
+          }
+        } else if (res.status === 400) {
+          // 400 Bad Request - show detailed error with payload info
+          const errorMessage =
+            data?.message ||
+            data?.error ||
+            "Invalid request. Please check your order and try again.";
+          console.error("[Menu] Order save failed (400 Bad Request):", {
+            status: res.status,
+            statusText: res.statusText,
+            error: data,
+            payload: orderPayload,
+            itemsCount: orderPayload.items?.length,
+            serviceType: orderPayload.serviceType,
+            hasSessionToken: !!orderPayload.sessionToken,
+            hasTableId: !!orderPayload.tableId,
+            hasTableNumber: !!orderPayload.tableNumber,
+          });
+          // Show more helpful error message
+          let userMessage = errorMessage;
+          if (data?.message?.includes("No items supplied")) {
+            userMessage =
+              "Your cart is empty. Please add items before placing an order.";
+          } else if (data?.message?.includes("Session token is required")) {
+            userMessage =
+              "Session token is missing. Please scan the table QR code again.";
+          } else if (data?.message?.includes("Table selection is required")) {
+            userMessage =
+              "Table information is missing. Please scan the table QR code again.";
+          } else if (data?.message?.includes("Invalid order items")) {
+            userMessage =
+              "Some items in your cart are invalid. Please refresh the page and try again.";
+          }
+          alert(`❌ ${userMessage}`);
+        } else {
+          // Show more detailed error message from backend if available
+          const errorMessage =
+            data?.message || data?.error || "Failed to save order.";
+          console.error("[Menu] Order save failed:", {
+            status: res.status,
+            statusText: res.statusText,
+            error: data,
+            payload: orderPayload,
+          });
+          alert(`❌ ${errorMessage}`);
+        }
+
         await wait(DUR.error);
         setProcessOpen(false);
         return;
@@ -1220,10 +2272,72 @@ export default function MenuPage() {
       setStepState(3, "done");
 
       // Persist & clear cart
-      localStorage.setItem("terra_orderId", data._id);
+      // CRITICAL: Store order ID in service-type-specific keys ONLY to prevent mixing TAKEAWAY and DINE_IN orders
+      if (serviceType === "TAKEAWAY") {
+        // For TAKEAWAY: Only set takeaway-specific key, do NOT set generic terra_orderId
+        localStorage.setItem("terra_orderId_TAKEAWAY", data._id);
+        // Clear any DINE_IN order data to prevent confusion
+        localStorage.removeItem("terra_orderId");
+        localStorage.removeItem("terra_orderId_DINE_IN");
+        // Store takeaway session token to prevent cross-order updates
+        // CRITICAL: Always store sessionToken for takeaway orders (works for both table QR and takeaway-only QR)
+        if (data.sessionToken) {
+          localStorage.setItem(
+            "terra_takeaway_sessionToken",
+            data.sessionToken
+          );
+          console.log(
+            "[Menu] Stored takeaway sessionToken from order response:",
+            data.sessionToken
+          );
+        } else if (finalSessionToken) {
+          // If backend didn't return sessionToken but we generated one, store it
+          localStorage.setItem(
+            "terra_takeaway_sessionToken",
+            finalSessionToken
+          );
+          console.log(
+            "[Menu] Stored generated takeaway sessionToken:",
+            finalSessionToken
+          );
+        }
+      } else {
+        // For DINE_IN: Set both generic and DINE_IN-specific keys
+        localStorage.setItem("terra_orderId", data._id);
+        localStorage.setItem("terra_orderId_DINE_IN", data._id);
+        // Clear any TAKEAWAY order data to prevent confusion
+        localStorage.removeItem("terra_orderId_TAKEAWAY");
+      }
       setActiveOrderId(data._id);
       setOrderStatus(data.status || "Confirmed");
       setOrderStatusUpdatedAt(new Date().toISOString());
+
+      // Store status in service-type-specific keys
+      if (serviceType === "TAKEAWAY") {
+        localStorage.setItem(
+          "terra_orderStatus_TAKEAWAY",
+          data.status || "Confirmed"
+        );
+        localStorage.setItem(
+          "terra_orderStatusUpdatedAt_TAKEAWAY",
+          new Date().toISOString()
+        );
+      } else {
+        localStorage.setItem(
+          "terra_orderStatus_DINE_IN",
+          data.status || "Confirmed"
+        );
+        localStorage.setItem(
+          "terra_orderStatusUpdatedAt_DINE_IN",
+          new Date().toISOString()
+        );
+      }
+
+      // Store order detail including takeaway token for takeaway orders
+      if (data && (data.takeawayToken || data.serviceType === "TAKEAWAY")) {
+        persistPreviousOrderDetail(data);
+      }
+
       setCart({});
       localStorage.removeItem("terra_cart");
       setIsOrderingMore(false);
@@ -1581,44 +2695,64 @@ export default function MenuPage() {
 
       const table = JSON.parse(storedTable);
       const slug = table.qrSlug || localStorage.getItem("terra_scanToken");
+
+      // CRITICAL: Always use the latest sessionToken from localStorage
+      // This ensures we use the token that was updated by markTableOccupied()
+      const latestSessionToken =
+        localStorage.getItem("terra_sessionToken") || storedSession;
+
       const params = new URLSearchParams();
-      params.set("sessionToken", storedSession);
-      const url = `${nodeApi}/api/tables/lookup/${slug}?${params.toString()}`;
+      if (latestSessionToken) {
+        params.set("sessionToken", latestSessionToken);
+      }
+      const url = `${nodeApi}/api/tables/lookup/${slug}${
+        params.toString() ? `?${params.toString()}` : ""
+      }`;
       let res = await fetch(url);
       let payload = await res.json().catch(() => ({}));
 
       if (res.status === 423) {
-        const lockedMessage =
-          payload?.message || "Table is currently assigned to another guest.";
-
-        if (storedSession) {
-          // Session might be stale (table released). Try once without the old token.
-          console.warn(
-            "Stale session detected, retrying table lookup without session token."
+        // Check if table is actually occupied by us (same sessionToken)
+        const tableSessionToken = payload?.table?.sessionToken;
+        if (tableSessionToken && tableSessionToken === latestSessionToken) {
+          // Table is occupied by us - this is fine, continue
+          console.log(
+            "[Menu] Table is occupied by current session, proceeding"
           );
-          localStorage.removeItem("terra_sessionToken");
-          setSessionToken(null);
-
-          const retryParams = new URLSearchParams();
-          const retryQuery = retryParams.toString();
-          const retryUrl = `${nodeApi}/api/tables/lookup/${slug}${
-            retryQuery ? `?${retryQuery}` : ""
-          }`;
-          const retryRes = await fetch(retryUrl);
-          const retryPayload = await retryRes.json().catch(() => ({}));
-
-          if (!retryRes.ok) {
-            throw new Error(
-              retryPayload?.message ||
-                lockedMessage ||
-                "Unable to refresh table session. Please ask staff for help."
-            );
-          }
-
-          res = retryRes;
-          payload = retryPayload;
         } else {
-          throw new Error(lockedMessage);
+          // Table is occupied by someone else
+          const lockedMessage =
+            payload?.message || "Table is currently assigned to another guest.";
+
+          if (latestSessionToken) {
+            // Session might be stale (table released). Try once without the old token.
+            console.warn(
+              "Stale session detected, retrying table lookup without session token."
+            );
+            localStorage.removeItem("terra_sessionToken");
+            setSessionToken(null);
+
+            const retryParams = new URLSearchParams();
+            const retryQuery = retryParams.toString();
+            const retryUrl = `${nodeApi}/api/tables/lookup/${slug}${
+              retryQuery ? `?${retryQuery}` : ""
+            }`;
+            const retryRes = await fetch(retryUrl);
+            const retryPayload = await retryRes.json().catch(() => ({}));
+
+            if (!retryRes.ok) {
+              throw new Error(
+                retryPayload?.message ||
+                  lockedMessage ||
+                  "Unable to refresh table session. Please ask staff for help."
+              );
+            }
+
+            res = retryRes;
+            payload = retryPayload;
+          } else {
+            throw new Error(lockedMessage);
+          }
         }
       } else if (!res.ok) {
         throw new Error(
@@ -1635,7 +2769,7 @@ export default function MenuPage() {
 
         if (newSessionToken !== oldSessionToken) {
           // Session changed - clear all old order data from previous session
-          console.log("[Menu] SessionToken changed - clearing old order data");
+          // SessionToken changed - clearing old order data
           localStorage.removeItem("terra_orderId");
           localStorage.removeItem("terra_orderStatus");
           localStorage.removeItem("terra_orderStatusUpdatedAt");
@@ -1683,8 +2817,30 @@ export default function MenuPage() {
       const resolvedTable = payload.table || table;
 
       if (payload.order) {
+        // CRITICAL: Verify order serviceType matches current serviceType before processing
+        const currentServiceType =
+          localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN";
+        if (
+          payload.order.serviceType &&
+          payload.order.serviceType !== currentServiceType
+        ) {
+          console.log(
+            `[Menu] Ignoring order from table lookup - serviceType mismatch: order is ${payload.order.serviceType}, current is ${currentServiceType}`
+          );
+          return; // Don't process order if serviceType doesn't match
+        }
+
         setActiveOrderId(payload.order._id);
-        localStorage.setItem("terra_orderId", payload.order._id);
+        // CRITICAL: Store order ID based on service type to prevent mixing TAKEAWAY and DINE_IN
+        if (currentServiceType === "TAKEAWAY") {
+          localStorage.setItem("terra_orderId_TAKEAWAY", payload.order._id);
+          localStorage.removeItem("terra_orderId");
+          localStorage.removeItem("terra_orderId_DINE_IN");
+        } else {
+          localStorage.setItem("terra_orderId", payload.order._id);
+          localStorage.setItem("terra_orderId_DINE_IN", payload.order._id);
+          localStorage.removeItem("terra_orderId_TAKEAWAY");
+        }
         setOrderStatus(payload.order.status || orderStatus || "Confirmed");
         if (payload.order.updatedAt) {
           setOrderStatusUpdatedAt(payload.order.updatedAt);
@@ -1736,7 +2892,15 @@ export default function MenuPage() {
   };
 
   const handleCancelOrder = async () => {
-    if (!activeOrderId) {
+    // Get order ID - check service-type-specific first, then general
+    const orderId =
+      serviceType === "TAKEAWAY"
+        ? activeOrderId ||
+          localStorage.getItem("terra_orderId_TAKEAWAY") ||
+          localStorage.getItem("terra_orderId")
+        : activeOrderId || localStorage.getItem("terra_orderId");
+
+    if (!orderId) {
       alert("No active order found.");
       return;
     }
@@ -1748,16 +2912,53 @@ export default function MenuPage() {
 
     setCancelling(true);
     try {
-      const sessionToken = localStorage.getItem("terra_sessionToken");
+      // Get appropriate session token based on service type
+      // CRITICAL: For takeaway orders, try multiple sources to find the sessionToken
+      let sessionToken = null;
+      if (serviceType === "TAKEAWAY") {
+        // Try takeaway-specific token first, then fallback to generic
+        sessionToken =
+          localStorage.getItem("terra_takeaway_sessionToken") ||
+          localStorage.getItem("terra_sessionToken");
+
+        // If still no token, try to get it from the order itself (for backward compatibility)
+        if (!sessionToken) {
+          try {
+            const orderRes = await fetch(`${nodeApi}/api/orders/${orderId}`);
+            if (orderRes.ok) {
+              const orderData = await orderRes.json();
+              if (orderData?.sessionToken) {
+                sessionToken = orderData.sessionToken;
+                // Store it for future use
+                localStorage.setItem(
+                  "terra_takeaway_sessionToken",
+                  sessionToken
+                );
+                console.log(
+                  "[Menu] Retrieved sessionToken from order for cancellation:",
+                  sessionToken
+                );
+              }
+            }
+          } catch (err) {
+            console.warn(
+              "[Menu] Failed to fetch order to get sessionToken:",
+              err
+            );
+          }
+        }
+      } else {
+        sessionToken = localStorage.getItem("terra_sessionToken");
+      }
+
       const res = await fetch(
-        `${nodeApi}/api/orders/${activeOrderId}/customer-status`,
+        `${nodeApi}/api/orders/${orderId}/customer-status`,
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             status: "Cancelled",
-            sessionToken:
-              serviceType === "DINE_IN" ? sessionToken || undefined : undefined,
+            sessionToken: sessionToken || undefined,
           }),
         }
       );
@@ -1794,10 +2995,44 @@ export default function MenuPage() {
       setOrderStatus(null);
       setOrderStatusUpdatedAt(null);
       setActiveOrderId(null);
+
+      // Clear order data based on service type
+      if (serviceType === "TAKEAWAY") {
+        localStorage.removeItem("terra_orderId_TAKEAWAY");
+        localStorage.removeItem("terra_orderStatus_TAKEAWAY");
+        localStorage.removeItem("terra_orderStatusUpdatedAt_TAKEAWAY");
+        localStorage.removeItem("terra_cart_TAKEAWAY");
+
+        // CRITICAL: Clear takeaway customer data when order is cancelled
+        // This ensures new customers don't see previous customer's data
+        localStorage.removeItem("terra_takeaway_customerName");
+        localStorage.removeItem("terra_takeaway_customerMobile");
+        localStorage.removeItem("terra_takeaway_customerEmail");
+        console.log(
+          "[Menu] Cleared takeaway customer data after order cancellation"
+        );
+      } else {
+        localStorage.removeItem("terra_orderId");
+        localStorage.removeItem("terra_orderStatus");
+        localStorage.removeItem("terra_orderStatusUpdatedAt");
+        localStorage.removeItem("terra_cart");
+      }
+
+      // Also clear general order data
       localStorage.removeItem("terra_orderId");
       localStorage.removeItem("terra_orderStatus");
       localStorage.removeItem("terra_orderStatusUpdatedAt");
       localStorage.removeItem("terra_cart");
+
+      // CRITICAL: If this is a takeaway order, clear waitlist state
+      // Takeaway orders should never trigger waitlist
+      if (serviceType === "TAKEAWAY") {
+        localStorage.removeItem("terra_waitToken");
+        console.log(
+          "[Menu] Cleared waitlist state for cancelled takeaway order"
+        );
+      }
+
       setCart({});
       setIsOrderingMore(false);
       alert("Your order has been cancelled.");
@@ -1872,6 +3107,23 @@ export default function MenuPage() {
       localStorage.removeItem("terra_cart");
       setCart({});
       setIsOrderingMore(false);
+
+      // CRITICAL: If this is a takeaway order, clear waitlist state
+      // Takeaway orders should never trigger waitlist
+      if (serviceType === "TAKEAWAY") {
+        localStorage.removeItem("terra_waitToken");
+        console.log(
+          "[Menu] Cleared waitlist state for returned takeaway order"
+        );
+
+        // CRITICAL: Clear takeaway customer data when order is returned
+        // This ensures new customers don't see previous customer's data
+        localStorage.removeItem("terra_takeaway_customerName");
+        localStorage.removeItem("terra_takeaway_customerMobile");
+        localStorage.removeItem("terra_takeaway_customerEmail");
+        console.log("[Menu] Cleared takeaway customer data after order return");
+      }
+
       alert("Your order has been marked as returned.");
     } catch (err) {
       console.error("handleReturnOrder error", err);
@@ -2195,7 +3447,23 @@ export default function MenuPage() {
   };
 
   useEffect(() => {
-    if (!activeOrderId) {
+    // Get order ID - check service-type-specific ONLY, never mix TAKEAWAY and DINE_IN
+    const currentServiceType =
+      localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN";
+    const isTakeaway = currentServiceType === "TAKEAWAY";
+    let orderId = null;
+    if (isTakeaway) {
+      // For TAKEAWAY: Only read from TAKEAWAY-specific key
+      orderId = activeOrderId || localStorage.getItem("terra_orderId_TAKEAWAY");
+    } else {
+      // For DINE_IN: Read from DINE_IN-specific key first, fallback to generic for backward compatibility
+      orderId =
+        activeOrderId ||
+        localStorage.getItem("terra_orderId_DINE_IN") ||
+        localStorage.getItem("terra_orderId");
+    }
+
+    if (!orderId) {
       setOrderStatus(null);
       setOrderStatusUpdatedAt(null);
       return;
@@ -2206,28 +3474,78 @@ export default function MenuPage() {
     }
 
     let socket;
+    let timer;
+    // Track if we've already logged connection error - must be outside function to persist
+    let connectionErrorLogged = false;
+
     const fetchStatus = async () => {
       try {
+        // Get order ID - check service-type-specific ONLY, never mix TAKEAWAY and DINE_IN
+        const currentServiceType =
+          localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN";
+        let orderId = null;
+        if (currentServiceType === "TAKEAWAY") {
+          // For TAKEAWAY: Only read from TAKEAWAY-specific key
+          orderId =
+            activeOrderId || localStorage.getItem("terra_orderId_TAKEAWAY");
+        } else {
+          // For DINE_IN: Read from DINE_IN-specific key first, fallback to generic for backward compatibility
+          orderId =
+            activeOrderId ||
+            localStorage.getItem("terra_orderId_DINE_IN") ||
+            localStorage.getItem("terra_orderId");
+        }
+
+        if (!orderId) {
+          return;
+        }
+
         const currentSessionToken = localStorage.getItem("terra_sessionToken");
 
-        const res = await fetch(`${nodeApi}/api/orders/${activeOrderId}`);
+        let res;
+        try {
+          res = await fetch(`${nodeApi}/api/orders/${orderId}`, {
+            signal: AbortSignal.timeout(5000), // 5 second timeout
+          });
+        } catch (fetchError) {
+          // Handle network errors (connection refused, timeout, etc.)
+          // Only log once to avoid console spam
+          if (!connectionErrorLogged) {
+            console.warn(
+              "[Menu] Backend server appears to be offline. Will retry automatically."
+            );
+            connectionErrorLogged = true;
+          }
+          // Keep existing order status from localStorage - don't clear it
+          return;
+        }
+
+        // Reset error flag on successful HTTP response (even if 404/500 - means server is online)
+        if (connectionErrorLogged) {
+          connectionErrorLogged = false;
+        }
+
         if (!res.ok) {
           // Only clear order data if order truly doesn't exist (404)
           // Don't clear on other errors (network issues, 500, etc.) - keep existing status
           if (res.status === 404) {
             console.warn("Order not found (404), clearing order data");
-            localStorage.removeItem("terra_orderId");
-            localStorage.removeItem("terra_orderStatus");
-            localStorage.removeItem("terra_orderStatusUpdatedAt");
+            // Clear service-type-specific keys
+            if (currentServiceType === "TAKEAWAY") {
+              localStorage.removeItem("terra_orderId_TAKEAWAY");
+              localStorage.removeItem("terra_orderStatus_TAKEAWAY");
+              localStorage.removeItem("terra_orderStatusUpdatedAt_TAKEAWAY");
+            } else {
+              localStorage.removeItem("terra_orderId");
+              localStorage.removeItem("terra_orderId_DINE_IN");
+              localStorage.removeItem("terra_orderStatus");
+              localStorage.removeItem("terra_orderStatus_DINE_IN");
+              localStorage.removeItem("terra_orderStatusUpdatedAt");
+              localStorage.removeItem("terra_orderStatusUpdatedAt_DINE_IN");
+            }
             setActiveOrderId(null);
             setOrderStatus(null);
             setOrderStatusUpdatedAt(null);
-          } else {
-            // For other errors, keep the existing order status from localStorage
-            console.warn(
-              "Failed to fetch order status (non-404), keeping existing status:",
-              res.status
-            );
           }
           return;
         }
@@ -2245,112 +3563,335 @@ export default function MenuPage() {
 
         if (!data) return;
 
-        // CRITICAL: Verify order belongs to current session
-        // For takeaway orders, sessionToken might not be set, so only check if both exist
+        // CRITICAL: Verify order serviceType matches current serviceType to prevent mixing TAKEAWAY and DINE_IN
         const serviceType =
           localStorage.getItem("terra_serviceType") || "DINE_IN";
         const isTakeaway = serviceType === "TAKEAWAY";
 
-        // Only verify sessionToken for DINE_IN orders or if both tokens exist
-        // Takeaway orders might not have sessionToken, so don't clear them
-        if (
-          !isTakeaway &&
-          currentSessionToken &&
-          data.sessionToken &&
-          data.sessionToken !== currentSessionToken
-        ) {
-          // Order belongs to old session - clear it (only for DINE_IN)
+        // If order serviceType doesn't match current serviceType, ignore it
+        if (data.serviceType && data.serviceType !== serviceType) {
           console.log(
-            "[Menu] Order belongs to old session, clearing order data"
+            `[Menu] Ignoring order update - serviceType mismatch: order is ${data.serviceType}, current is ${serviceType}`
           );
-          localStorage.removeItem("terra_orderId");
-          localStorage.removeItem("terra_orderStatus");
-          localStorage.removeItem("terra_orderStatusUpdatedAt");
-          localStorage.removeItem("terra_previousOrder");
-          localStorage.removeItem("terra_previousOrderDetail");
-          setActiveOrderId(null);
-          setOrderStatus(null);
-          setOrderStatusUpdatedAt(null);
-          persistPreviousOrder(null);
-          persistPreviousOrderDetail(null);
           return;
+        }
+
+        // Get appropriate session token based on service type
+        const expectedSessionToken = isTakeaway
+          ? localStorage.getItem("terra_takeaway_sessionToken") ||
+            currentSessionToken
+          : currentSessionToken;
+
+        // Verify sessionToken matches for both DINE_IN and TAKEAWAY orders
+        // CRITICAL: For takeaway, be more lenient - only check if both tokens exist
+        if (isTakeaway) {
+          // For takeaway, only verify if we have both tokens
+          if (
+            expectedSessionToken &&
+            data.sessionToken &&
+            data.sessionToken !== expectedSessionToken
+          ) {
+            // Order belongs to different session - ignore update but don't clear (might be from another customer)
+            return;
+          }
+        } else {
+          // For dine-in, strict verification
+          if (
+            expectedSessionToken &&
+            data.sessionToken &&
+            data.sessionToken !== expectedSessionToken
+          ) {
+            // Order belongs to old session - clear DINE_IN order data
+            localStorage.removeItem("terra_orderId");
+            localStorage.removeItem("terra_orderId_DINE_IN");
+            localStorage.removeItem("terra_orderStatus");
+            localStorage.removeItem("terra_orderStatus_DINE_IN");
+            localStorage.removeItem("terra_orderStatusUpdatedAt");
+            localStorage.removeItem("terra_orderStatusUpdatedAt_DINE_IN");
+            localStorage.removeItem("terra_cart_DINE_IN");
+            localStorage.removeItem("terra_previousOrder");
+            localStorage.removeItem("terra_previousOrderDetail");
+            setActiveOrderId(null);
+            setOrderStatus(null);
+            setOrderStatusUpdatedAt(null);
+            persistPreviousOrder(null);
+            persistPreviousOrderDetail(null);
+            return;
+          }
+        }
+
+        // For takeaway orders, persist full order detail (including token) for dashboard display
+        if (isTakeaway) {
+          persistPreviousOrderDetail(data);
         }
 
         // Update order status and sync with localStorage
         if (data?.status) {
-          setOrderStatus(data.status);
-          setOrderStatusUpdatedAt(new Date().toISOString());
-          localStorage.setItem("terra_orderStatus", data.status);
-          localStorage.setItem(
-            "terra_orderStatusUpdatedAt",
-            new Date().toISOString()
-          );
+          // Check current status from service-type-specific key to avoid duplicate updates
+          const currentStatus = isTakeaway
+            ? localStorage.getItem("terra_orderStatus_TAKEAWAY") ||
+              localStorage.getItem("terra_orderStatus")
+            : localStorage.getItem("terra_orderStatus_DINE_IN") ||
+              localStorage.getItem("terra_orderStatus");
 
-          // Also update service-type-specific keys
+          // Avoid duplicate updates if status hasn't changed
+          if (currentStatus === data.status && orderStatus === data.status) {
+            return;
+          }
+
+          const nowIso = new Date().toISOString();
+          setOrderStatus(data.status);
+          setOrderStatusUpdatedAt(nowIso);
+
+          // Update service-type-specific keys (primary storage)
           if (isTakeaway) {
             localStorage.setItem("terra_orderStatus_TAKEAWAY", data.status);
-            localStorage.setItem(
-              "terra_orderStatusUpdatedAt_TAKEAWAY",
-              new Date().toISOString()
-            );
+            localStorage.setItem("terra_orderStatusUpdatedAt_TAKEAWAY", nowIso);
+            // Also update generic key for backward compatibility
+            localStorage.setItem("terra_orderStatus", data.status);
+            localStorage.setItem("terra_orderStatusUpdatedAt", nowIso);
           } else {
             localStorage.setItem("terra_orderStatus_DINE_IN", data.status);
-            localStorage.setItem(
-              "terra_orderStatusUpdatedAt_DINE_IN",
-              new Date().toISOString()
-            );
+            localStorage.setItem("terra_orderStatusUpdatedAt_DINE_IN", nowIso);
+            // Also update generic key for backward compatibility
+            localStorage.setItem("terra_orderStatus", data.status);
+            localStorage.setItem("terra_orderStatusUpdatedAt", nowIso);
           }
         }
       } catch (err) {
         // Don't clear order data on network errors - keep existing status from localStorage
-        // Only log the error for debugging
-        console.warn(
-          "Error fetching order status (network error), keeping existing status:",
-          err
-        );
+        // Error already handled in fetch catch block above, so just return silently
         // Keep the order status from localStorage - don't clear it
       }
     };
 
+    // Use polling + socket for both DINE_IN and TAKEAWAY so
+    // customer status always stays in sync with admin actions.
     fetchStatus();
-    const timer = setInterval(fetchStatus, 20000);
+    timer = setInterval(fetchStatus, 20000);
 
-    socket = io(nodeApi);
+    // Create socket connection with proper error handling
+    try {
+      socket = io(nodeApi, {
+        transports: ["websocket", "polling"],
+        reconnection: true,
+        reconnectionDelay: 1000,
+        reconnectionAttempts: 5,
+        timeout: 20000,
+        autoConnect: true,
+        // Suppress connection errors in console
+        forceNew: false,
+      });
+
+      // Track if we've already logged socket error - must be outside function to persist
+      let socketErrorLogged = false;
+
+      socket.on("connect", () => {
+        // Reset error flags on successful connection
+        socketErrorLogged = false;
+        connectionErrorLogged = false;
+        // Socket connected
+      });
+
+      socket.on("connect_error", (error) => {
+        // Only log socket connection error once to avoid console spam
+        if (!socketErrorLogged) {
+          console.warn(
+            "[Menu] Socket connection error - backend may be offline. Will retry automatically."
+          );
+          socketErrorLogged = true;
+        }
+      });
+
+      socket.on("disconnect", (reason) => {
+        if (reason !== "io client disconnect") {
+          // Socket disconnected
+        }
+      });
+    } catch (err) {
+      console.warn("[Menu] Failed to create socket connection:", err);
+      socket = null;
+    }
 
     // Define event handlers
     const handleOrderUpdated = (payload) => {
-      if (payload?._id === activeOrderId && payload?.status) {
+      // Get order ID - check service-type-specific ONLY, never mix TAKEAWAY and DINE_IN
+      const currentServiceType =
+        localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN";
+      let orderId = null;
+      if (currentServiceType === "TAKEAWAY") {
+        // For TAKEAWAY: Only read from TAKEAWAY-specific key
+        orderId =
+          activeOrderId || localStorage.getItem("terra_orderId_TAKEAWAY");
+      } else {
+        // For DINE_IN: Read from DINE_IN-specific key first, fallback to generic for backward compatibility
+        orderId =
+          activeOrderId ||
+          localStorage.getItem("terra_orderId_DINE_IN") ||
+          localStorage.getItem("terra_orderId");
+      }
+
+      // CRITICAL: Only process if this is our order and status actually changed
+      // Also verify serviceType matches to prevent TAKEAWAY orders appearing in DINE_IN mode
+      if (
+        payload?._id === orderId &&
+        payload?.status &&
+        payload?.serviceType === currentServiceType
+      ) {
+        const currentStatus = localStorage.getItem("terra_orderStatus");
+        // Avoid duplicate updates if status hasn't changed
+        if (
+          currentStatus === payload.status &&
+          orderStatus === payload.status
+        ) {
+          return;
+        }
+
+        // CRITICAL: For takeaway orders, verify sessionToken matches to prevent cross-order updates
+        if (currentServiceType === "TAKEAWAY" && payload.sessionToken) {
+          const expectedSessionToken =
+            localStorage.getItem("terra_takeaway_sessionToken") ||
+            localStorage.getItem("terra_sessionToken");
+          if (
+            expectedSessionToken &&
+            payload.sessionToken !== expectedSessionToken
+          ) {
+            // Order belongs to different session - ignore update
+            return;
+          }
+        }
+
+        const nowIso = new Date().toISOString();
         setOrderStatus(payload.status);
-        setOrderStatusUpdatedAt(new Date().toISOString());
+        setOrderStatusUpdatedAt(nowIso);
         // Also update localStorage to keep it in sync
         localStorage.setItem("terra_orderStatus", payload.status);
-        localStorage.setItem(
-          "terra_orderStatusUpdatedAt",
-          new Date().toISOString()
-        );
+        localStorage.setItem("terra_orderStatusUpdatedAt", nowIso);
+        // Update service-type-specific keys
+        if (currentServiceType === "TAKEAWAY") {
+          localStorage.setItem("terra_orderStatus_TAKEAWAY", payload.status);
+          localStorage.setItem("terra_orderStatusUpdatedAt_TAKEAWAY", nowIso);
+        } else {
+          localStorage.setItem("terra_orderStatus_DINE_IN", payload.status);
+          localStorage.setItem("terra_orderStatusUpdatedAt_DINE_IN", nowIso);
+        }
       }
     };
 
     const handleOrderDeleted = (payload) => {
-      if (payload?.id === activeOrderId) {
+      // Get order ID - check service-type-specific ONLY, never mix TAKEAWAY and DINE_IN
+      const currentServiceType =
+        localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN";
+      let orderId = null;
+      if (currentServiceType === "TAKEAWAY") {
+        // For TAKEAWAY: Only read from TAKEAWAY-specific key
+        orderId =
+          activeOrderId || localStorage.getItem("terra_orderId_TAKEAWAY");
+      } else {
+        // For DINE_IN: Read from DINE_IN-specific key first, fallback to generic for backward compatibility
+        orderId =
+          activeOrderId ||
+          localStorage.getItem("terra_orderId_DINE_IN") ||
+          localStorage.getItem("terra_orderId");
+      }
+
+      if (payload?.id === orderId) {
         setOrderStatus(null);
         setActiveOrderId(null);
-        localStorage.removeItem("terra_orderId");
-        localStorage.removeItem("terra_orderStatus");
-        localStorage.removeItem("terra_orderStatusUpdatedAt");
+        // Clear service-type-specific keys
+        if (currentServiceType === "TAKEAWAY") {
+          localStorage.removeItem("terra_orderId_TAKEAWAY");
+          localStorage.removeItem("terra_orderStatus_TAKEAWAY");
+          localStorage.removeItem("terra_orderStatusUpdatedAt_TAKEAWAY");
+        } else {
+          localStorage.removeItem("terra_orderId");
+          localStorage.removeItem("terra_orderId_DINE_IN");
+          localStorage.removeItem("terra_orderStatus");
+          localStorage.removeItem("terra_orderStatus_DINE_IN");
+          localStorage.removeItem("terra_orderStatusUpdatedAt");
+          localStorage.removeItem("terra_orderStatusUpdatedAt_DINE_IN");
+        }
       }
     };
 
-    // Register event listeners
-    socket.on("orderUpdated", handleOrderUpdated);
-    socket.on("orderDeleted", handleOrderDeleted);
+    // CRITICAL: Listen for table status updates to sync with admin panel
+    // When table becomes AVAILABLE, clear any waitlist state
+    const handleTableStatusUpdated = (updatedTable) => {
+      // Only update if this is the same table
+      if (
+        updatedTable.id &&
+        tableInfo &&
+        (updatedTable.id === tableInfo.id ||
+          updatedTable.id === tableInfo._id ||
+          updatedTable.number === tableInfo.number)
+      ) {
+        console.log(
+          "[Menu] Table status updated via socket:",
+          updatedTable.status
+        );
+
+        // Update table info with new status
+        const updatedTableInfo = {
+          ...tableInfo,
+          status: updatedTable.status,
+          currentOrder: updatedTable.currentOrder || null,
+          sessionToken: updatedTable.sessionToken || tableInfo.sessionToken,
+        };
+        setTableInfo(updatedTableInfo);
+        // Update localStorage to persist the change
+        localStorage.setItem(
+          "terra_selectedTable",
+          JSON.stringify(updatedTableInfo)
+        );
+
+        // CRITICAL: If table becomes AVAILABLE, clear waitlist state and order data
+        // This ensures customer frontend syncs with admin panel and new customers don't see old orders
+        if (updatedTable.status === "AVAILABLE") {
+          console.log(
+            "[Menu] Table became AVAILABLE via socket - clearing waitlist state and order data"
+          );
+          // Clear waitlist token and info
+          localStorage.removeItem("terra_waitToken");
+          // CRITICAL: Clear all previous customer order data when table becomes available
+          // This ensures new customers don't see previous customer's orders
+          localStorage.removeItem("terra_orderId");
+          localStorage.removeItem("terra_cart");
+          localStorage.removeItem("terra_orderStatus");
+          localStorage.removeItem("terra_orderStatusUpdatedAt");
+          localStorage.removeItem("terra_previousOrder");
+          localStorage.removeItem("terra_previousOrderDetail");
+          ["DINE_IN", "TAKEAWAY"].forEach((serviceType) => {
+            localStorage.removeItem(`terra_cart_${serviceType}`);
+            localStorage.removeItem(`terra_orderId_${serviceType}`);
+            localStorage.removeItem(`terra_orderStatus_${serviceType}`);
+            localStorage.removeItem(
+              `terra_orderStatusUpdatedAt_${serviceType}`
+            );
+          });
+          // Clear order state in component
+          setActiveOrderId(null);
+          setOrderStatus(null);
+          // Cleared all order data for new customer
+        }
+      }
+    };
+
+    // Register event listeners only if socket is connected
+    if (socket) {
+      socket.on("orderUpdated", handleOrderUpdated);
+      socket.on("orderDeleted", handleOrderDeleted);
+      socket.on("table:status:updated", handleTableStatusUpdated);
+    }
 
     return () => {
-      clearInterval(timer);
+      if (timer) {
+        clearInterval(timer);
+      }
       // Remove event listeners before disconnecting
-      if (socket) {
+      if (socket && !isTakeaway) {
         socket.off("orderUpdated", handleOrderUpdated);
         socket.off("orderDeleted", handleOrderDeleted);
+        socket.off("table:status:updated", handleTableStatusUpdated);
         socket.disconnect();
       }
     };
@@ -2359,11 +3900,29 @@ export default function MenuPage() {
   // Sync orderStatus from localStorage when component mounts or activeOrderId changes
   // This ensures that when user navigates back from payment page or refreshes, the status is synced
   useEffect(() => {
-    if (activeOrderId) {
-      const storedStatus = localStorage.getItem("terra_orderStatus");
-      const storedUpdatedAt = localStorage.getItem(
-        "terra_orderStatusUpdatedAt"
-      );
+    // Get order ID - check service-type-specific first, then general
+    const currentServiceType =
+      localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN";
+    const orderId =
+      currentServiceType === "TAKEAWAY"
+        ? activeOrderId ||
+          localStorage.getItem("terra_orderId_TAKEAWAY") ||
+          localStorage.getItem("terra_orderId")
+        : activeOrderId || localStorage.getItem("terra_orderId");
+
+    if (orderId) {
+      // Check service-type-specific keys for takeaway orders
+      const storedStatus =
+        currentServiceType === "TAKEAWAY"
+          ? localStorage.getItem("terra_orderStatus_TAKEAWAY") ||
+            localStorage.getItem("terra_orderStatus")
+          : localStorage.getItem("terra_orderStatus");
+      const storedUpdatedAt =
+        currentServiceType === "TAKEAWAY"
+          ? localStorage.getItem("terra_orderStatusUpdatedAt_TAKEAWAY") ||
+            localStorage.getItem("terra_orderStatusUpdatedAt")
+          : localStorage.getItem("terra_orderStatusUpdatedAt");
+
       if (storedStatus) {
         // Always restore status from localStorage if it exists, even if state already has it
         // This ensures status is shown immediately on page refresh
@@ -2379,18 +3938,50 @@ export default function MenuPage() {
         }
       }
     }
-  }, [activeOrderId]); // Only run when activeOrderId changes, not on every render
+  }, [activeOrderId, orderStatus, orderStatusUpdatedAt]); // Run when activeOrderId or status changes
 
-  // Also restore order status immediately on mount if activeOrderId exists
+  // Also restore order status and activeOrderId immediately on mount
   useEffect(() => {
-    const storedOrderId = localStorage.getItem("terra_orderId");
-    if (storedOrderId && !orderStatus) {
-      const storedStatus = localStorage.getItem("terra_orderStatus");
-      const storedUpdatedAt = localStorage.getItem(
-        "terra_orderStatusUpdatedAt"
+    const currentServiceType =
+      localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN";
+    // CRITICAL: Only read from service-type-specific keys, never mix TAKEAWAY and DINE_IN
+    let storedOrderId = null;
+    if (currentServiceType === "TAKEAWAY") {
+      // For TAKEAWAY: Only read from TAKEAWAY-specific key
+      storedOrderId = localStorage.getItem("terra_orderId_TAKEAWAY");
+    } else {
+      // For DINE_IN: Read from DINE_IN-specific key first, fallback to generic for backward compatibility
+      storedOrderId =
+        localStorage.getItem("terra_orderId_DINE_IN") ||
+        localStorage.getItem("terra_orderId");
+    }
+
+    // Restore activeOrderId if it exists in localStorage but not in state
+    if (storedOrderId && storedOrderId !== activeOrderId) {
+      console.log(
+        "[Menu] Restoring activeOrderId on mount:",
+        storedOrderId,
+        "serviceType:",
+        currentServiceType
       );
+      setActiveOrderId(storedOrderId);
+    }
+
+    // Restore order status if it exists
+    if (storedOrderId && !orderStatus) {
+      const storedStatus =
+        currentServiceType === "TAKEAWAY"
+          ? localStorage.getItem("terra_orderStatus_TAKEAWAY") ||
+            localStorage.getItem("terra_orderStatus")
+          : localStorage.getItem("terra_orderStatus");
+      const storedUpdatedAt =
+        currentServiceType === "TAKEAWAY"
+          ? localStorage.getItem("terra_orderStatusUpdatedAt_TAKEAWAY") ||
+            localStorage.getItem("terra_orderStatusUpdatedAt")
+          : localStorage.getItem("terra_orderStatusUpdatedAt");
+
       if (storedStatus) {
-        console.log("[Menu] Restoring order status on mount:", storedStatus);
+        // Restoring order status on mount
         setOrderStatus(storedStatus);
         if (storedUpdatedAt) {
           setOrderStatusUpdatedAt(storedUpdatedAt);
@@ -2428,6 +4019,14 @@ export default function MenuPage() {
                       : "Dine-In"
                     : "Takeaway"}
                 </span>
+                {/* Prominent takeaway token badge for better UX */}
+                {serviceType === "TAKEAWAY" &&
+                  previousOrderDetail?.takeawayToken && (
+                    <span className="token-badge">
+                      Token:{" "}
+                      <strong>{previousOrderDetail.takeawayToken}</strong>
+                    </span>
+                  )}
               </div>
 
               <button
@@ -2485,20 +4084,28 @@ export default function MenuPage() {
               {orderStatus && (
                 <div className="order-status-card">
                   <h4 className="order-summary-title">Order Status</h4>
+                  {/* Show takeaway token for takeaway orders */}
+                  {serviceType === "TAKEAWAY" &&
+                    previousOrderDetail?.takeawayToken && (
+                      <div className="mb-3 p-2 bg-blue-50 border border-blue-200 rounded-lg">
+                        <div className="text-sm font-semibold text-blue-700">
+                          Your Token:{" "}
+                          <span className="text-lg font-bold">
+                            {previousOrderDetail.takeawayToken}
+                          </span>
+                        </div>
+                        <div className="text-xs text-blue-600 mt-1">
+                          Please keep this token for reference
+                        </div>
+                      </div>
+                    )}
                   <div className="order-status-section">
                     <OrderStatus
                       status={orderStatus}
                       updatedAt={orderStatusUpdatedAt}
                     />
                   </div>
-                  <div
-                    className="button-group status-actions"
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "1fr 1fr",
-                      gap: "12px",
-                    }}
-                  >
+                  <div className="button-group status-actions">
                     {/* Row 1, Col 1: Cancel Order Button */}
                     {(() => {
                       const statusLower = (orderStatus || "").toLowerCase();
@@ -2746,12 +4353,11 @@ export default function MenuPage() {
                       <span>{previousDetailTotals?.totalItems || 0} items</span>
                     </div>
                   </div>
-                  <div style={{ display: "flex", gap: "8px" }}>
+                  <div className="flex flex-col sm:flex-row gap-2">
                     <button
-                      className="invoice-action-btn download"
+                      className="invoice-action-btn download w-full sm:w-auto"
                       onClick={handleViewPreviousInvoice}
                       style={{
-                        flex: 1,
                         padding: "6px 12px",
                         fontSize: "0.85rem",
                       }}
@@ -2761,13 +4367,12 @@ export default function MenuPage() {
                     {/* Always allow feedback for last order, regardless of final status */}
                     {previousOrderDetail._id && (
                       <button
-                        className="feedback-button"
+                        className="feedback-button w-full sm:w-auto"
                         onClick={() => {
                           const orderId = previousOrderDetail._id;
                           navigate("/feedback", { state: { orderId } });
                         }}
                         style={{
-                          flex: 1,
                           backgroundColor: "#10b981",
                           color: "#ffffff",
                           border: "1px solid #059669",
@@ -2923,6 +4528,15 @@ export default function MenuPage() {
                     <span>Invoice No:</span>
                     <span>{invoiceId || "—"}</span>
                   </div>
+                  {invoiceOrder?.serviceType === "TAKEAWAY" &&
+                    invoiceOrder?.takeawayToken && (
+                      <div className="meta-line">
+                        <span>Token:</span>
+                        <span className="font-bold text-blue-600">
+                          {invoiceOrder.takeawayToken}
+                        </span>
+                      </div>
+                    )}
                   {invoiceTimestamp && (
                     <>
                       <div className="meta-line">
@@ -2952,7 +4566,7 @@ export default function MenuPage() {
                     {invoiceTableName ? ` · ${invoiceTableName}` : ""}
                   </span>
                 </div>
-                {/* Customer information for takeaway orders */}
+                {/* Customer information is optional - only show if provided */}
                 {invoiceOrder?.serviceType === "TAKEAWAY" &&
                   (invoiceOrder.customerName ||
                     invoiceOrder.customerMobile) && (
@@ -3048,44 +4662,45 @@ export default function MenuPage() {
         title="Processing your order"
       />
 
-      {/* Blind Support Button - Same level as accessibility button but on right side, with higher z-index than footer */}
-      <motion.button
-        whileHover={{ scale: 1.1 }}
-        whileTap={{ scale: 0.9 }}
-        onClick={handleVoiceAssistant}
-        className="fixed rounded-full shadow-lg bg-orange-500 text-white hover:bg-orange-600 focus:outline-none blind-eye-btn"
-        style={{
-          position: "fixed",
-          bottom: "20px", // Same lower position as accessibility button
-          right: "20px", // Right side instead of left
-          width: "56px",
-          height: "56px",
-          display: "grid",
-          placeItems: "center",
-          border: "none",
-          cursor: "pointer",
-          boxShadow: "0 6px 18px rgba(0,0,0,0.25)",
-          transition:
-            "transform .2s ease, box-shadow .2s ease, background .2s ease",
-          zIndex: 10001, // Higher than footer (z-40) to ensure it's on top
-          pointerEvents: "auto",
-        }}
-        aria-label="Blind Support - Voice Assistant"
-      >
-        <img
-          src={blindEyeIcon}
-          alt="Blind Support"
-          width="24"
-          height="24"
-          style={{ objectFit: "contain", filter: "brightness(0) invert(1)" }}
-        />
-      </motion.button>
-
-      {/* Blind Voice Assistant Modal */}
-      <BlindVoiceAssistant
-        open={showVoiceAssistant}
-        onClose={() => setShowVoiceAssistant(false)}
-      />
+      {/* Blind Support (Voice Assistant) - only for non-takeaway flows */}
+      {serviceType !== "TAKEAWAY" && (
+        <>
+          <motion.button
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.9 }}
+            onClick={handleVoiceAssistant}
+            className="fixed rounded-full shadow-lg bg-orange-500 text-white hover:bg-orange-600 focus:outline-none blind-eye-btn"
+            style={{
+              position: "fixed",
+              bottom: "20px", // Same lower position as accessibility button
+              right: "20px", // Right side instead of left
+              width: "56px",
+              height: "56px",
+              display: "grid",
+              placeItems: "center",
+              border: "none",
+              cursor: "pointer",
+              boxShadow: "0 6px 18px rgba(0,0,0,0.25)",
+              transition:
+                "transform .2s ease, box-shadow .2s ease, background .2s ease",
+              zIndex: 10001, // Higher than footer (z-40) to ensure it's on top
+              pointerEvents: "auto",
+            }}
+            aria-label="Blind Support - Voice Assistant"
+          >
+            <img
+              src={blindEyeIcon}
+              alt="Blind Support"
+              width="24"
+              height="24"
+              style={{
+                objectFit: "contain",
+                filter: "brightness(0) invert(1)",
+              }}
+            />
+          </motion.button>
+        </>
+      )}
     </div>
   );
 }

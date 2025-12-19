@@ -1,22 +1,26 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
+import io from "socket.io-client";
 
 import Header from "../components/Header";
 import restaurantBg from "../assets/images/restaurant-img.jpg";
 import blindEyeIcon from "../assets/images/blind-eye-sign.png";
 import translations from "../data/translations/secondpage.json";
 import useVoiceAssistant from "../utils/useVoiceAssistant";
-import BlindVoiceAssistant from "../components/BlindVoiceAssistant";
 import "./SecondPage.css";
 
 const nodeApi = (
   import.meta.env.VITE_NODE_API_URL || "http://localhost:5001"
 ).replace(/\/$/, "");
 
-// Helper function to clear all old order data when session changes
+// Helper function to clear old DINE_IN order data when session changes
+// CRITICAL: Preserves takeaway order data - only clears DINE_IN data
 function clearOldOrderData() {
-  console.log("[SecondPage] Clearing old order data due to session change");
+  console.log(
+    "[SecondPage] Clearing old DINE_IN order data due to session change (preserving takeaway data)"
+  );
+  // Clear generic keys (used by DINE_IN)
   localStorage.removeItem("terra_orderId");
   localStorage.removeItem("terra_cart");
   localStorage.removeItem("terra_orderStatus");
@@ -24,12 +28,12 @@ function clearOldOrderData() {
   localStorage.removeItem("terra_previousOrder");
   localStorage.removeItem("terra_previousOrderDetail");
   localStorage.removeItem("terra_lastPaidOrderId");
-  ["DINE_IN", "TAKEAWAY"].forEach((serviceType) => {
-    localStorage.removeItem(`terra_cart_${serviceType}`);
-    localStorage.removeItem(`terra_orderId_${serviceType}`);
-    localStorage.removeItem(`terra_orderStatus_${serviceType}`);
-    localStorage.removeItem(`terra_orderStatusUpdatedAt_${serviceType}`);
-  });
+  // Clear only DINE_IN-specific keys - preserve TAKEAWAY data
+  localStorage.removeItem("terra_cart_DINE_IN");
+  localStorage.removeItem("terra_orderId_DINE_IN");
+  localStorage.removeItem("terra_orderStatus_DINE_IN");
+  localStorage.removeItem("terra_orderStatusUpdatedAt_DINE_IN");
+  // Note: TAKEAWAY data is preserved to allow page refresh without losing order
 }
 
 // Helper function to check if sessionToken changed and clear old data if needed
@@ -140,23 +144,24 @@ export default function SecondPage() {
   useEffect(() => {
     const flag = localStorage.getItem("terra_takeaway_only") === "true";
     setTakeawayOnly(flag);
-    // #region agent log
-    fetch("http://127.0.0.1:7242/ingest/660a5fbf-4359-420f-956f-3831103456fb", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        sessionId: "debug-session",
-        runId: "takeaway-qr-flow",
-        hypothesisId: "TAKEAWAY-ONLY-1",
-        location: "SecondPage.jsx:useEffect-takeawayOnly",
-        message: "SecondPage loaded with takeawayOnly flag",
-        data: {
-          takeawayOnly: flag,
-          raw: localStorage.getItem("terra_takeaway_only"),
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
+    // #region agent log (disabled - analytics service not available)
+    // Debug analytics call - only enable if analytics service is running
+    // fetch("http://127.0.0.1:7242/ingest/660a5fbf-4359-420f-956f-3831103456fb", {
+    //   method: "POST",
+    //   headers: { "Content-Type": "application/json" },
+    //   body: JSON.stringify({
+    //     sessionId: "debug-session",
+    //     runId: "takeaway-qr-flow",
+    //     hypothesisId: "TAKEAWAY-ONLY-1",
+    //     location: "SecondPage.jsx:useEffect-takeawayOnly",
+    //     message: "SecondPage loaded with takeawayOnly flag",
+    //     data: {
+    //       takeawayOnly: flag,
+    //       raw: localStorage.getItem("terra_takeaway_only"),
+    //     },
+    //     timestamp: Date.now(),
+    //   }),
+    // }).catch(() => {});
     // #endregion agent log
   }, []);
 
@@ -193,10 +198,24 @@ export default function SecondPage() {
 
   const t = (key) => translations[language]?.[key] || key;
   const { readAloud, startListening } = useVoiceAssistant();
-  const [showVoiceAssistant, setShowVoiceAssistant] = useState(false);
 
   // STRONG LOGIC: Check if table is occupied based on actual table.status field
   useEffect(() => {
+    // CRITICAL: Check serviceType - TAKEAWAY orders never need waitlist
+    const currentServiceType =
+      localStorage.getItem("terra_serviceType") || "DINE_IN";
+    if (currentServiceType === "TAKEAWAY") {
+      // Clear all waitlist state for takeaway orders
+      setIsTableOccupied(false);
+      setShowWaitlistModal(false);
+      if (waitlistToken) {
+        localStorage.removeItem("terra_waitToken");
+        setWaitlistToken(null);
+        setWaitlistInfo(null);
+      }
+      return;
+    }
+
     // For takeaway-only QR flow, completely skip waitlist + table occupancy logic
     if (takeawayOnly) {
       setIsTableOccupied(false);
@@ -204,14 +223,49 @@ export default function SecondPage() {
       return;
     }
 
-    if (!tableInfo) {
+    // CRITICAL: If tableInfo is not set yet, try to load it from localStorage
+    // This handles the case where useEffect runs before tableInfo is loaded
+    let tableToCheck = tableInfo;
+    if (!tableToCheck) {
+      const storedTable = localStorage.getItem("terra_selectedTable");
+      if (storedTable) {
+        try {
+          tableToCheck = JSON.parse(storedTable);
+        } catch (e) {
+          console.warn("[SecondPage] Failed to parse stored table:", e);
+          return;
+        }
+      } else {
+        // No table info at all - don't show modal
+        setIsTableOccupied(false);
+        return;
+      }
+    }
+
+    // CRITICAL: Check if user has active order first - if they do, never show waitlist
+    const existingOrderId =
+      localStorage.getItem("terra_orderId") ||
+      localStorage.getItem("terra_orderId_DINE_IN");
+    const existingOrderStatus =
+      localStorage.getItem("terra_orderStatus") ||
+      localStorage.getItem("terra_orderStatus_DINE_IN");
+
+    const hasActiveOrder =
+      existingOrderId &&
+      existingOrderStatus &&
+      !["Paid", "Cancelled", "Returned", "Completed"].includes(
+        existingOrderStatus
+      );
+
+    // If user has active order, never show waitlist or occupied state
+    if (hasActiveOrder) {
       setIsTableOccupied(false);
       setShowWaitlistModal(false);
       return;
     }
 
     // CRITICAL: Check actual table.status field, not HTTP status
-    const tableStatus = tableInfo.status || "AVAILABLE";
+    const tableStatus = tableToCheck.status || "AVAILABLE";
     const isOccupied = tableStatus !== "AVAILABLE";
     setIsTableOccupied(isOccupied);
 
@@ -225,13 +279,28 @@ export default function SecondPage() {
         setWaitlistToken(null);
         setWaitlistInfo(null);
       }
+      // CRITICAL: Clear all previous customer order data when table is available
+      // This ensures new customers don't see previous customer's orders
+      clearOldOrderData();
+      console.log(
+        "[SecondPage] Table is AVAILABLE - cleared all order data for new customer"
+      );
       return;
     }
 
     // Table is occupied (status !== "AVAILABLE") - only show waitlist modal if user is not already in waitlist
-    if (isOccupied && !waitlistToken) {
+    // CRITICAL: Always show waitlist modal when table is occupied and user is not in waitlist
+    // This ensures new users who scan QR for occupied table see the waitlist option
+    // Check waitlistToken from localStorage directly to avoid state timing issues
+    const currentWaitlistToken = localStorage.getItem("terra_waitToken");
+    if (isOccupied && !currentWaitlistToken) {
+      // Always show modal when table is occupied and user is not in waitlist
       setShowWaitlistModal(true);
-    } else {
+    } else if (tableStatus === "AVAILABLE") {
+      // Table is available - always hide modal
+      setShowWaitlistModal(false);
+    } else if (currentWaitlistToken) {
+      // User is in waitlist - hide the join modal (they'll see waitlist status card instead)
       setShowWaitlistModal(false);
     }
   }, [tableInfo, waitlistToken, takeawayOnly]);
@@ -284,7 +353,15 @@ export default function SecondPage() {
           throw new Error("Failed to fetch waitlist status");
         }
         const data = await res.json();
-        setWaitlistInfo(data);
+        // CRITICAL: Always update position from backend response
+        // This ensures positions are recalculated when new entries are added
+        setWaitlistInfo({
+          ...data,
+          position:
+            data.position || data.position === 0
+              ? data.position
+              : waitlistInfo?.position || 1,
+        });
 
         // If seated, update session token and clear waitlist
         if (data.status === "SEATED" && data.sessionToken) {
@@ -299,13 +376,91 @@ export default function SecondPage() {
       }
     };
 
+    // Listen for real-time waitlist updates via socket
+    const handleWaitlistUpdated = async (update) => {
+      // Only refresh if this update is for the same table
+      // Check both id and _id since tableInfo might have either
+      const tableId = tableInfo?.id || tableInfo?._id;
+      if (
+        waitlistToken &&
+        update.tableId &&
+        tableId &&
+        update.tableId.toString() === tableId.toString()
+      ) {
+        console.log(
+          "[SecondPage] Waitlist updated via socket, refreshing position"
+        );
+
+        // CRITICAL: If waitlist status changed to NOTIFIED or SEATED, clear order data
+        // This ensures new waitlist customers don't see previous customer's orders
+        if (update.status === "NOTIFIED" || update.status === "SEATED") {
+          clearOldOrderData();
+          console.log(
+            `[SecondPage] Waitlist status changed to ${update.status} - cleared all order data for new customer`
+          );
+        }
+
+        // Refresh waitlist status to get updated position
+        await checkWaitlistStatus();
+      }
+    };
+
+    // Create socket connection only when needed (inside useEffect)
+    let socket = null;
+    try {
+      socket = io(nodeApi, {
+        transports: ["websocket", "polling"],
+        reconnection: true,
+        reconnectionDelay: 1000,
+        reconnectionAttempts: 5,
+        timeout: 20000,
+        autoConnect: true,
+        // Suppress connection errors in console
+        forceNew: false,
+      });
+
+      socket.on("connect", () => {
+        console.log("[SecondPage] Waitlist socket connected");
+      });
+
+      socket.on("connect_error", (error) => {
+        // Silently handle connection errors - socket will retry automatically
+        // Don't log to avoid console spam
+        if (error.message && !error.message.includes("xhr poll error")) {
+          console.warn(
+            "[SecondPage] Waitlist socket connection error:",
+            error.message
+          );
+        }
+      });
+
+      socket.on("disconnect", (reason) => {
+        if (reason !== "io client disconnect") {
+          console.log("[SecondPage] Waitlist socket disconnected:", reason);
+        }
+      });
+
+      socket.on("waitlistUpdated", handleWaitlistUpdated);
+    } catch (err) {
+      console.warn(
+        "[SecondPage] Failed to create waitlist socket connection:",
+        err
+      );
+    }
+
     checkWaitlistStatus();
     const interval = setInterval(checkWaitlistStatus, 15000); // Poll every 15 seconds
 
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      if (socket) {
+        socket.off("waitlistUpdated", handleWaitlistUpdated);
+        socket.disconnect();
+      }
+    };
   }, [waitlistToken, tableInfo, takeawayOnly]);
 
-  // Load table info on mount
+  // Load table info on mount and refresh status from backend
   useEffect(() => {
     const storedTable = localStorage.getItem("terra_selectedTable");
     if (storedTable) {
@@ -316,20 +471,415 @@ export default function SecondPage() {
         if (storedSession) {
           setSessionToken(storedSession);
         }
+
+        // CRITICAL: Check serviceType FIRST - TAKEAWAY orders never need waitlist
+        const currentServiceType =
+          localStorage.getItem("terra_serviceType") || "DINE_IN";
+        const isTakeaway = currentServiceType === "TAKEAWAY";
+
+        // CRITICAL: Check table status immediately and show waitlist modal if needed
+        // This ensures new users who scan QR for occupied table see the waitlist option
+        // BUT ONLY if it's not a TAKEAWAY order
+        const tableStatus = table.status || "AVAILABLE";
+        const currentWaitlistToken = localStorage.getItem("terra_waitToken");
+        if (
+          !isTakeaway &&
+          tableStatus !== "AVAILABLE" &&
+          !currentWaitlistToken
+        ) {
+          // Table is occupied and user is not in waitlist - show modal (only for DINE_IN)
+          console.log(
+            "[SecondPage] Table is occupied on mount - showing waitlist modal"
+          );
+          setIsTableOccupied(true);
+          setShowWaitlistModal(true);
+        } else if (isTakeaway) {
+          // TAKEAWAY orders should never show waitlist modal
+          setIsTableOccupied(false);
+          setShowWaitlistModal(false);
+        }
+
+        // Refresh table status from backend to ensure it's up-to-date
+        const refreshTableStatus = async () => {
+          // CRITICAL: If user has active order, don't refresh table status
+          // This prevents showing waitlist when user navigates back
+          const existingOrderId =
+            localStorage.getItem("terra_orderId") ||
+            localStorage.getItem("terra_orderId_DINE_IN");
+          const existingOrderStatus =
+            localStorage.getItem("terra_orderStatus") ||
+            localStorage.getItem("terra_orderStatus_DINE_IN");
+
+          const hasActiveOrder =
+            existingOrderId &&
+            existingOrderStatus &&
+            !["Paid", "Cancelled", "Returned", "Completed"].includes(
+              existingOrderStatus
+            );
+
+          if (hasActiveOrder) {
+            console.log(
+              "[SecondPage] User has active order - skipping table status refresh"
+            );
+            return;
+          }
+
+          const slug = table.qrSlug || localStorage.getItem("terra_scanToken");
+          if (!slug) return;
+
+          try {
+            const params = new URLSearchParams();
+            if (storedSession) {
+              params.set("sessionToken", storedSession);
+            }
+            const url = `${nodeApi}/api/tables/lookup/${slug}${
+              params.toString() ? `?${params.toString()}` : ""
+            }`;
+            const res = await fetch(url);
+            if (res.ok) {
+              const payload = await res.json().catch(() => ({}));
+              if (payload?.table) {
+                console.log(
+                  "[SecondPage] Refreshed table status:",
+                  payload.table.status
+                );
+                const refreshedTable = {
+                  ...table,
+                  ...payload.table,
+                  // Preserve qrSlug if it exists
+                  qrSlug: table.qrSlug || payload.table.qrSlug,
+                };
+                setTableInfo(refreshedTable);
+                localStorage.setItem(
+                  "terra_selectedTable",
+                  JSON.stringify(refreshedTable)
+                );
+
+                // CRITICAL: After refreshing, check actual table status
+                // If AVAILABLE, hide waitlist modal. If occupied, show it (only for DINE_IN)
+                const currentServiceType =
+                  localStorage.getItem("terra_serviceType") || "DINE_IN";
+                const isTakeaway = currentServiceType === "TAKEAWAY";
+                const refreshedStatus = refreshedTable.status || "AVAILABLE";
+
+                if (refreshedStatus === "AVAILABLE") {
+                  // Table is available - hide waitlist modal
+                  setIsTableOccupied(false);
+                  setShowWaitlistModal(false);
+                  // Clear waitlist token when table is available
+                  localStorage.removeItem("terra_waitToken");
+                  setWaitlistToken(null);
+                  setWaitlistInfo(null);
+                  // CRITICAL: Clear all previous customer order data when table becomes available
+                  // This ensures new customers don't see previous customer's orders
+                  clearOldOrderData();
+                  console.log(
+                    "[SecondPage] Table is AVAILABLE - cleared all order data for new customer"
+                  );
+                } else if (
+                  !isTakeaway &&
+                  refreshedStatus !== "AVAILABLE" &&
+                  !waitlistToken
+                ) {
+                  // Table is occupied and user is not in waitlist - show modal
+                  setIsTableOccupied(true);
+                  setShowWaitlistModal(true);
+                } else if (isTakeaway) {
+                  // TAKEAWAY orders should never show waitlist
+                  setIsTableOccupied(false);
+                  setShowWaitlistModal(false);
+                }
+              }
+            } else if (res.status === 423) {
+              // Table is locked (423) - this is EXPECTED behavior when table is occupied
+              // Browser may log "Failed to load resource: 423" but this is normal and handled
+              // Show waitlist modal BUT ONLY if it's not a TAKEAWAY order
+              const currentServiceType =
+                localStorage.getItem("terra_serviceType") || "DINE_IN";
+              const isTakeaway = currentServiceType === "TAKEAWAY";
+              let lockedPayload = {};
+              try {
+                lockedPayload = await res.json();
+              } catch (parseErr) {
+                // 423 response should have JSON, but handle gracefully if parsing fails
+                console.warn(
+                  "[SecondPage] Failed to parse 423 response (expected for occupied tables):",
+                  parseErr
+                );
+              }
+              const lockedTable = lockedPayload?.table || table;
+              setTableInfo(lockedTable);
+              localStorage.setItem(
+                "terra_selectedTable",
+                JSON.stringify(lockedTable)
+              );
+              setIsTableOccupied(true);
+              // CRITICAL: Always show waitlist modal for 423 responses if user is not in waitlist
+              // BUT ONLY for DINE_IN orders
+              const currentWaitlistToken =
+                localStorage.getItem("terra_waitToken");
+              if (!isTakeaway && !currentWaitlistToken) {
+                console.log(
+                  "[SecondPage] Table is locked (423) - showing waitlist modal (this is expected behavior)"
+                );
+                setShowWaitlistModal(true);
+              } else if (isTakeaway) {
+                setIsTableOccupied(false);
+                setShowWaitlistModal(false);
+              }
+            }
+          } catch (err) {
+            console.warn("[SecondPage] Failed to refresh table status:", err);
+            // Don't fail silently - keep existing table info
+            // But still check if we should show waitlist modal based on stored table status
+            // BUT ONLY if it's not a TAKEAWAY order
+            const currentServiceType =
+              localStorage.getItem("terra_serviceType") || "DINE_IN";
+            const isTakeaway = currentServiceType === "TAKEAWAY";
+            const tableStatus = table.status || "AVAILABLE";
+            if (!isTakeaway && tableStatus !== "AVAILABLE" && !waitlistToken) {
+              setIsTableOccupied(true);
+              setShowWaitlistModal(true);
+            } else if (isTakeaway) {
+              setIsTableOccupied(false);
+              setShowWaitlistModal(false);
+            }
+          }
+        };
+
+        // Refresh table status after a short delay to avoid blocking initial render
+        const timeoutId = setTimeout(refreshTableStatus, 500);
+        return () => clearTimeout(timeoutId);
       } catch {
         setTableInfo(null);
       }
     }
   }, []);
 
+  // Listen for real-time table status updates from admin
+  useEffect(() => {
+    if (!tableInfo || !tableInfo.id) {
+      return;
+    }
+
+    const handleTableStatusUpdated = (updatedTable) => {
+      // Only update if this is the same table
+      if (updatedTable.id && updatedTable.id === tableInfo.id) {
+        // CRITICAL: If user has active order, don't update table status
+        // This prevents showing waitlist when admin changes status
+        const existingOrderId =
+          localStorage.getItem("terra_orderId") ||
+          localStorage.getItem("terra_orderId_DINE_IN");
+        const existingOrderStatus =
+          localStorage.getItem("terra_orderStatus") ||
+          localStorage.getItem("terra_orderStatus_DINE_IN");
+
+        const hasActiveOrder =
+          existingOrderId &&
+          existingOrderStatus &&
+          !["Paid", "Cancelled", "Returned", "Completed"].includes(
+            existingOrderStatus
+          );
+
+        if (hasActiveOrder) {
+          console.log(
+            "[SecondPage] User has active order - ignoring table status update"
+          );
+          return;
+        }
+
+        console.log(
+          "[SecondPage] Table status updated via socket:",
+          updatedTable.status
+        );
+        // Update table info with new status
+        const updatedTableInfo = {
+          ...tableInfo,
+          status: updatedTable.status,
+          currentOrder: updatedTable.currentOrder || null,
+          sessionToken: updatedTable.sessionToken || tableInfo.sessionToken,
+        };
+        setTableInfo(updatedTableInfo);
+        // Update localStorage to persist the change
+        localStorage.setItem(
+          "terra_selectedTable",
+          JSON.stringify(updatedTableInfo)
+        );
+
+        // CRITICAL: If table becomes AVAILABLE, clear waitlist state and hide modal
+        // Also clear all previous customer order data to prevent showing old orders
+        if (updatedTable.status === "AVAILABLE") {
+          console.log(
+            "[SecondPage] Table became AVAILABLE via socket - clearing waitlist state and order data"
+          );
+          setIsTableOccupied(false);
+          setShowWaitlistModal(false);
+          // Clear waitlist token and info
+          localStorage.removeItem("terra_waitToken");
+          setWaitlistToken(null);
+          setWaitlistInfo(null);
+          // CRITICAL: Clear all previous customer order data when table becomes available
+          // This ensures new customers don't see previous customer's orders
+          clearOldOrderData();
+          console.log("[SecondPage] Cleared all order data for new customer");
+        } else if (updatedTable.status !== "AVAILABLE") {
+          // Table is occupied - ensure waitlist modal is shown if user is not in waitlist
+          // BUT only if user doesn't have an active order
+          const currentWaitlistToken = localStorage.getItem("terra_waitToken");
+          if (!currentWaitlistToken) {
+            setIsTableOccupied(true);
+            setShowWaitlistModal(true);
+          }
+        }
+      }
+    };
+
+    // Create socket connection for table status updates (only when needed)
+    let tableStatusSocket = null;
+    try {
+      tableStatusSocket = io(nodeApi, {
+        transports: ["websocket", "polling"],
+        reconnection: true,
+        reconnectionDelay: 1000,
+        reconnectionAttempts: 5,
+        timeout: 20000,
+        autoConnect: true,
+        // Suppress connection errors in console
+        forceNew: false,
+      });
+
+      tableStatusSocket.on("connect", () => {
+        console.log("[SecondPage] Table status socket connected");
+      });
+
+      tableStatusSocket.on("connect_error", (error) => {
+        // Silently handle connection errors - socket will retry automatically
+        // Don't log to avoid console spam
+        if (error.message && !error.message.includes("xhr poll error")) {
+          console.warn(
+            "[SecondPage] Table status socket connection error:",
+            error.message
+          );
+        }
+      });
+
+      tableStatusSocket.on("disconnect", (reason) => {
+        if (reason !== "io client disconnect") {
+          console.log("[SecondPage] Table status socket disconnected:", reason);
+        }
+      });
+
+      tableStatusSocket.on("table:status:updated", handleTableStatusUpdated);
+    } catch (err) {
+      console.warn("[SecondPage] Failed to create table status socket:", err);
+    }
+
+    // Cleanup on unmount
+    return () => {
+      if (tableStatusSocket) {
+        tableStatusSocket.off("table:status:updated", handleTableStatusUpdated);
+        tableStatusSocket.disconnect();
+      }
+    };
+  }, [tableInfo]);
+
   const startServiceFlow = useCallback(
     async (serviceType = "DINE_IN") => {
       const isTakeaway = serviceType === "TAKEAWAY";
 
-      // For TAKEAWAY orders, show customer info modal first
+      // For TAKEAWAY orders (both regular and takeaway-only QR):
+      // CRITICAL: Completely bypass waitlist logic - takeaway never needs waitlist
       if (isTakeaway) {
+        // Clear any waitlist state for takeaway orders
+        localStorage.removeItem("terra_waitToken");
+        setWaitlistToken(null);
+        setWaitlistInfo(null);
+        setShowWaitlistModal(false);
+        setIsTableOccupied(false);
+
+        const existingTakeawayOrderId =
+          localStorage.getItem("terra_orderId_TAKEAWAY") ||
+          localStorage.getItem("terra_orderId");
+        const existingTakeawayStatus =
+          localStorage.getItem("terra_orderStatus_TAKEAWAY") ||
+          localStorage.getItem("terra_orderStatus");
+        const existingTakeawaySession = localStorage.getItem(
+          "terra_takeaway_sessionToken"
+        );
+
+        const isActiveStatus =
+          existingTakeawayStatus &&
+          !["Cancelled", "Returned", "Paid", "Completed"].includes(
+            existingTakeawayStatus
+          );
+
+        // If we have an order + session token + active status, just go back to menu with the same takeaway order
+        if (
+          existingTakeawayOrderId &&
+          existingTakeawaySession &&
+          isActiveStatus
+        ) {
+          // Ensure serviceType is set to TAKEAWAY
+          localStorage.setItem("terra_serviceType", "TAKEAWAY");
+          navigate("/menu", { state: { serviceType: "TAKEAWAY" } });
+          return;
+        }
+
+        // Otherwise, this is a fresh takeaway flow → show customer info modal and start a new session
+        // This applies to both regular takeaway and takeaway-only QR flows
+        // CRITICAL: Ensure takeaway sessionToken is generated even if customer skips info
+        // This ensures both table QR and takeaway-only QR flows work identically
+        if (!existingTakeawaySession) {
+          const newTakeawaySessionToken = `TAKEAWAY-${Date.now()}-${Math.random()
+            .toString(36)
+            .substr(2, 9)}`;
+          localStorage.setItem(
+            "terra_takeaway_sessionToken",
+            newTakeawaySessionToken
+          );
+          console.log(
+            "[SecondPage] Generated takeaway sessionToken for fresh flow (unified):",
+            newTakeawaySessionToken
+          );
+        }
         setShowCustomerInfoModal(true);
         return;
+      }
+
+      // For DINE_IN orders, check if user has active order first
+      // If they have an active unpaid order, grant immediate access without lookup
+      const existingOrderId =
+        localStorage.getItem("terra_orderId") ||
+        localStorage.getItem("terra_orderId_DINE_IN");
+      const existingOrderStatus =
+        localStorage.getItem("terra_orderStatus") ||
+        localStorage.getItem("terra_orderStatus_DINE_IN");
+
+      // Check if user has an active unpaid order
+      const hasActiveOrder =
+        existingOrderId &&
+        existingOrderStatus &&
+        !["Paid", "Cancelled", "Returned", "Completed"].includes(
+          existingOrderStatus
+        );
+
+      // If user has active order, grant immediate access to menu
+      if (hasActiveOrder) {
+        console.log(
+          "[SecondPage] User has active order - granting immediate access:",
+          existingOrderId
+        );
+        const storedTable = localStorage.getItem("terra_selectedTable");
+        if (storedTable) {
+          try {
+            const table = JSON.parse(storedTable);
+            localStorage.setItem("terra_serviceType", serviceType);
+            navigate("/menu", { state: { serviceType, table } });
+            return;
+          } catch {
+            // If table parsing fails, continue with lookup
+          }
+        }
       }
 
       // For DINE_IN orders, ALWAYS verify table status via QR lookup first
@@ -446,6 +996,13 @@ export default function SecondPage() {
                   statusData.status === "NOTIFIED" ||
                   statusData.status === "SEATED"
                 ) {
+                  // CRITICAL: Clear all previous customer order data when waitlist user gets access
+                  // This ensures new waitlist customers don't see previous customer's orders
+                  clearOldOrderData();
+                  console.log(
+                    `[SecondPage] Waitlist user ${statusData.status} (in startDineInFlow) - cleared all order data for new customer`
+                  );
+
                   // User is notified or seated, allow to proceed
                   if (
                     statusData.status === "SEATED" &&
@@ -466,9 +1023,20 @@ export default function SecondPage() {
                   });
                   return;
                 } else {
-                  // User is still waiting - BLOCK ACCESS
-                  alert(
-                    "Table is currently occupied. Please wait for your turn in the waitlist. You must join the waitlist to access this table."
+                  // User is still waiting - show waitlist modal
+                  // BUT ONLY if it's not a TAKEAWAY order
+                  if (serviceType === "TAKEAWAY") {
+                    // TAKEAWAY orders should never show waitlist modal
+                    setIsTableOccupied(false);
+                    setShowWaitlistModal(false);
+                    return;
+                  }
+                  // CRITICAL: Ensure all state is set before showing modal
+                  setIsTableOccupied(true);
+                  setTableInfo(lockedTable);
+                  localStorage.setItem(
+                    "terra_selectedTable",
+                    JSON.stringify(lockedTable)
                   );
                   setShowWaitlistModal(true);
                   return;
@@ -479,9 +1047,13 @@ export default function SecondPage() {
             }
           }
 
-          // User is NOT in waitlist - MUST join waitlist, NO BYPASS
-          alert(
-            "Table is currently occupied. You must join the waitlist to access this table."
+          // User is NOT in waitlist - show waitlist modal
+          // CRITICAL: Ensure all state is set before showing modal
+          setIsTableOccupied(true);
+          setTableInfo(lockedTable);
+          localStorage.setItem(
+            "terra_selectedTable",
+            JSON.stringify(lockedTable)
           );
           setShowWaitlistModal(true);
           return;
@@ -513,36 +1085,15 @@ export default function SecondPage() {
             setWaitlistInfo(null);
           }
 
-          // Update session token if provided - clear old orders if session changed
+          // Update session token if provided.
+          // IMPORTANT: Do NOT clear existing dine-in order data here; that would
+          // cause active orders to disappear when customer revisits this page.
           if (payload.sessionToken || tableData.sessionToken) {
             const nextToken = payload.sessionToken || tableData.sessionToken;
-            const oldToken =
-              sessionToken || localStorage.getItem("terra_sessionToken");
-
-            // If sessionToken changed, clear all old order data
-            if (nextToken && nextToken !== oldToken) {
-              console.log(
-                "[SecondPage] SessionToken changed - clearing old order data"
-              );
-              localStorage.removeItem("terra_orderId");
-              localStorage.removeItem("terra_cart");
-              localStorage.removeItem("terra_orderStatus");
-              localStorage.removeItem("terra_orderStatusUpdatedAt");
-              localStorage.removeItem("terra_previousOrder");
-              localStorage.removeItem("terra_previousOrderDetail");
-              localStorage.removeItem("terra_lastPaidOrderId");
-              ["DINE_IN", "TAKEAWAY"].forEach((serviceType) => {
-                localStorage.removeItem(`terra_cart_${serviceType}`);
-                localStorage.removeItem(`terra_orderId_${serviceType}`);
-                localStorage.removeItem(`terra_orderStatus_${serviceType}`);
-                localStorage.removeItem(
-                  `terra_orderStatusUpdatedAt_${serviceType}`
-                );
-              });
+            if (nextToken) {
+              localStorage.setItem("terra_sessionToken", nextToken);
+              setSessionToken(nextToken);
             }
-
-            localStorage.setItem("terra_sessionToken", nextToken);
-            setSessionToken(nextToken);
           }
 
           // Proceed directly to menu - no waitlist needed
@@ -554,71 +1105,63 @@ export default function SecondPage() {
         // Table is NOT available - apply waitlist logic (only if status is NOT "AVAILABLE")
         localStorage.setItem("terra_selectedTable", JSON.stringify(tableData));
         setTableInfo(tableData);
+
+        // CRITICAL: If backend returned an order, user has active order - grant access immediately
+        if (payload.order && payload.order._id) {
+          console.log(
+            "[SecondPage] Backend returned active order - granting access"
+          );
+          // Update session token if provided
+          if (payload.sessionToken || tableData.sessionToken) {
+            const nextToken = payload.sessionToken || tableData.sessionToken;
+            if (nextToken) {
+              localStorage.setItem("terra_sessionToken", nextToken);
+              setSessionToken(nextToken);
+            }
+          }
+          // Restore order state
+          localStorage.setItem("terra_orderId", payload.order._id);
+          localStorage.setItem("terra_orderId_DINE_IN", payload.order._id);
+          if (payload.order.status) {
+            localStorage.setItem("terra_orderStatus", payload.order.status);
+            localStorage.setItem(
+              "terra_orderStatus_DINE_IN",
+              payload.order.status
+            );
+          }
+          setIsTableOccupied(false);
+          setShowWaitlistModal(false);
+          localStorage.setItem("terra_serviceType", serviceType);
+          navigate("/menu", { state: { serviceType, table: tableData } });
+          return;
+        }
+
         setIsTableOccupied(true);
 
-        // Update session token if provided - clear old orders if session changed
+        // Update session token if provided, without clearing existing dine-in order data.
         if (payload.sessionToken || tableData.sessionToken) {
           const nextToken = payload.sessionToken || tableData.sessionToken;
-          const oldToken =
-            sessionToken || localStorage.getItem("terra_sessionToken");
-
-          // If sessionToken changed, clear all old order data
-          if (nextToken && nextToken !== oldToken) {
-            console.log(
-              "[SecondPage] SessionToken changed - clearing old order data"
-            );
-            localStorage.removeItem("terra_orderId");
-            localStorage.removeItem("terra_cart");
-            localStorage.removeItem("terra_orderStatus");
-            localStorage.removeItem("terra_orderStatusUpdatedAt");
-            localStorage.removeItem("terra_previousOrder");
-            localStorage.removeItem("terra_previousOrderDetail");
-            localStorage.removeItem("terra_lastPaidOrderId");
-            ["DINE_IN", "TAKEAWAY"].forEach((serviceType) => {
-              localStorage.removeItem(`terra_cart_${serviceType}`);
-              localStorage.removeItem(`terra_orderId_${serviceType}`);
-              localStorage.removeItem(`terra_orderStatus_${serviceType}`);
-              localStorage.removeItem(
-                `terra_orderStatusUpdatedAt_${serviceType}`
-              );
-            });
+          if (nextToken) {
+            localStorage.setItem("terra_sessionToken", nextToken);
+            setSessionToken(nextToken);
           }
-
-          localStorage.setItem("terra_sessionToken", nextToken);
-          setSessionToken(nextToken);
         }
 
         // If user was in waitlist and now seated, clear waitlist
+        // CRITICAL: Also clear all previous customer order data when waitlist user is seated
         if (waitlistToken && payload.waitlist?.status === "SEATED") {
+          // Clear all previous customer order data for new waitlist customer
+          clearOldOrderData();
+          console.log(
+            "[SecondPage] Waitlist user SEATED (from table lookup) - cleared all order data for new customer"
+          );
+
           if (payload.waitlist.sessionToken) {
             const nextToken = payload.waitlist.sessionToken;
-            const oldToken =
-              sessionToken || localStorage.getItem("terra_sessionToken");
-
-            // If sessionToken changed, clear all old order data
-            if (nextToken && nextToken !== oldToken) {
-              console.log(
-                "[SecondPage] SessionToken changed (waitlist seated) - clearing old order data"
-              );
-              localStorage.removeItem("terra_orderId");
-              localStorage.removeItem("terra_cart");
-              localStorage.removeItem("terra_orderStatus");
-              localStorage.removeItem("terra_orderStatusUpdatedAt");
-              localStorage.removeItem("terra_previousOrder");
-              localStorage.removeItem("terra_previousOrderDetail");
-              localStorage.removeItem("terra_lastPaidOrderId");
-              ["DINE_IN", "TAKEAWAY"].forEach((serviceType) => {
-                localStorage.removeItem(`terra_cart_${serviceType}`);
-                localStorage.removeItem(`terra_orderId_${serviceType}`);
-                localStorage.removeItem(`terra_orderStatus_${serviceType}`);
-                localStorage.removeItem(
-                  `terra_orderStatusUpdatedAt_${serviceType}`
-                );
-              });
+            if (nextToken) {
+              localStorage.setItem("terra_sessionToken", nextToken);
+              setSessionToken(nextToken);
             }
-
-            localStorage.setItem("terra_sessionToken", nextToken);
-            setSessionToken(nextToken);
           }
           localStorage.removeItem("terra_waitToken");
           setWaitlistToken(null);
@@ -632,9 +1175,18 @@ export default function SecondPage() {
         }
 
         // Table is occupied and user is not seated - require waitlist
-        alert(
-          "Table is currently occupied. You must join the waitlist to access this table."
-        );
+        // BUT ONLY if it's not a TAKEAWAY order
+        if (serviceType === "TAKEAWAY") {
+          // TAKEAWAY orders should never show waitlist modal
+          setIsTableOccupied(false);
+          setShowWaitlistModal(false);
+          return;
+        }
+        // CRITICAL: Set table as occupied and show waitlist modal
+        setIsTableOccupied(true);
+        setTableInfo(tableData);
+        localStorage.setItem("terra_selectedTable", JSON.stringify(tableData));
+        // Show waitlist modal - don't show alert, let modal handle the message
         setShowWaitlistModal(true);
       } catch (err) {
         console.error("startServiceFlow error", err);
@@ -648,29 +1200,115 @@ export default function SecondPage() {
     () => startServiceFlow("DINE_IN"),
     [startServiceFlow]
   );
-  const startTakeawayFlow = useCallback(
-    () => startServiceFlow("TAKEAWAY"),
-    [startServiceFlow]
-  );
+  const startTakeawayFlow = useCallback(() => {
+    // CRITICAL: For takeaway, clear all waitlist state immediately
+    // Takeaway orders never need waitlist - they have full access
+    localStorage.removeItem("terra_waitToken");
+    setWaitlistToken(null);
+    setWaitlistInfo(null);
+    setShowWaitlistModal(false);
+    setIsTableOccupied(false);
+    // Set service type to TAKEAWAY
+    localStorage.setItem("terra_serviceType", "TAKEAWAY");
+    // Start takeaway flow
+    startServiceFlow("TAKEAWAY");
+  }, [startServiceFlow]);
 
-  // Handle customer info modal submit for takeaway orders
+  // Handle customer info modal submit for takeaway orders (fields OPTIONAL)
+  // Works for both regular takeaway and takeaway-only QR flows
   const handleCustomerInfoSubmit = useCallback(() => {
-    // Save customer info to localStorage
-    if (customerName)
-      localStorage.setItem("terra_takeaway_customerName", customerName);
-    if (customerMobile)
-      localStorage.setItem("terra_takeaway_customerMobile", customerMobile);
-    if (customerEmail)
-      localStorage.setItem("terra_takeaway_customerEmail", customerEmail);
+    // Generate unique session token for this takeaway order
+    const takeawaySessionToken = `TAKEAWAY-${Date.now()}-${Math.random()
+      .toString(36)
+      .substr(2, 9)}`;
+
+    // Clear previous takeaway order data when starting new session
+    console.log(
+      "[SecondPage] Starting new takeaway session - clearing old order data",
+      {
+        takeawayOnly: localStorage.getItem("terra_takeaway_only"),
+        cartId: localStorage.getItem("terra_takeaway_cartId"),
+      }
+    );
+    localStorage.removeItem("terra_orderId_TAKEAWAY");
+    localStorage.removeItem("terra_cart_TAKEAWAY");
+    localStorage.removeItem("terra_orderStatus_TAKEAWAY");
+    localStorage.removeItem("terra_orderStatusUpdatedAt_TAKEAWAY");
+    localStorage.removeItem("terra_previousOrder");
+    localStorage.removeItem("terra_previousOrderDetail");
+
+    // CRITICAL: Clear previous customer data when starting new takeaway session
+    // This ensures each new customer starts with a clean slate
+    localStorage.removeItem("terra_takeaway_customerName");
+    localStorage.removeItem("terra_takeaway_customerMobile");
+    localStorage.removeItem("terra_takeaway_customerEmail");
+    console.log(
+      "[SecondPage] Cleared previous customer data for new takeaway session"
+    );
+
+    // Save customer info to localStorage (OPTIONAL)
+    const cleanName = customerName && customerName.trim();
+    const cleanMobile = customerMobile && customerMobile.trim();
+    if (cleanName) {
+      localStorage.setItem("terra_takeaway_customerName", cleanName);
+    } else {
+      localStorage.removeItem("terra_takeaway_customerName");
+    }
+    if (cleanMobile) {
+      localStorage.setItem("terra_takeaway_customerMobile", cleanMobile);
+    } else {
+      localStorage.removeItem("terra_takeaway_customerMobile");
+    }
+    if (customerEmail && customerEmail.trim()) {
+      localStorage.setItem(
+        "terra_takeaway_customerEmail",
+        customerEmail.trim()
+      );
+    } else {
+      localStorage.removeItem("terra_takeaway_customerEmail");
+    }
+
+    // Save takeaway session token
+    localStorage.setItem("terra_takeaway_sessionToken", takeawaySessionToken);
+
+    // Ensure serviceType is set to TAKEAWAY (for both regular and takeaway-only QR flows)
+    localStorage.setItem("terra_serviceType", "TAKEAWAY");
+
+    // CRITICAL: Clear waitlist state for takeaway orders
+    localStorage.removeItem("terra_waitToken");
+    setWaitlistToken(null);
+    setWaitlistInfo(null);
+    setShowWaitlistModal(false);
+    setIsTableOccupied(false);
 
     // Close modal and navigate to menu
     setShowCustomerInfoModal(false);
-    localStorage.setItem("terra_serviceType", "TAKEAWAY");
     navigate("/menu", { state: { serviceType: "TAKEAWAY" } });
   }, [customerName, customerMobile, customerEmail, navigate]);
 
   // Handle skip customer info (all fields optional)
+  // Works for both regular takeaway and takeaway-only QR flows
   const handleSkipCustomerInfo = useCallback(() => {
+    // Generate unique session token for this takeaway order
+    const takeawaySessionToken = `TAKEAWAY-${Date.now()}-${Math.random()
+      .toString(36)
+      .substr(2, 9)}`;
+
+    // Clear previous takeaway order data when starting new session
+    console.log(
+      "[SecondPage] Starting new takeaway session (skip info) - clearing old order data",
+      {
+        takeawayOnly: localStorage.getItem("terra_takeaway_only"),
+        cartId: localStorage.getItem("terra_takeaway_cartId"),
+      }
+    );
+    localStorage.removeItem("terra_orderId_TAKEAWAY");
+    localStorage.removeItem("terra_cart_TAKEAWAY");
+    localStorage.removeItem("terra_orderStatus_TAKEAWAY");
+    localStorage.removeItem("terra_orderStatusUpdatedAt_TAKEAWAY");
+    localStorage.removeItem("terra_previousOrder");
+    localStorage.removeItem("terra_previousOrderDetail");
+
     // Clear any existing customer info
     setCustomerName("");
     setCustomerMobile("");
@@ -679,9 +1317,21 @@ export default function SecondPage() {
     localStorage.removeItem("terra_takeaway_customerMobile");
     localStorage.removeItem("terra_takeaway_customerEmail");
 
+    // Save takeaway session token
+    localStorage.setItem("terra_takeaway_sessionToken", takeawaySessionToken);
+
+    // Ensure serviceType is set to TAKEAWAY
+    localStorage.setItem("terra_serviceType", "TAKEAWAY");
+
+    // CRITICAL: Clear waitlist state for takeaway orders
+    localStorage.removeItem("terra_waitToken");
+    setWaitlistToken(null);
+    setWaitlistInfo(null);
+    setShowWaitlistModal(false);
+    setIsTableOccupied(false);
+
     // Close modal and navigate to menu
     setShowCustomerInfoModal(false);
-    localStorage.setItem("terra_serviceType", "TAKEAWAY");
     navigate("/menu", { state: { serviceType: "TAKEAWAY" } });
   }, [navigate]);
 
@@ -719,28 +1369,54 @@ export default function SecondPage() {
       return;
     }
 
-    // Parse party size
+    // Validate name is provided
+    if (!waitlistGuestName || !waitlistGuestName.trim()) {
+      alert("Please enter your name to join the waitlist.");
+      setJoiningWaitlist(false);
+      return;
+    }
+
+    // Parse and validate party size
     let partySize = parseInt(waitlistPartySize, 10);
     if (!Number.isFinite(partySize) || partySize <= 0) {
-      partySize = 1;
+      alert("Please enter a valid number of members (at least 1).");
+      setJoiningWaitlist(false);
+      return;
+    }
+
+    // Validate against table capacity
+    const tableCapacity =
+      tableInfo?.capacity || tableInfo?.originalCapacity || null;
+    if (tableCapacity && partySize > tableCapacity) {
+      alert(
+        `This table can accommodate a maximum of ${tableCapacity} members. Please enter ${tableCapacity} or fewer members.`
+      );
+      setJoiningWaitlist(false);
+      return;
     }
 
     try {
       setJoiningWaitlist(true);
+      // CRITICAL: Only send sessionToken if we have an existing waitlistToken
+      // This prevents the backend from finding an existing entry by sessionToken
+      // when the user is trying to join for the first time with name/members
+      // If waitlistToken exists, it means user already joined before, so include sessionToken
+      // Otherwise, don't send sessionToken to allow fresh join
+      const shouldIncludeSessionToken = !!waitlistToken;
       const res = await fetch(`${nodeApi}/api/waitlist`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           tableId: tableId,
           token: waitlistToken || undefined,
-          sessionToken:
-            sessionToken ||
-            localStorage.getItem("terra_sessionToken") ||
-            undefined,
-          name:
-            waitlistGuestName && waitlistGuestName.trim()
-              ? waitlistGuestName.trim()
-              : undefined,
+          // Only include sessionToken if user already has a waitlistToken (rejoining)
+          // This prevents "Already in waitlist" error when user is joining for first time
+          sessionToken: shouldIncludeSessionToken
+            ? sessionToken ||
+              localStorage.getItem("terra_sessionToken") ||
+              undefined
+            : undefined,
+          name: waitlistGuestName.trim(),
           partySize,
         }),
       });
@@ -757,8 +1433,7 @@ export default function SecondPage() {
         token: data.token,
         status: "WAITING",
         position: data.position || 1,
-        name:
-          data.name || (waitlistGuestName && waitlistGuestName.trim()) || null,
+        name: data.name || waitlistGuestName.trim() || null,
         partySize: data.partySize || partySize || 1,
       });
       setShowWaitlistModal(false);
@@ -834,7 +1509,7 @@ export default function SecondPage() {
   }, [waitlistToken]);
 
   const handleVoiceAssistant = () => {
-    setShowVoiceAssistant(true);
+    // Modal removed - button kept for visual consistency
   };
 
   const handleVoiceAssistantOld = () => {
@@ -963,6 +1638,30 @@ export default function SecondPage() {
             {!takeawayOnly && (
               <button
                 onClick={() => {
+                  // CRITICAL: Check if user has active order first - grant immediate access
+                  const existingOrderId =
+                    localStorage.getItem("terra_orderId") ||
+                    localStorage.getItem("terra_orderId_DINE_IN");
+                  const existingOrderStatus =
+                    localStorage.getItem("terra_orderStatus") ||
+                    localStorage.getItem("terra_orderStatus_DINE_IN");
+
+                  const hasActiveOrder =
+                    existingOrderId &&
+                    existingOrderStatus &&
+                    !["Paid", "Cancelled", "Returned", "Completed"].includes(
+                      existingOrderStatus
+                    );
+
+                  // If user has active order, grant immediate access
+                  if (hasActiveOrder) {
+                    console.log(
+                      "[SecondPage] User has active order - granting immediate access via button"
+                    );
+                    startDineInFlow();
+                    return;
+                  }
+
                   // STRONG LOGIC: Check actual table status before allowing Dine In
                   if (!tableInfo) {
                     alert(
@@ -982,9 +1681,24 @@ export default function SecondPage() {
 
                   // Table is occupied - check if user is in waitlist
                   if (tableStatus !== "AVAILABLE" && !waitlistToken) {
-                    alert(
-                      "Table is currently occupied. You must join the waitlist to access Dine In."
+                    // CRITICAL: Set table as occupied and show waitlist modal
+                    // BUT ONLY if it's not a TAKEAWAY order
+                    const currentServiceType =
+                      localStorage.getItem("terra_serviceType") || "DINE_IN";
+                    if (currentServiceType === "TAKEAWAY") {
+                      // TAKEAWAY orders should never show waitlist modal
+                      setIsTableOccupied(false);
+                      setShowWaitlistModal(false);
+                      return;
+                    }
+                    // Use tableInfo which is already available in this scope
+                    setIsTableOccupied(true);
+                    // tableInfo is already set, just ensure it's in localStorage
+                    localStorage.setItem(
+                      "terra_selectedTable",
+                      JSON.stringify(tableInfo)
                     );
+                    // Show waitlist modal - don't show alert, let modal handle the message
                     setShowWaitlistModal(true);
                     return;
                   }
@@ -1010,8 +1724,9 @@ export default function SecondPage() {
             </button>
           </div>
 
-          {/* Waitlist Status Card - only for dine-in (not for takeaway-only QR) */}
+          {/* Waitlist Status Card - only for dine-in (not for takeaway-only QR or TAKEAWAY service) */}
           {!takeawayOnly &&
+            localStorage.getItem("terra_serviceType") !== "TAKEAWAY" &&
             waitlistToken &&
             waitlistInfo &&
             tableInfo?.status !== "AVAILABLE" && (
@@ -1067,12 +1782,11 @@ export default function SecondPage() {
           <div className="spacer" />
         </div>
 
-        {/* Waitlist Modal - STRICT: only show when table is occupied (NOT available) and not in takeaway-only QR mode */}
+        {/* Waitlist Modal - Show when table is occupied and user needs to join waitlist */}
+        {/* CRITICAL: Show modal if showWaitlistModal is true and not in takeaway mode */}
         {!takeawayOnly &&
-          showWaitlistModal &&
-          isTableOccupied &&
-          tableInfo?.status !== "AVAILABLE" &&
-          !waitlistToken && (
+          localStorage.getItem("terra_serviceType") !== "TAKEAWAY" &&
+          showWaitlistModal && (
             <div className="waitlist-modal">
               <div className="waitlist-panel">
                 <h3 className="waitlist-title">{t("waitlistTitle")}</h3>
@@ -1141,7 +1855,7 @@ export default function SecondPage() {
                 </p>
                 <div className="customer-info-form">
                   <div className="customer-info-field">
-                    <label htmlFor="waitlistGuestName">Your Name</label>
+                    <label htmlFor="waitlistGuestName">Your Name *</label>
                     <input
                       type="text"
                       id="waitlistGuestName"
@@ -1149,29 +1863,65 @@ export default function SecondPage() {
                       onChange={(e) => setWaitlistGuestName(e.target.value)}
                       placeholder="Enter your name"
                       className="customer-info-input"
+                      required
                     />
                   </div>
                   <div className="customer-info-field">
-                    <label htmlFor="waitlistPartySize">Number of Seats *</label>
+                    <label htmlFor="waitlistPartySize">
+                      Number of Members *
+                      {tableInfo?.capacity && (
+                        <span
+                          style={{
+                            fontSize: "0.85rem",
+                            fontWeight: "normal",
+                            color: "#666",
+                            marginLeft: "8px",
+                          }}
+                        >
+                          (Max: {tableInfo.capacity})
+                        </span>
+                      )}
+                    </label>
                     <input
                       type="number"
                       id="waitlistPartySize"
                       value={waitlistPartySize}
-                      onChange={(e) => setWaitlistPartySize(e.target.value)}
-                      placeholder="Enter number of seats"
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setWaitlistPartySize(value);
+                      }}
+                      placeholder="Enter number of members"
                       className="customer-info-input"
                       min="1"
+                      max={tableInfo?.capacity || undefined}
                       required
                     />
-                    <p
-                      style={{
-                        marginTop: "4px",
-                        fontSize: "0.75rem",
-                        color: "#666",
-                      }}
-                    >
-                      How many people are in your party?
-                    </p>
+                    {tableInfo?.capacity && (
+                      <p
+                        style={{
+                          marginTop: "4px",
+                          fontSize: "0.75rem",
+                          color: "#666",
+                        }}
+                      >
+                        Available Seats: <strong>{tableInfo.capacity}</strong>
+                        {waitlistPartySize &&
+                          parseInt(waitlistPartySize, 10) >
+                            tableInfo.capacity && (
+                            <span
+                              style={{
+                                display: "block",
+                                marginTop: "4px",
+                                color: "#ef4444",
+                                fontWeight: "500",
+                              }}
+                            >
+                              ⚠️ Maximum capacity is {tableInfo.capacity}{" "}
+                              members. Please reduce the number of members.
+                            </span>
+                          )}
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1187,9 +1937,35 @@ export default function SecondPage() {
                   onClick={handleWaitlistInfoSubmit}
                   disabled={
                     joiningWaitlist ||
+                    !waitlistGuestName ||
+                    !waitlistGuestName.trim() ||
                     !waitlistPartySize ||
-                    parseInt(waitlistPartySize, 10) <= 0
+                    parseInt(waitlistPartySize, 10) <= 0 ||
+                    (tableInfo?.capacity &&
+                      parseInt(waitlistPartySize, 10) > tableInfo.capacity)
                   }
+                  style={{
+                    opacity:
+                      joiningWaitlist ||
+                      !waitlistGuestName ||
+                      !waitlistGuestName.trim() ||
+                      !waitlistPartySize ||
+                      parseInt(waitlistPartySize, 10) <= 0 ||
+                      (tableInfo?.capacity &&
+                        parseInt(waitlistPartySize, 10) > tableInfo.capacity)
+                        ? 0.6
+                        : 1,
+                    cursor:
+                      joiningWaitlist ||
+                      !waitlistGuestName ||
+                      !waitlistGuestName.trim() ||
+                      !waitlistPartySize ||
+                      parseInt(waitlistPartySize, 10) <= 0 ||
+                      (tableInfo?.capacity &&
+                        parseInt(waitlistPartySize, 10) > tableInfo.capacity)
+                        ? "not-allowed"
+                        : "pointer",
+                  }}
                 >
                   {joiningWaitlist ? "Joining..." : "Join Waitlist"}
                 </button>
@@ -1198,7 +1974,7 @@ export default function SecondPage() {
           </div>
         )}
 
-        {/* Customer Info Modal for Takeaway Orders */}
+        {/* Customer Info Modal for Takeaway Orders (OPTIONAL fields) */}
         {showCustomerInfoModal && (
           <div
             className="customer-info-modal-overlay"
@@ -1229,12 +2005,12 @@ export default function SecondPage() {
                     fontSize: "0.9rem",
                   }}
                 >
-                  Please provide your details for the takeaway order (all fields
-                  are optional):
+                  You can provide your details for the takeaway order
+                  (optional).
                 </p>
                 <div className="customer-info-form">
                   <div className="customer-info-field">
-                    <label htmlFor="customerName">Name</label>
+                    <label htmlFor="customerName">Name (optional)</label>
                     <input
                       type="text"
                       id="customerName"
@@ -1245,7 +2021,9 @@ export default function SecondPage() {
                     />
                   </div>
                   <div className="customer-info-field">
-                    <label htmlFor="customerMobile">Mobile Number</label>
+                    <label htmlFor="customerMobile">
+                      Mobile Number (optional)
+                    </label>
                     <input
                       type="tel"
                       id="customerMobile"
@@ -1256,7 +2034,7 @@ export default function SecondPage() {
                     />
                   </div>
                   <div className="customer-info-field">
-                    <label htmlFor="customerEmail">Email</label>
+                    <label htmlFor="customerEmail">Email (Optional)</label>
                     <input
                       type="email"
                       id="customerEmail"
@@ -1270,14 +2048,9 @@ export default function SecondPage() {
               </div>
               <div className="customer-info-modal-footer">
                 <button
-                  className="customer-info-skip-btn"
-                  onClick={handleSkipCustomerInfo}
-                >
-                  Skip
-                </button>
-                <button
                   className="customer-info-submit-btn"
                   onClick={handleCustomerInfoSubmit}
+                  style={{ width: "100%" }}
                 >
                   Continue
                 </button>
@@ -1285,12 +2058,6 @@ export default function SecondPage() {
             </div>
           </div>
         )}
-
-        {/* Blind Voice Assistant Modal */}
-        <BlindVoiceAssistant
-          open={showVoiceAssistant}
-          onClose={() => setShowVoiceAssistant(false)}
-        />
       </div>
 
       {/* Blind Support Button - Outside main-container to avoid overflow/clipping issues, same as Menu page */}

@@ -13,7 +13,6 @@ import jsPDF from "jspdf";
 const nodeApi = (
   import.meta.env.VITE_NODE_API_URL || "http://localhost:5001"
 ).replace(/\/$/, "");
-const socket = io(nodeApi);
 
 /* helpers */
 // Convert paise to rupees
@@ -132,8 +131,13 @@ export default function OrderSummary() {
   const bt =
     floatingButtonTranslations[language] || floatingButtonTranslations.en;
 
-  // Read current order ID from localStorage (used by the effect)
-  const orderId = localStorage.getItem("terra_orderId");
+  // Read current order ID from localStorage (service-type aware)
+  const serviceType = localStorage.getItem("terra_serviceType") || "DINE_IN";
+  const orderId =
+    serviceType === "TAKEAWAY"
+      ? localStorage.getItem("terra_orderId_TAKEAWAY") ||
+        localStorage.getItem("terra_orderId")
+      : localStorage.getItem("terra_orderId");
 
   // Listen for real-time order updates
   useEffect(() => {
@@ -161,8 +165,12 @@ export default function OrderSummary() {
 
         // If cancelled or returned, clear storage and redirect
         if (data.status === "Cancelled" || data.status === "Returned") {
+          // Clear generic keys
           localStorage.removeItem("terra_orderId");
           localStorage.removeItem("terra_cart");
+          // Clear service-type-specific keys
+          localStorage.removeItem("terra_orderId_TAKEAWAY");
+          localStorage.removeItem("terra_orderId_DINE_IN");
           alert(
             data.status === "Returned"
               ? "Order has been returned."
@@ -188,8 +196,12 @@ export default function OrderSummary() {
           updatedOrder.status === "Cancelled" ||
           updatedOrder.status === "Returned"
         ) {
+          // Clear generic keys
           localStorage.removeItem("terra_orderId");
           localStorage.removeItem("terra_cart");
+          // Clear service-type-specific keys
+          localStorage.removeItem("terra_orderId_TAKEAWAY");
+          localStorage.removeItem("terra_orderId_DINE_IN");
           alert(
             updatedOrder.status === "Returned"
               ? "Order has been returned."
@@ -200,16 +212,56 @@ export default function OrderSummary() {
       }
     };
 
-    // Listen for real-time updates
-    socket.on("orderUpdated", handleOrderUpdated);
+    // Create socket connection for order updates (only when needed)
+    let orderSocket = null;
+    try {
+      orderSocket = io(nodeApi, {
+        transports: ["websocket", "polling"],
+        reconnection: true,
+        reconnectionDelay: 1000,
+        reconnectionAttempts: 5,
+        timeout: 20000,
+        autoConnect: true,
+        // Suppress connection errors in console
+        forceNew: false,
+      });
 
-    // Cleanup: Remove event listener on unmount
-    return () => {
-      socket.off("orderUpdated", handleOrderUpdated);
-    };
+      orderSocket.on("connect", () => {
+        console.log("[OrderSummary] Socket connected");
+      });
 
+      orderSocket.on("connect_error", (error) => {
+        // Silently handle connection errors - socket will retry automatically
+        // Don't log to avoid console spam
+        if (error.message && !error.message.includes("xhr poll error")) {
+          console.warn(
+            "[OrderSummary] Socket connection error:",
+            error.message
+          );
+        }
+      });
+
+      orderSocket.on("disconnect", (reason) => {
+        if (reason !== "io client disconnect") {
+          console.log("[OrderSummary] Socket disconnected:", reason);
+        }
+      });
+
+      orderSocket.on("orderUpdated", handleOrderUpdated);
+    } catch (err) {
+      console.warn("[OrderSummary] Failed to create socket connection:", err);
+    }
+
+    // Cleanup: Remove event listener and disconnect on unmount
     return () => {
-      socket.off("orderUpdated", handleOrderUpdated);
+      if (orderSocket) {
+        orderSocket.off("orderUpdated", handleOrderUpdated);
+        orderSocket.off("connect");
+        orderSocket.off("connect_error");
+        orderSocket.off("disconnect");
+        orderSocket.disconnect();
+        orderSocket = null;
+      }
     };
   }, [orderId, language, navigate]);
 
@@ -396,10 +448,37 @@ export default function OrderSummary() {
                 <span>{t("orderId")}</span>
                 <span>{order._id || "—"}</span>
               </div>
-              <div className="order-meta-row">
-                <span>{t("serviceTypeLabel")}</span>
-                <span>{serviceValue}</span>
-              </div>
+              {isTakeaway && order.takeawayToken && (
+                <div
+                  className="order-meta-row"
+                  style={{
+                    backgroundColor: "#dbeafe",
+                    padding: "8px",
+                    borderRadius: "8px",
+                    marginBottom: "8px",
+                  }}
+                >
+                  <span style={{ fontWeight: "600", color: "#1e40af" }}>
+                    Token:
+                  </span>
+                  <span
+                    style={{
+                      fontSize: "1.2em",
+                      fontWeight: "bold",
+                      color: "#2563eb",
+                    }}
+                  >
+                    {order.takeawayToken}
+                  </span>
+                </div>
+              )}
+              {/* Service type label - only show for dine-in orders */}
+              {!isTakeaway && (
+                <div className="order-meta-row">
+                  <span>{t("serviceTypeLabel")}</span>
+                  <span>{serviceValue}</span>
+                </div>
+              )}
               {!isTakeaway && (
                 <div className="order-meta-row">
                   <span>{t("tableLabel")}</span>
@@ -408,6 +487,23 @@ export default function OrderSummary() {
                     {tableName ? ` · ${tableName}` : ""}
                   </span>
                 </div>
+              )}
+              {/* Customer information for takeaway orders */}
+              {isTakeaway && (order.customerName || order.customerMobile) && (
+                <>
+                  {order.customerName && (
+                    <div className="order-meta-row">
+                      <span>Customer Name:</span>
+                      <span>{order.customerName}</span>
+                    </div>
+                  )}
+                  {order.customerMobile && (
+                    <div className="order-meta-row">
+                      <span>Mobile:</span>
+                      <span>{order.customerMobile}</span>
+                    </div>
+                  )}
+                </>
               )}
             </div>
 
@@ -522,6 +618,14 @@ export default function OrderSummary() {
                     <span>Invoice No:</span>
                     <span>{invoiceId}</span>
                   </div>
+                  {isTakeaway && order.takeawayToken && (
+                    <div className="meta-line">
+                      <span>Token:</span>
+                      <span className="font-bold text-blue-600">
+                        {order.takeawayToken}
+                      </span>
+                    </div>
+                  )}
                   <div className="meta-line">
                     <span>Date:</span>
                     <span>
@@ -542,18 +646,24 @@ export default function OrderSummary() {
               </div>
 
               <div className="invoice-billed">
-                <div className="meta-line">
-                  <span>{t("serviceTypeLabel")}:</span>
-                  <span>{serviceValue}</span>
-                </div>
-                <div className="meta-line">
-                  <span>{t("tableLabel")}:</span>
-                  <span>
-                    {isTakeaway ? t("takeawayLabel") : baseTableNumber}
-                    {!isTakeaway && tableName ? ` · ${tableName}` : ""}
-                  </span>
-                </div>
-                {/* Customer information for takeaway orders */}
+                {/* Service type label - only show for dine-in invoices */}
+                {!isTakeaway && (
+                  <div className="meta-line">
+                    <span>{t("serviceTypeLabel")}:</span>
+                    <span>{serviceValue}</span>
+                  </div>
+                )}
+                {/* Show table only for dine-in invoices */}
+                {!isTakeaway && (
+                  <div className="meta-line">
+                    <span>{t("tableLabel")}:</span>
+                    <span>
+                      {baseTableNumber}
+                      {tableName ? ` · ${tableName}` : ""}
+                    </span>
+                  </div>
+                )}
+                {/* Customer information is optional - only show if provided (takeaway only) */}
                 {isTakeaway && (order.customerName || order.customerMobile) && (
                   <>
                     {order.customerName && (

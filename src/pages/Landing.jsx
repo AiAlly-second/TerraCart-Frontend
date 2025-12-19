@@ -16,9 +16,13 @@ const nodeApi = (
   import.meta.env.VITE_NODE_API_URL || "http://localhost:5001"
 ).replace(/\/$/, "");
 
-// Helper function to clear all old order data when session changes
+// Helper function to clear old DINE_IN order data when session changes
+// CRITICAL: Preserves takeaway order data - only clears DINE_IN data
 function clearOldOrderData() {
-  console.log("[Landing] Clearing old order data due to session change");
+  console.log(
+    "[Landing] Clearing old DINE_IN order data due to session change (preserving takeaway data)"
+  );
+  // Clear generic keys (used by DINE_IN)
   localStorage.removeItem("terra_orderId");
   localStorage.removeItem("terra_cart");
   localStorage.removeItem("terra_orderStatus");
@@ -26,19 +30,21 @@ function clearOldOrderData() {
   localStorage.removeItem("terra_previousOrder");
   localStorage.removeItem("terra_previousOrderDetail");
   localStorage.removeItem("terra_lastPaidOrderId");
-  // Clear service-type-specific keys
-  ["DINE_IN", "TAKEAWAY"].forEach((serviceType) => {
-    localStorage.removeItem(`terra_cart_${serviceType}`);
-    localStorage.removeItem(`terra_orderId_${serviceType}`);
-    localStorage.removeItem(`terra_orderStatus_${serviceType}`);
-    localStorage.removeItem(`terra_orderStatusUpdatedAt_${serviceType}`);
-  });
+  // Clear only DINE_IN-specific keys - preserve TAKEAWAY data
+  localStorage.removeItem("terra_cart_DINE_IN");
+  localStorage.removeItem("terra_orderId_DINE_IN");
+  localStorage.removeItem("terra_orderStatus_DINE_IN");
+  localStorage.removeItem("terra_orderStatusUpdatedAt_DINE_IN");
+  // Note: TAKEAWAY data is preserved to allow page refresh without losing order
 }
 
 // Helper function to check if sessionToken changed and clear old data if needed
+// CRITICAL: Only clears DINE_IN data - preserves takeaway data
 function updateSessionToken(newToken, oldToken) {
   if (newToken && newToken !== oldToken) {
-    clearOldOrderData();
+    // Only clear DINE_IN data when sessionToken changes
+    // Takeaway uses separate sessionToken (terra_takeaway_sessionToken) so it's preserved
+    clearOldOrderData(); // This now only clears DINE_IN data
   }
   if (newToken) {
     localStorage.setItem("terra_sessionToken", newToken);
@@ -97,15 +103,28 @@ export default function Landing() {
         const storedSession = localStorage.getItem("terra_sessionToken");
         const storedWait = localStorage.getItem("terra_waitToken");
 
-        // CRITICAL: If this is a new QR scan (different slug or first time), clear takeaway customer data
-        const isNewScan = !previousSlug || previousSlug !== slug;
-        if (isNewScan) {
-          // Clear takeaway customer data for new users
+        // CRITICAL: Only clear takeaway data if this is a DIFFERENT table QR scan (not a refresh)
+        // Don't clear takeaway data on page refresh (same slug) - preserve order data
+        const isNewTableScan = previousSlug && previousSlug !== slug;
+        if (isNewTableScan) {
+          // Only clear takeaway data when scanning a DIFFERENT table QR
+          // This preserves takeaway order data on page refresh
           localStorage.removeItem("terra_takeaway_customerName");
           localStorage.removeItem("terra_takeaway_customerMobile");
           localStorage.removeItem("terra_takeaway_customerEmail");
+          localStorage.removeItem("terra_takeaway_sessionToken");
+          // Clear takeaway order data only when switching to a different table
+          localStorage.removeItem("terra_orderId_TAKEAWAY");
+          localStorage.removeItem("terra_cart_TAKEAWAY");
+          localStorage.removeItem("terra_orderStatus_TAKEAWAY");
+          localStorage.removeItem("terra_orderStatusUpdatedAt_TAKEAWAY");
           console.log(
-            "[Landing] New QR scan detected, cleared takeaway customer data"
+            "[Landing] Different table QR scan detected, cleared takeaway data"
+          );
+        } else {
+          // Same slug (page refresh) or first scan - preserve takeaway order data
+          console.log(
+            "[Landing] Same table QR or first scan - preserving takeaway order data"
           );
         }
 
@@ -180,6 +199,7 @@ export default function Landing() {
         }
 
         // 423 is expected for locked tables - don't treat it as an error
+        // NOTE: Browser may log "Failed to load resource: 423" in console - this is normal and expected
         // 400 with isMerged flag means table is merged - handle specially
         if (!res.ok && res.status !== 423) {
           console.error("[Landing] Table lookup failed:", {
@@ -232,8 +252,15 @@ export default function Landing() {
 
         const isNewTable = previousSlug && previousSlug !== slug;
 
+        // CRITICAL: Check table status - if AVAILABLE, clear DINE_IN order data only
+        // For takeaway orders, preserve data across refreshes - only clear when switching tables
+        const tableStatusFromResponse =
+          tableData.status || (res.status === 423 ? "OCCUPIED" : "AVAILABLE");
+        const shouldClearDineInOrderData =
+          isNewTable || tableStatusFromResponse === "AVAILABLE";
+
         if (isNewTable) {
-          // Clear old format keys
+          // Clear old format keys for new table scan (DINE_IN only)
           localStorage.removeItem("terra_orderId");
           localStorage.removeItem("terra_cart");
           localStorage.removeItem("terra_orderStatus");
@@ -242,22 +269,27 @@ export default function Landing() {
           localStorage.removeItem("terra_waitToken");
           localStorage.removeItem("terra_sessionToken");
 
-          // Clear takeaway customer data for new users
-          localStorage.removeItem("terra_takeaway_customerName");
-          localStorage.removeItem("terra_takeaway_customerMobile");
-          localStorage.removeItem("terra_takeaway_customerEmail");
+          // Clear DINE_IN-specific keys
+          localStorage.removeItem("terra_orderId_DINE_IN");
+          localStorage.removeItem("terra_cart_DINE_IN");
+          localStorage.removeItem("terra_orderStatus_DINE_IN");
+          localStorage.removeItem("terra_orderStatusUpdatedAt_DINE_IN");
 
-          // Clear service-type-specific keys (for both DINE_IN and TAKEAWAY)
-          ["DINE_IN", "TAKEAWAY"].forEach((serviceType) => {
-            localStorage.removeItem(`terra_cart_${serviceType}`);
-            localStorage.removeItem(`terra_orderId_${serviceType}`);
-            localStorage.removeItem(`terra_orderStatus_${serviceType}`);
-            localStorage.removeItem(
-              `terra_orderStatusUpdatedAt_${serviceType}`
-            );
-            localStorage.removeItem(`terra_lastTableId_${serviceType}`);
-            localStorage.removeItem(`terra_lastTableSlug_${serviceType}`);
-          });
+          // CRITICAL: Only clear takeaway data when switching to a DIFFERENT table
+          // This was already handled above in the isNewTableScan check
+          // Don't clear takeaway data here again to avoid double-clearing
+          console.log(
+            "[Landing] New table scan - cleared DINE_IN data, takeaway data already handled"
+          );
+
+          // Clear only DINE_IN-specific keys - preserve TAKEAWAY data
+          // TAKEAWAY data should only be cleared when explicitly switching from takeaway to dine-in
+          localStorage.removeItem("terra_cart_DINE_IN");
+          localStorage.removeItem("terra_orderId_DINE_IN");
+          localStorage.removeItem("terra_orderStatus_DINE_IN");
+          localStorage.removeItem("terra_orderStatusUpdatedAt_DINE_IN");
+          localStorage.removeItem("terra_lastTableId_DINE_IN");
+          localStorage.removeItem("terra_lastTableSlug_DINE_IN");
 
           console.log(
             "[Landing] New table detected, cleared all cart, order, and customer data"
@@ -271,15 +303,36 @@ export default function Landing() {
         const tableStatus =
           tableData.status || (res.status === 423 ? "OCCUPIED" : "AVAILABLE");
 
+        // CRITICAL: If table is AVAILABLE, clear DINE_IN order data only
+        // Preserve takeaway order data - only clear when user is actually switching to dine-in
+        if (tableStatus === "AVAILABLE" && !isNewTable) {
+          // Table is available but not a new scan - clear DINE_IN order data only
+          // Don't clear takeaway data unless user is explicitly switching modes
+          clearOldOrderData(); // This now only clears DINE_IN data
+          console.log(
+            "[Landing] Table is AVAILABLE - cleared DINE_IN order data (preserved takeaway data)"
+          );
+        }
+
         // CRITICAL: If table is AVAILABLE, NO WAITLIST LOGIC - clear all waitlist state
+        // Also clear DINE_IN order data to ensure new customer sees clean state
         if (res.status === 200 && tableStatus === "AVAILABLE") {
           // Table is available - clear ALL waitlist-related state
           localStorage.removeItem("terra_waitToken");
 
-          // CRITICAL: Check if sessionToken changed - if so, clear all old order data
+          // CRITICAL: Clear DINE_IN order data when table is AVAILABLE
+          // Preserve takeaway order data - only clear when user is actually switching to dine-in
+          clearOldOrderData(); // This now only clears DINE_IN data
+          console.log(
+            "[Landing] Table is AVAILABLE - cleared DINE_IN order data (preserved takeaway data)"
+          );
+
+          // Update sessionToken
           const newSessionToken =
             payload.sessionToken || tableData.sessionToken;
-          updateSessionToken(newSessionToken, storedSession);
+          if (newSessionToken) {
+            localStorage.setItem("terra_sessionToken", newSessionToken);
+          }
           // First user can proceed directly - NO WAITLIST LOGIC APPLIED
           return;
         }
@@ -288,35 +341,87 @@ export default function Landing() {
         if (tableStatus === "AVAILABLE") {
           localStorage.removeItem("terra_waitToken");
 
-          // CRITICAL: Check if sessionToken changed - if so, clear all old order data
+          // CRITICAL: Always clear old order data when table is AVAILABLE
+          // This ensures new customers don't see previous customer's orders
+          clearOldOrderData();
+          console.log(
+            "[Landing] Table is AVAILABLE - cleared all order data for new customer"
+          );
+
+          // Update sessionToken
           const newSessionToken =
             payload.sessionToken || tableData.sessionToken;
-          updateSessionToken(newSessionToken, storedSession);
+          if (newSessionToken) {
+            localStorage.setItem("terra_sessionToken", newSessionToken);
+          }
           return; // No waitlist logic for available tables
         }
 
         // Table is NOT available - apply waitlist logic
-        if (res.status === 423) {
-          localStorage.removeItem("terra_sessionToken");
-        } else {
+        // CRITICAL: DO NOT remove sessionToken on 423 responses - 423 is expected for occupied tables
+        // Only clear sessionToken on actual errors (network failures, 500 errors)
+        // Preserve sessionToken when table is locked but user has active order
+        if (res.status !== 423) {
+          // Only update sessionToken for non-423 responses
           const newSessionToken =
             payload.sessionToken || tableData.sessionToken;
           updateSessionToken(newSessionToken, storedSession);
+        } else {
+          // For 423 responses, preserve existing sessionToken if user has active order
+          const existingOrderId =
+            localStorage.getItem("terra_orderId") ||
+            localStorage.getItem("terra_orderId_DINE_IN");
+          if (!existingOrderId) {
+            // Only clear if user has no active order
+            // But still try to preserve if payload has sessionToken
+            const newSessionToken =
+              payload.sessionToken || tableData.sessionToken;
+            if (newSessionToken) {
+              updateSessionToken(newSessionToken, storedSession);
+            }
+          } else {
+            // User has active order - preserve sessionToken
+            const currentToken = localStorage.getItem("terra_sessionToken");
+            if (currentToken) {
+              // Keep existing token
+              console.log(
+                "[Landing] Preserving sessionToken for user with active order"
+              );
+            }
+          }
         }
 
-        // Only store waitlist token if table is NOT available
+        // CRITICAL: Only store waitlist token if user already has an existing entry
+        // Don't auto-create waitlist entries - user must join manually
         if (tableStatus !== "AVAILABLE") {
-          if (payload.waitlist?.token) {
+          if (payload.waitlist?.token && storedWait) {
+            // User already has a waitlist entry - restore it
             localStorage.setItem("terra_waitToken", payload.waitlist.token);
           } else if (res.status !== 423 || !storedWait) {
+            // No existing waitlist entry - clear token, user must join manually
             localStorage.removeItem("terra_waitToken");
           }
           if (
             payload.waitlist?.status === "SEATED" &&
             payload.waitlist?.sessionToken
           ) {
+            // CRITICAL: Clear all previous customer order data when waitlist user is seated
+            // This ensures new waitlist customers don't see previous customer's orders
+            clearOldOrderData();
+            console.log(
+              "[Landing] Waitlist user SEATED - cleared all order data for new customer"
+            );
+
             updateSessionToken(payload.waitlist.sessionToken, storedSession);
             localStorage.removeItem("terra_waitToken");
+          }
+
+          // CRITICAL: Also clear order data when waitlist user is NOTIFIED
+          if (payload.waitlist?.status === "NOTIFIED") {
+            clearOldOrderData();
+            console.log(
+              "[Landing] Waitlist user NOTIFIED - cleared all order data for new customer"
+            );
           }
         }
 
@@ -329,9 +434,19 @@ export default function Landing() {
           // STRONG CHECK: If table is actually AVAILABLE, clear waitlist and return
           if (actualTableStatus === "AVAILABLE") {
             localStorage.removeItem("terra_waitToken");
+
+            // CRITICAL: Always clear old order data when table is AVAILABLE
+            // This ensures new customers don't see previous customer's orders
+            clearOldOrderData();
+            console.log(
+              "[Landing] Table is AVAILABLE (423 response) - cleared all order data for new customer"
+            );
+
             const newSessionToken =
               payload.sessionToken || tableData?.sessionToken;
-            updateSessionToken(newSessionToken, storedSession);
+            if (newSessionToken) {
+              localStorage.setItem("terra_sessionToken", newSessionToken);
+            }
             return; // Table is available, no waitlist needed
           }
 
@@ -339,24 +454,36 @@ export default function Landing() {
           console.log(
             "[Landing] Table locked (423), waitlist info:",
             payload.waitlist
+              ? {
+                  token: payload.waitlist.token,
+                  status: payload.waitlist.status,
+                  position: payload.waitlist.position,
+                }
+              : "No waitlist info"
           );
 
-          // Only store waitlist token if table is NOT available
-          if (actualTableStatus !== "AVAILABLE" && payload.waitlist?.token) {
-            // User is on waitlist - store waitlist token
-            localStorage.setItem("terra_waitToken", payload.waitlist.token);
-            const position = payload.waitlist?.position || 1;
-            alert(
-              payload?.message ||
-                `Table is currently occupied. You are #${position} in the waitlist.`
-            );
-            // User can continue to language selection, but will need to wait
-          } else if (actualTableStatus !== "AVAILABLE") {
-            // Table is occupied but no waitlist token - user needs to join waitlist
-            alert(
-              payload?.message ||
-                "This table is currently assigned to another guest. Please wait or contact staff."
-            );
+          // CRITICAL: Don't auto-store waitlist token - user must explicitly join waitlist
+          // Only store if user already has an existing waitlist entry (they joined before)
+          if (actualTableStatus !== "AVAILABLE") {
+            // Table is occupied - user needs to join waitlist manually
+            // Don't auto-join, just inform them
+            if (payload.waitlist?.token) {
+              // User already has a waitlist entry from previous session - restore it
+              localStorage.setItem("terra_waitToken", payload.waitlist.token);
+              const position = payload.waitlist?.position || 1;
+              alert(
+                payload?.message ||
+                  `Table is currently occupied. You are #${position} in the waitlist.`
+              );
+            } else {
+              // No waitlist entry - user must join manually
+              alert(
+                payload?.message ||
+                  "This table is currently occupied. You will be asked to join the waitlist on the next page."
+              );
+              // Clear any old waitlist token
+              localStorage.removeItem("terra_waitToken");
+            }
           }
 
           // Continue with the flow - don't throw error, allow user to proceed

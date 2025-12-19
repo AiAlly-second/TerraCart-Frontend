@@ -9,7 +9,9 @@ import translations from "../data/translations/billing.json";
 // import floatingButtonTranslations from "../data/translations/floatingButtons.json";
 import "./Billing.css";
 
-const nodeApi = (import.meta.env.VITE_NODE_API_URL || "http://localhost:5001").replace(/\/$/, "");
+const nodeApi = (
+  import.meta.env.VITE_NODE_API_URL || "http://localhost:5001"
+).replace(/\/$/, "");
 
 // Convert paise to rupees
 const paiseToRupees = (paise) => {
@@ -56,18 +58,18 @@ function calculateTotalsFromItems(mergedItems) {
   const subtotalInPaise = mergedItems.reduce((sum, item) => {
     const priceInPaise = Number(item.price) || 0;
     const quantity = Number(item.quantity) || 0;
-    return sum + (priceInPaise * quantity);
+    return sum + priceInPaise * quantity;
   }, 0);
-  
+
   // Convert to rupees and round to 2 decimal places
   const subtotal = Number((subtotalInPaise / 100).toFixed(2));
-  
+
   // Calculate GST (5%)
   const gst = Number((subtotal * 0.05).toFixed(2));
-  
+
   // Calculate total amount
   const totalAmount = Number((subtotal + gst).toFixed(2));
-  
+
   return {
     subtotal,
     gst,
@@ -78,7 +80,7 @@ function calculateTotalsFromItems(mergedItems) {
 function sumTotals(kotLines = []) {
   // Merge all items from all KOTs
   const mergedItems = mergeKotLines(kotLines);
-  
+
   // Calculate totals from actual items
   return calculateTotalsFromItems(mergedItems);
 }
@@ -105,9 +107,14 @@ export default function Billing() {
     localStorage.setItem("accessibilityMode", newMode.toString());
   };
 
-  // Load current order by id
+  // Load current order by id (service-type aware)
   useEffect(() => {
-    const orderId = localStorage.getItem("terra_orderId");
+    const serviceType = localStorage.getItem("terra_serviceType") || "DINE_IN";
+    const orderId =
+      serviceType === "TAKEAWAY"
+        ? localStorage.getItem("terra_orderId_TAKEAWAY") ||
+          localStorage.getItem("terra_orderId")
+        : localStorage.getItem("terra_orderId");
     if (!orderId) {
       setOrder(null);
       setError(t("noOrderFound") || "No active order.");
@@ -143,13 +150,18 @@ export default function Billing() {
     return () => {
       cancelled = true;
     };
-  // We intentionally depend only on language; t() references the same data for a given language.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // We intentionally depend only on language; t() references the same data for a given language.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [language]);
 
   // Finalize the order on proceed to pay
   const handleProceedToPay = () => {
-    const orderId = localStorage.getItem("terra_orderId");
+    const serviceType = localStorage.getItem("terra_serviceType") || "DINE_IN";
+    const orderId =
+      serviceType === "TAKEAWAY"
+        ? localStorage.getItem("terra_orderId_TAKEAWAY") ||
+          localStorage.getItem("terra_orderId")
+        : localStorage.getItem("terra_orderId");
     if (!orderId) {
       alert(t("noOrderFound") || "No order found");
       return;
@@ -204,17 +216,23 @@ export default function Billing() {
 
   return (
     <div
-      className={`billing-container ${accessibilityMode ? "accessibility-mode" : ""}`}
+      className={`billing-container ${
+        accessibilityMode ? "accessibility-mode" : ""
+      }`}
     >
       {/* Background Image */}
       <div className="background-container">
         <img
           src={restaurantBg}
           alt={t("restaurantName")}
-          className={`background-image ${accessibilityMode ? "accessibility-mode" : ""}`}
+          className={`background-image ${
+            accessibilityMode ? "accessibility-mode" : ""
+          }`}
         />
         <div
-          className={`background-overlay ${accessibilityMode ? "accessibility-mode" : ""}`}
+          className={`background-overlay ${
+            accessibilityMode ? "accessibility-mode" : ""
+          }`}
         />
       </div>
 
@@ -234,21 +252,40 @@ export default function Billing() {
       {/* Content */}
       <div className="content-wrapper">
         <div
-          className={`billing-card ${accessibilityMode ? "accessibility-mode" : ""}`}
+          className={`billing-card ${
+            accessibilityMode ? "accessibility-mode" : ""
+          }`}
         >
           {/* Cafe Title */}
-          <h1 className="restaurant-title">
-            {t("restaurantName")}
-          </h1>
+          <h1 className="restaurant-title">{t("restaurantName")}</h1>
 
           {/* Order ID */}
-<h2 className="order-info">
-  {t("orderId")}: {order._id || order.id || localStorage.getItem("terra_orderId") || "N/A"}
-</h2>
+          <h2 className="order-info">
+            {t("orderId")}:{" "}
+            {order._id ||
+              order.id ||
+              localStorage.getItem("terra_orderId") ||
+              "N/A"}
+          </h2>
+
+          {/* Takeaway Token */}
+          {isTakeaway && order.takeawayToken && (
+            <div
+              className="order-info"
+              style={{ marginTop: "8px", marginBottom: "8px" }}
+            >
+              <span style={{ fontWeight: "600", color: "#2563eb" }}>
+                Token:{" "}
+                <span style={{ fontSize: "1.2em" }}>{order.takeawayToken}</span>
+              </span>
+            </div>
+          )}
 
           {/* Table Info */}
           <div className="table-info">
-            <span>{t("serviceType")}: {isTakeaway ? t("takeaway") : t("dineIn")}</span>
+            <span>
+              {t("serviceType")}: {isTakeaway ? t("takeaway") : t("dineIn")}
+            </span>
             {!isTakeaway && (
               <span>
                 {t("table")}: {baseTableNumber}
@@ -258,9 +295,7 @@ export default function Billing() {
             {/* Customer information for takeaway orders */}
             {isTakeaway && (order.customerName || order.customerMobile) && (
               <>
-                {order.customerName && (
-                  <span>Name: {order.customerName}</span>
-                )}
+                {order.customerName && <span>Name: {order.customerName}</span>}
                 {order.customerMobile && (
                   <span>Mobile: {order.customerMobile}</span>
                 )}
@@ -281,7 +316,10 @@ export default function Billing() {
                     {item.name} × {item.quantity}
                   </span>
                   <span>
-                    ₹{(((item.price || 0) / 100) * (item.quantity || 0)).toFixed(2)}
+                    ₹
+                    {(((item.price || 0) / 100) * (item.quantity || 0)).toFixed(
+                      2
+                    )}
                   </span>
                 </div>
               ))
@@ -290,7 +328,9 @@ export default function Billing() {
 
           {/* Totals (sum of all KOTs) */}
           <div
-            className={`totals-section ${accessibilityMode ? "accessibility-mode" : ""}`}
+            className={`totals-section ${
+              accessibilityMode ? "accessibility-mode" : ""
+            }`}
           >
             <div className="total-row subtotal">
               <span>{t("subtotal")}</span>
@@ -309,7 +349,9 @@ export default function Billing() {
           {/* Proceed Button */}
           <button
             onClick={handleProceedToPay}
-            className={`proceed-button ${accessibilityMode ? "accessibility-mode" : ""}`}
+            className={`proceed-button ${
+              accessibilityMode ? "accessibility-mode" : ""
+            }`}
           >
             {t("proceedToPay")}
           </button>

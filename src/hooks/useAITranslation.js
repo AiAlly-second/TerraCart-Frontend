@@ -10,12 +10,21 @@ export const useAITranslation = (text) => {
 
     if (lang === "en") {
       setTranslated(text);
+      setLoading(false);
     } else {
       setLoading(true);
-      translateText(text, lang).then((translatedText) => {
-        setTranslated(translatedText);
-        setLoading(false);
-      });
+      translateText(text, lang)
+        .then((translatedText) => {
+          setTranslated(translatedText);
+          setLoading(false);
+        })
+        .catch((err) => {
+          // Gracefully handle errors - fallback to original text
+          // Completely silent - no logging to avoid console noise
+          // Feature is kept for future AI development but won't interfere
+          setTranslated(text);
+          setLoading(false);
+        });
     }
   }, [text]);
 

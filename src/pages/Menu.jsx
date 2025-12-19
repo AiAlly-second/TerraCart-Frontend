@@ -2671,6 +2671,87 @@ export default function MenuPage() {
     setIsOrderingMore(true);
     setReordering(true);
     try {
+      // Check service type
+      const currentServiceType =
+        localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN";
+
+      // For TAKEAWAY orders, skip table lookup - just allow adding more items
+      if (currentServiceType === "TAKEAWAY") {
+        // For takeaway, we just need the order ID and session token
+        const takeawayOrderId =
+          activeOrderId ||
+          localStorage.getItem("terra_orderId_TAKEAWAY") ||
+          localStorage.getItem("terra_orderId");
+
+        const takeawaySessionToken =
+          localStorage.getItem("terra_takeaway_sessionToken") ||
+          localStorage.getItem("terra_sessionToken");
+
+        if (!takeawayOrderId) {
+          alert("No active order found. Please create a new order.");
+          return;
+        }
+
+        // Verify the order still exists and is active
+        try {
+          const orderRes = await fetch(
+            `${nodeApi}/api/orders/${takeawayOrderId}`
+          );
+          if (orderRes.ok) {
+            const orderData = await orderRes.json();
+            // Check if order is still active (not paid/cancelled/returned)
+            if (
+              orderData.status &&
+              ["Paid", "Cancelled", "Returned", "Completed"].includes(
+                orderData.status
+              )
+            ) {
+              alert(
+                "This order has been completed. Please create a new order."
+              );
+              return;
+            }
+
+            // Order is active - allow adding more items
+            setActiveOrderId(takeawayOrderId);
+            localStorage.setItem("terra_orderId_TAKEAWAY", takeawayOrderId);
+            localStorage.removeItem("terra_orderId"); // Clear generic orderId
+            localStorage.removeItem("terra_orderId_DINE_IN"); // Clear DINE_IN orderId
+            setOrderStatus(orderData.status || orderStatus || "Confirmed");
+            localStorage.setItem(
+              "terra_orderStatus_TAKEAWAY",
+              orderData.status || orderStatus || "Confirmed"
+            );
+
+            if (orderData.updatedAt) {
+              setOrderStatusUpdatedAt(orderData.updatedAt);
+              localStorage.setItem(
+                "terra_orderStatusUpdatedAt_TAKEAWAY",
+                orderData.updatedAt
+              );
+            }
+
+            // Clear cart so user can add new items
+            setCart({});
+            localStorage.removeItem("terra_cart");
+            localStorage.removeItem("terra_cart_TAKEAWAY");
+
+            alert("You can continue adding items to your takeaway order.");
+            return;
+          } else {
+            alert("Order not found. Please create a new order.");
+            return;
+          }
+        } catch (err) {
+          if (import.meta.env.DEV) {
+            console.error("Failed to verify takeaway order:", err);
+          }
+          alert("Unable to verify order. Please try again or contact staff.");
+          return;
+        }
+      }
+
+      // For DINE_IN orders, use the existing table lookup logic
       const storedTable = localStorage.getItem("terra_selectedTable");
       const storedSession =
         sessionToken || localStorage.getItem("terra_sessionToken");
@@ -2689,7 +2770,9 @@ export default function MenuPage() {
             previousDetailForDisplay = await prevRes.json();
           }
         } catch (err) {
-          console.warn("Failed to load previous order detail", err);
+          if (import.meta.env.DEV) {
+            console.warn("Failed to load previous order detail", err);
+          }
         }
       }
 
@@ -3103,7 +3186,21 @@ export default function MenuPage() {
       setOrderStatus("Returned");
       setOrderStatusUpdatedAt(updatedAt);
       setActiveOrderId(null);
-      localStorage.removeItem("terra_orderId");
+
+      // Clear order IDs based on service type
+      if (serviceType === "TAKEAWAY") {
+        localStorage.removeItem("terra_orderId_TAKEAWAY");
+        localStorage.removeItem("terra_orderStatus_TAKEAWAY");
+        localStorage.removeItem("terra_orderStatusUpdatedAt_TAKEAWAY");
+      } else {
+        localStorage.removeItem("terra_orderId");
+        localStorage.removeItem("terra_orderId_DINE_IN");
+        localStorage.removeItem("terra_orderStatus");
+        localStorage.removeItem("terra_orderStatus_DINE_IN");
+        localStorage.removeItem("terra_orderStatusUpdatedAt");
+        localStorage.removeItem("terra_orderStatusUpdatedAt_DINE_IN");
+      }
+
       localStorage.removeItem("terra_cart");
       setCart({});
       setIsOrderingMore(false);
@@ -3112,21 +3209,29 @@ export default function MenuPage() {
       // Takeaway orders should never trigger waitlist
       if (serviceType === "TAKEAWAY") {
         localStorage.removeItem("terra_waitToken");
-        console.log(
-          "[Menu] Cleared waitlist state for returned takeaway order"
-        );
+        if (import.meta.env.DEV) {
+          console.log(
+            "[Menu] Cleared waitlist state for returned takeaway order"
+          );
+        }
 
         // CRITICAL: Clear takeaway customer data when order is returned
         // This ensures new customers don't see previous customer's data
         localStorage.removeItem("terra_takeaway_customerName");
         localStorage.removeItem("terra_takeaway_customerMobile");
         localStorage.removeItem("terra_takeaway_customerEmail");
-        console.log("[Menu] Cleared takeaway customer data after order return");
+        if (import.meta.env.DEV) {
+          console.log(
+            "[Menu] Cleared takeaway customer data after order return"
+          );
+        }
       }
 
       alert("Your order has been marked as returned.");
     } catch (err) {
-      console.error("handleReturnOrder error", err);
+      if (import.meta.env.DEV) {
+        console.error("handleReturnOrder error", err);
+      }
       alert(err.message || "Unable to return order. Please contact staff.");
     } finally {
       setReturning(false);
@@ -4070,8 +4175,13 @@ export default function MenuPage() {
                     <button
                       onClick={speakOrderSummary}
                       className="speak-button"
+                      aria-label={speakBtn}
                     >
-                      <HiSpeakerWave className="speaker-icon" /> {speakBtn}
+                      <HiSpeakerWave
+                        className="speaker-icon"
+                        aria-hidden="true"
+                      />
+                      <span>{speakBtn}</span>
                     </button>
 
                     <button onClick={handleResetCart} className="reset-button">

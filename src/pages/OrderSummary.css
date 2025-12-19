@@ -70,20 +70,21 @@
 /* Main content area */
 .content-wrapper {
   position: relative;
-  z-index: 20;
+  z-index: 10;
 }
 
 /* Ensure the card is centered horizontally and starts near the top (pt-24) */
 /* Ensure the card is positioned near the top instead of center */
 /* Ensure the card is positioned near the top */
 .main-content {
-  position: fixed !important;
+  position: relative;
   display: flex;
   justify-content: center;
   align-items: flex-start;
   width: 100%;
   padding-top: 1rem; /* Add controlled padding */
   box-sizing: border-box;
+  z-index: 1;
 }
 
 /* Summary card - matches tailwind's w-full max-w-md p-6 rounded-3xl shadow-xl border */
@@ -269,12 +270,16 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: rgba(0, 0, 0, 0.4);
+  background-color: rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(6px);
-  z-index: 80;
+  z-index: 10002; /* Higher than Alert (10000) and Confirm (10001) */
   padding: 0.75rem;
   overflow-y: auto;
   box-sizing: border-box;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
 }
 
 @media (min-width: 640px) {
@@ -290,18 +295,22 @@
 }
 
 .bill-modal {
+  position: relative;
   padding: 1rem;
   border-radius: 1rem;
   width: 100%;
   max-width: 28rem;
   max-height: 90vh;
   overflow-y: auto;
+  overflow-x: hidden;
   background-color: #ffffff; /* White background */
   border: 1px solid #cccccc; /* Light gray border */
   box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1),
     0 8px 10px -6px rgba(0, 0, 0, 0.04);
   box-sizing: border-box;
   margin: auto;
+  z-index: 10003; /* Ensure modal content is above overlay */
+  -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
 }
 
 @media (min-width: 640px) {
@@ -455,6 +464,11 @@
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.4);
   font-size: 0.9rem;
   color: #1f2933;
+  position: relative;
+  overflow-x: auto;
+  overflow-y: visible;
+  max-width: 100%;
+  word-wrap: break-word;
 }
 
 .order-summary-page.accessibility .invoice-preview {
@@ -531,6 +545,8 @@
   width: 100%;
   border-collapse: collapse;
   margin-bottom: 1.25rem;
+  table-layout: auto;
+  min-width: 100%;
 }
 
 .invoice-table th,
@@ -538,6 +554,9 @@
   padding: 0.6rem 0.25rem;
   border-bottom: 1px solid #e5e7eb;
   text-align: center;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  max-width: 25%;
 }
 
 .invoice-table th {
@@ -663,6 +682,7 @@
 /* small responsive adjustments */
 @media (max-width: 640px) {
   .main-content {
+    position: relative;
     padding-top: 80px;
     padding-left: 12px;
     padding-right: 12px;
@@ -705,6 +725,11 @@
     max-width: 95%;
     margin: 0 12px;
     padding: 1.25rem;
+    max-height: 85vh;
+  }
+
+  .bill-modal-overlay {
+    padding: 0.5rem;
   }
 
   .accessibility-toggle {
@@ -716,6 +741,7 @@
 
 @media (max-width: 480px) {
   .main-content {
+    position: relative;
     padding-top: 70px;
     padding-left: 8px;
     padding-right: 8px;
@@ -754,6 +780,11 @@
     max-width: 100%;
     margin: 0 8px;
     padding: 1rem;
+    max-height: 80vh;
+  }
+
+  .bill-modal-overlay {
+    padding: 0.25rem;
   }
 
   .accessibility-toggle {

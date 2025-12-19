@@ -137,7 +137,18 @@ export default function OrderSummary() {
     serviceType === "TAKEAWAY"
       ? localStorage.getItem("terra_orderId_TAKEAWAY") ||
         localStorage.getItem("terra_orderId")
-      : localStorage.getItem("terra_orderId");
+      : localStorage.getItem("terra_orderId_DINE_IN") ||
+        localStorage.getItem("terra_orderId");
+
+  console.log("[OrderSummary] Loading order:", {
+    serviceType,
+    orderId,
+    fromStorage: {
+      generic: localStorage.getItem("terra_orderId"),
+      dineIn: localStorage.getItem("terra_orderId_DINE_IN"),
+      takeaway: localStorage.getItem("terra_orderId_TAKEAWAY"),
+    },
+  });
 
   // Listen for real-time order updates
   useEffect(() => {

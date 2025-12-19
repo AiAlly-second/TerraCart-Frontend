@@ -658,78 +658,108 @@ export default function SecondPage() {
 
   // Listen for real-time table status updates from admin
   useEffect(() => {
-    if (!tableInfo || !tableInfo.id) {
+    if (!tableInfo || (!tableInfo.id && !tableInfo._id)) {
       return;
     }
 
     const handleTableStatusUpdated = (updatedTable) => {
       // Only update if this is the same table
-      if (updatedTable.id && updatedTable.id === tableInfo.id) {
-        // CRITICAL: If user has active order, don't update table status
-        // This prevents showing waitlist when admin changes status
-        const existingOrderId =
-          localStorage.getItem("terra_orderId") ||
-          localStorage.getItem("terra_orderId_DINE_IN");
-        const existingOrderStatus =
-          localStorage.getItem("terra_orderStatus") ||
-          localStorage.getItem("terra_orderStatus_DINE_IN");
+      // Check both id and _id, and compare as strings to handle ObjectId vs string
+      const updatedTableId = updatedTable.id || updatedTable._id;
+      const currentTableId = tableInfo?.id || tableInfo?._id;
 
-        const hasActiveOrder =
-          existingOrderId &&
-          existingOrderStatus &&
-          !["Paid", "Cancelled", "Returned", "Completed"].includes(
-            existingOrderStatus
-          );
+      if (!updatedTableId || !currentTableId) {
+        return; // Missing IDs, can't match
+      }
 
-        if (hasActiveOrder) {
-          console.log(
-            "[SecondPage] User has active order - ignoring table status update"
-          );
-          return;
-        }
-
-        console.log(
-          "[SecondPage] Table status updated via socket:",
-          updatedTable.status
-        );
-        // Update table info with new status
-        const updatedTableInfo = {
-          ...tableInfo,
-          status: updatedTable.status,
-          currentOrder: updatedTable.currentOrder || null,
-          sessionToken: updatedTable.sessionToken || tableInfo.sessionToken,
-        };
-        setTableInfo(updatedTableInfo);
-        // Update localStorage to persist the change
-        localStorage.setItem(
-          "terra_selectedTable",
-          JSON.stringify(updatedTableInfo)
-        );
-
-        // CRITICAL: If table becomes AVAILABLE, clear waitlist state and hide modal
-        // Also clear all previous customer order data to prevent showing old orders
-        if (updatedTable.status === "AVAILABLE") {
-          console.log(
-            "[SecondPage] Table became AVAILABLE via socket - clearing waitlist state and order data"
-          );
-          setIsTableOccupied(false);
-          setShowWaitlistModal(false);
-          // Clear waitlist token and info
-          localStorage.removeItem("terra_waitToken");
-          setWaitlistToken(null);
-          setWaitlistInfo(null);
-          // CRITICAL: Clear all previous customer order data when table becomes available
-          // This ensures new customers don't see previous customer's orders
-          clearOldOrderData();
-          console.log("[SecondPage] Cleared all order data for new customer");
-        } else if (updatedTable.status !== "AVAILABLE") {
-          // Table is occupied - ensure waitlist modal is shown if user is not in waitlist
-          // BUT only if user doesn't have an active order
-          const currentWaitlistToken = localStorage.getItem("terra_waitToken");
-          if (!currentWaitlistToken) {
-            setIsTableOccupied(true);
-            setShowWaitlistModal(true);
+      // Compare as strings to handle ObjectId vs string mismatches
+      if (String(updatedTableId) !== String(currentTableId)) {
+        // Also check by table number as fallback
+        if (updatedTable.number && tableInfo?.number) {
+          if (String(updatedTable.number) !== String(tableInfo.number)) {
+            return; // Different table
           }
+        } else {
+          return; // Different table
+        }
+      }
+
+      // CRITICAL: If user has active order, don't update table status
+      // This prevents showing waitlist when admin changes status
+      const existingOrderId =
+        localStorage.getItem("terra_orderId") ||
+        localStorage.getItem("terra_orderId_DINE_IN");
+      const existingOrderStatus =
+        localStorage.getItem("terra_orderStatus") ||
+        localStorage.getItem("terra_orderStatus_DINE_IN");
+
+      const hasActiveOrder =
+        existingOrderId &&
+        existingOrderStatus &&
+        !["Paid", "Cancelled", "Returned", "Completed"].includes(
+          existingOrderStatus
+        );
+
+      if (hasActiveOrder) {
+        console.log(
+          "[SecondPage] User has active order - ignoring table status update"
+        );
+        return;
+      }
+
+      console.log(
+        "[SecondPage] Table status updated via socket:",
+        updatedTable.status,
+        "Previous status:",
+        tableInfo.status
+      );
+
+      // Update table info with new status
+      const updatedTableInfo = {
+        ...tableInfo,
+        status: updatedTable.status,
+        currentOrder: updatedTable.currentOrder || null,
+        sessionToken: updatedTable.sessionToken || tableInfo.sessionToken,
+      };
+      setTableInfo(updatedTableInfo);
+      // Update localStorage to persist the change
+      localStorage.setItem(
+        "terra_selectedTable",
+        JSON.stringify(updatedTableInfo)
+      );
+
+      // CRITICAL: If table becomes AVAILABLE, clear waitlist state and hide modal
+      // Also clear all previous customer order data to prevent showing old orders
+      if (updatedTable.status === "AVAILABLE") {
+        console.log(
+          "[SecondPage] Table became AVAILABLE via socket - clearing waitlist state and order data"
+        );
+        setIsTableOccupied(false);
+        setShowWaitlistModal(false);
+        // Clear waitlist token and info
+        localStorage.removeItem("terra_waitToken");
+        setWaitlistToken(null);
+        setWaitlistInfo(null);
+        // CRITICAL: Clear all previous customer order data when table becomes available
+        // This ensures new customers don't see previous customer's orders
+        clearOldOrderData();
+        console.log("[SecondPage] Cleared all order data for new customer");
+
+        // Show notification to user that table is now available
+        // This helps users know they can proceed
+        if (tableInfo.status !== "AVAILABLE") {
+          // Only show if status actually changed (wasn't already available)
+          console.log(
+            "[SecondPage] Table status changed to AVAILABLE - user can proceed"
+          );
+        }
+      } else if (updatedTable.status !== "AVAILABLE") {
+        // Table is occupied - ensure waitlist modal is shown if user is not in waitlist
+        // BUT only if user doesn't have an active order
+        const currentWaitlistToken = localStorage.getItem("terra_waitToken");
+        if (!currentWaitlistToken) {
+          setIsTableOccupied(true);
+          setShowWaitlistModal(true);
         }
       }
     };
@@ -741,8 +771,10 @@ export default function SecondPage() {
         transports: ["websocket", "polling"],
         reconnection: true,
         reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
         reconnectionAttempts: 5,
-        timeout: 20000,
+        timeout: 60000, // Match backend pingTimeout (60s)
+        connectTimeout: 60000, // Match backend pingTimeout (60s)
         autoConnect: true,
         // Suppress connection errors in console
         forceNew: false,

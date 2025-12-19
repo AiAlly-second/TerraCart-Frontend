@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import restaurantBg from "../assets/images/restaurant-img.jpg";
 import blindEyeIcon from "../assets/images/blind-eye-sign.png";
+import { getWithRetry } from "../utils/fetchWithTimeout";
 
 const languages = [
   { code: "en", label: "English" },
@@ -148,15 +149,65 @@ export default function Landing() {
         );
         console.log("[Landing] Backend API URL:", nodeApi);
 
-        const res = await fetch(url, {
-          method: "GET",
-          headers: {
-            "Content-Type": "application/json",
+        // Use fetch with retry and timeout for better reliability
+        const res = await getWithRetry(
+          url,
+          {
+            headers: {
+              "Content-Type": "application/json",
+            },
           },
-        }).catch((fetchError) => {
-          console.error("[Landing] Fetch error:", fetchError);
+          {
+            maxRetries: 3,
+            retryDelay: 1000,
+            timeout: 20000, // 20 second timeout for table lookup
+            shouldRetry: (error, attempt) => {
+              // Retry on network errors, timeouts, or 5xx errors
+              if (
+                error.message?.includes("timeout") ||
+                error.message?.includes("Network error") ||
+                error.message?.includes("Failed to fetch") ||
+                error.message?.includes("CORS")
+              ) {
+                console.log(
+                  `[Landing] Retrying table lookup (attempt ${
+                    attempt + 1
+                  }/3)...`
+                );
+                return true;
+              }
+              // Don't retry on 4xx errors (client errors)
+              if (error.status >= 400 && error.status < 500) {
+                return false;
+              }
+              // Retry on 5xx errors (server errors)
+              if (error.status >= 500) {
+                return true;
+              }
+              return attempt < 2;
+            },
+          }
+        ).catch((fetchError) => {
+          console.error("[Landing] Fetch error after retries:", fetchError);
+
+          // Provide user-friendly error messages
+          if (fetchError.message?.includes("timeout")) {
+            throw new Error(
+              "Connection timeout: The server took too long to respond. This might be due to slow network or server issues. Please try again."
+            );
+          }
+          if (
+            fetchError.message?.includes("CORS") ||
+            fetchError.message?.includes("Failed to fetch")
+          ) {
+            throw new Error(
+              `Network error: Cannot connect to server. Please check your internet connection. If the problem persists, the server might be temporarily unavailable.`
+            );
+          }
           throw new Error(
-            `Network error: ${fetchError.message}. Please check if the backend is accessible and CORS is configured correctly.`
+            `Network error: ${
+              fetchError.message || "Unknown error"
+            }. Please try again or contact support if the problem persists.`
           );
         });
 
@@ -227,13 +278,26 @@ export default function Landing() {
 
           if (res.status === 0 || !res.status) {
             throw new Error(
-              "Cannot connect to server. This is likely a CORS issue. Please ensure the backend ALLOWED_ORIGINS includes: https://terra-cart-frontend-eta.vercel.app"
+              "Cannot connect to server. This might be a network issue or the server is temporarily unavailable. Please check your internet connection and try again."
+            );
+          }
+
+          // Provide more specific error messages based on status code
+          if (res.status === 500 || res.status >= 502) {
+            throw new Error(
+              "Server error: The server encountered an issue. Please try again in a moment. If the problem persists, contact support."
+            );
+          }
+
+          if (res.status === 503) {
+            throw new Error(
+              "Service unavailable: The server is temporarily unavailable. Please try again in a few moments."
             );
           }
 
           throw new Error(
             payload?.message ||
-              `Failed to fetch table (Status: ${res.status}). Check browser console for details.`
+              `Failed to fetch table information (Status: ${res.status}). Please try scanning the QR code again.`
           );
         }
 

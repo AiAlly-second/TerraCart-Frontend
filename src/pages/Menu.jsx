@@ -15,6 +15,7 @@ import { io } from "socket.io-client";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 import blindEyeIcon from "../assets/images/blind-eye-sign.png";
+import { postWithRetry } from "../utils/fetchWithTimeout";
 // import AccessibilityFooter from "../components/AccessibilityFooter";
 const nodeApi = (
   import.meta.env.VITE_NODE_API_URL || "http://localhost:5001"
@@ -1442,15 +1443,58 @@ export default function MenuPage() {
 
         // Call API to mark table as occupied when entering menu page
         // Even if local status isn't AVAILABLE, ensure backend marks OCCUPIED so admin sees it
-        const res = await fetch(`${nodeApi}/api/tables/${tableId}/occupy`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            sessionToken: sessionToken || undefined,
-          }),
-        });
+        // Use retry logic for better reliability in deployment scenarios
+        let res;
+        try {
+          res = await postWithRetry(
+            `${nodeApi}/api/tables/${tableId}/occupy`,
+            {
+              sessionToken: sessionToken || undefined,
+            },
+            {
+              headers: {
+                "Content-Type": "application/json",
+              },
+            },
+            {
+              maxRetries: 2,
+              retryDelay: 1000,
+              timeout: 15000, // 15 second timeout for table occupation
+              shouldRetry: (error, attempt) => {
+                // Retry on network errors, timeouts, or 5xx errors
+                if (
+                  error.message?.includes("timeout") ||
+                  error.message?.includes("Network error") ||
+                  error.message?.includes("Failed to fetch") ||
+                  error.message?.includes("CORS")
+                ) {
+                  return true;
+                }
+                // Don't retry on 4xx errors (client errors)
+                if (error.status >= 400 && error.status < 500) {
+                  return false;
+                }
+                // Retry on 5xx errors (server errors)
+                if (error.status >= 500) {
+                  return true;
+                }
+                return attempt < 1;
+              },
+            }
+          );
+        } catch (fetchError) {
+          console.warn(
+            "[Menu] Failed to mark table as occupied after retries:",
+            fetchError
+          );
+          // Create a mock response for error handling
+          res = {
+            ok: false,
+            status: 0,
+            json: async () => ({}),
+            text: async () => fetchError.message || "Network error",
+          };
+        }
 
         if (res.ok) {
           // Update local table data to reflect occupied status
@@ -2163,41 +2207,117 @@ export default function MenuPage() {
       const url = existingId
         ? `${nodeApi}/api/orders/${existingId}/kot`
         : `${nodeApi}/api/orders`;
-      const method = "POST";
 
-      const res = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(orderPayload),
-      });
+      // Use fetch with retry for order creation to handle network issues
+      let res;
+      try {
+        res = await postWithRetry(
+          url,
+          orderPayload,
+          {
+            headers: { "Content-Type": "application/json" },
+          },
+          {
+            maxRetries: 2, // Retry order creation up to 2 times
+            retryDelay: 1500,
+            timeout: 30000, // 30 second timeout for order creation
+            shouldRetry: (error, attempt) => {
+              // Retry on network errors, timeouts, or 5xx errors
+              if (
+                error.message?.includes("timeout") ||
+                error.message?.includes("Network error") ||
+                error.message?.includes("Failed to fetch") ||
+                error.message?.includes("CORS")
+              ) {
+                console.log(
+                  `[Menu] Retrying order creation (attempt ${attempt + 1}/2)...`
+                );
+                return true;
+              }
+              // Don't retry on 4xx errors (client errors like validation failures)
+              if (error.status >= 400 && error.status < 500) {
+                return false;
+              }
+              // Retry on 5xx errors (server errors)
+              if (error.status >= 500) {
+                return true;
+              }
+              return attempt < 1;
+            },
+          }
+        );
+      } catch (fetchError) {
+        console.error(
+          "[Menu] Order creation failed after retries:",
+          fetchError
+        );
+        // Create a mock response object for error handling
+        const errorMessage =
+          fetchError.message ||
+          "Failed to create order. Please check your connection and try again.";
+        res = {
+          ok: false,
+          status: 0,
+          statusText: "Network Error",
+          json: async () => ({
+            message: errorMessage,
+          }),
+          text: async () => errorMessage,
+          headers: new Headers(),
+        };
+      }
 
       let data;
-      let orderCreated = false; // Track if order was successfully created (including retry)
       try {
-        data = await res.json();
+        // Try to parse JSON response
+        const contentType = res.headers?.get?.("content-type") || "";
+        if (contentType.includes("application/json")) {
+          data = await res.json();
+        } else {
+          // If not JSON, try to get text
+          const text = await res.text().catch(() => "");
+          if (text) {
+            try {
+              data = JSON.parse(text);
+            } catch {
+              data = { message: text || "Unknown error" };
+            }
+          } else {
+            data = { message: "No response from server" };
+          }
+        }
       } catch (jsonError) {
-        console.error("[Menu] Failed to parse response as JSON:", jsonError);
-        const text = await res.text().catch(() => "Unknown error");
-        throw new Error(`Invalid response format: ${text}`);
+        console.error("[Menu] Failed to parse response:", jsonError);
+        // Try to get text as fallback
+        try {
+          const text = await res.text().catch(() => "Unknown error");
+          data = { message: text || "Failed to parse server response" };
+        } catch {
+          data = { message: "Failed to parse server response" };
+        }
       }
 
-      // Handle 403 errors - simple error display, no retry logic
-      if (res.status === 403) {
-        const errorMessage =
-          data?.message || "Access denied. Please try refreshing the page.";
-        console.error("[Menu] Order save failed (403 Forbidden):", {
-          status: res.status,
-          error: data,
-          orderPayload,
-        });
-      }
+      // Check if order was successfully created
+      const orderCreated = res.ok && data?._id;
 
-      if (!(res.ok && data?._id) && !orderCreated) {
+      console.log("[Menu] Order creation response:", {
+        ok: res.ok,
+        status: res.status,
+        hasOrderId: !!data?._id,
+        orderId: data?._id,
+        orderCreated,
+      });
+
+      // If order was successfully created, proceed with success flow
+      if (orderCreated) {
+        console.log("[Menu] Order created successfully:", data._id);
+        // Continue to success flow below
+      } else {
         // Backend failed → mark error on step 2
         setStepState(2, "error");
 
-        // Handle 403 Forbidden errors (retry already attempted above, this is for other 403 cases)
-        if (res.status === 403 && !orderCreated) {
+        // Handle 403 Forbidden errors
+        if (res.status === 403) {
           const errorMessage =
             data?.message || "Access denied. Please try refreshing the page.";
 
@@ -2260,8 +2380,15 @@ export default function MenuPage() {
 
         await wait(DUR.error);
         setProcessOpen(false);
+        setIsOrderingMore(false);
         return;
       }
+
+      // Order created successfully - proceed with success flow
+      console.log(
+        "[Menu] Proceeding with order success flow for order:",
+        data._id
+      );
 
       // Backend OK
       setStepState(2, "done");
@@ -2338,9 +2465,31 @@ export default function MenuPage() {
         persistPreviousOrderDetail(data);
       }
 
+      // Clear cart - both generic and service-type-specific
       setCart({});
       localStorage.removeItem("terra_cart");
+      localStorage.removeItem("terra_cart_DINE_IN");
+      localStorage.removeItem("terra_cart_TAKEAWAY");
       setIsOrderingMore(false);
+
+      console.log("[Menu] Order created and stored:", {
+        orderId: data._id,
+        serviceType,
+        storedInLocalStorage: {
+          generic:
+            serviceType === "DINE_IN"
+              ? localStorage.getItem("terra_orderId")
+              : null,
+          dineIn:
+            serviceType === "DINE_IN"
+              ? localStorage.getItem("terra_orderId_DINE_IN")
+              : null,
+          takeaway:
+            serviceType === "TAKEAWAY"
+              ? localStorage.getItem("terra_orderId_TAKEAWAY")
+              : null,
+        },
+      });
 
       // Step 4: Loading order summary
       setStepState(4, "active");
@@ -3781,8 +3930,10 @@ export default function MenuPage() {
         transports: ["websocket", "polling"],
         reconnection: true,
         reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
         reconnectionAttempts: 5,
-        timeout: 20000,
+        timeout: 60000, // Match backend pingTimeout (60s)
+        connectTimeout: 60000, // Match backend pingTimeout (60s)
         autoConnect: true,
         // Suppress connection errors in console
         forceNew: false,
@@ -3922,38 +4073,87 @@ export default function MenuPage() {
     // CRITICAL: Listen for table status updates to sync with admin panel
     // When table becomes AVAILABLE, clear any waitlist state
     const handleTableStatusUpdated = (updatedTable) => {
+      // Get current table info from state or localStorage (use latest)
+      const currentTableInfo =
+        tableInfo ||
+        (() => {
+          try {
+            const stored = localStorage.getItem("terra_selectedTable");
+            return stored ? JSON.parse(stored) : null;
+          } catch {
+            return null;
+          }
+        })();
+
       // Only update if this is the same table
-      if (
-        updatedTable.id &&
-        tableInfo &&
-        (updatedTable.id === tableInfo.id ||
-          updatedTable.id === tableInfo._id ||
-          updatedTable.number === tableInfo.number)
-      ) {
-        console.log(
-          "[Menu] Table status updated via socket:",
-          updatedTable.status
+      if (!currentTableInfo) {
+        return; // No table info to compare
+      }
+
+      // Get IDs from both sources (handle both id and _id)
+      const updatedTableId = updatedTable.id || updatedTable._id;
+      const currentTableId = currentTableInfo.id || currentTableInfo._id;
+
+      // Compare as strings to handle ObjectId vs string mismatches
+      const isSameTable =
+        updatedTableId &&
+        currentTableId &&
+        String(updatedTableId) === String(currentTableId);
+
+      // Also check by table number as fallback
+      const isSameTableByNumber =
+        updatedTable.number &&
+        currentTableInfo.number &&
+        String(updatedTable.number) === String(currentTableInfo.number);
+
+      if (!isSameTable && !isSameTableByNumber) {
+        return; // Different table, ignore update
+      }
+
+      console.log(
+        "[Menu] Table status updated via socket:",
+        updatedTable.status,
+        "Previous status:",
+        currentTableInfo.status
+      );
+
+      // Update table info with new status
+      const updatedTableInfo = {
+        ...currentTableInfo,
+        status: updatedTable.status,
+        currentOrder: updatedTable.currentOrder || null,
+        sessionToken:
+          updatedTable.sessionToken || currentTableInfo.sessionToken,
+      };
+      setTableInfo(updatedTableInfo);
+      // Update localStorage to persist the change
+      localStorage.setItem(
+        "terra_selectedTable",
+        JSON.stringify(updatedTableInfo)
+      );
+
+      // CRITICAL: If table becomes AVAILABLE, clear waitlist state and order data
+      // This ensures customer frontend syncs with admin panel and new customers don't see old orders
+      // BUT: Only clear if user doesn't have an active order (to prevent clearing current customer's order)
+      const existingOrderId =
+        localStorage.getItem("terra_orderId") ||
+        localStorage.getItem("terra_orderId_DINE_IN");
+      const existingOrderStatus =
+        localStorage.getItem("terra_orderStatus") ||
+        localStorage.getItem("terra_orderStatus_DINE_IN");
+      const hasActiveOrder =
+        existingOrderId &&
+        existingOrderStatus &&
+        !["Paid", "Cancelled", "Returned", "Completed"].includes(
+          existingOrderStatus
         );
 
-        // Update table info with new status
-        const updatedTableInfo = {
-          ...tableInfo,
-          status: updatedTable.status,
-          currentOrder: updatedTable.currentOrder || null,
-          sessionToken: updatedTable.sessionToken || tableInfo.sessionToken,
-        };
-        setTableInfo(updatedTableInfo);
-        // Update localStorage to persist the change
-        localStorage.setItem(
-          "terra_selectedTable",
-          JSON.stringify(updatedTableInfo)
-        );
-
-        // CRITICAL: If table becomes AVAILABLE, clear waitlist state and order data
-        // This ensures customer frontend syncs with admin panel and new customers don't see old orders
-        if (updatedTable.status === "AVAILABLE") {
+      if (updatedTable.status === "AVAILABLE") {
+        // Only clear order data if user doesn't have an active order
+        // This prevents clearing current customer's order when admin makes table available
+        if (!hasActiveOrder) {
           console.log(
-            "[Menu] Table became AVAILABLE via socket - clearing waitlist state and order data"
+            "[Menu] Table became AVAILABLE via socket - clearing waitlist state and order data (user has no active order)"
           );
           // Clear waitlist token and info
           localStorage.removeItem("terra_waitToken");
@@ -3976,7 +4176,11 @@ export default function MenuPage() {
           // Clear order state in component
           setActiveOrderId(null);
           setOrderStatus(null);
-          // Cleared all order data for new customer
+          console.log("[Menu] Cleared all order data for new customer");
+        } else {
+          console.log(
+            "[Menu] Table became AVAILABLE but user has active order - preserving order data"
+          );
         }
       }
     };

@@ -577,11 +577,19 @@ export default function Landing() {
           localStorage.removeItem("terra_scanToken");
           localStorage.removeItem("terra_waitToken");
           localStorage.removeItem("terra_sessionToken");
+          localStorage.removeItem("terra_selectedTable");
           // Only show generic error if it wasn't already shown (merged table case)
           if (!err.message || !err.message.includes("merged")) {
-            alert(
-              "We couldn't detect your table. Please rescan the table QR or contact staff."
-            );
+            // Check if it's a 404 error (table not found)
+            if (err.message && err.message.includes("Table not found")) {
+              alert(
+                "Table not found. The QR code may be invalid or the table may have been removed. Please scan the table QR code again or contact staff for assistance."
+              );
+            } else {
+              alert(
+                "We couldn't detect your table. Please rescan the table QR or contact staff."
+              );
+            }
           }
         }
       } finally {

@@ -536,6 +536,22 @@ export default function SecondPage() {
               params.toString() ? `?${params.toString()}` : ""
             }`;
             const res = await fetch(url);
+
+            // Handle 404 specifically - table not found
+            if (res.status === 404) {
+              // Clear invalid table data from localStorage
+              localStorage.removeItem("terra_selectedTable");
+              localStorage.removeItem("terra_scanToken");
+              localStorage.removeItem("terra_sessionToken");
+              setTableInfo(null);
+              setSessionToken(null);
+              console.warn(
+                "[SecondPage] Table not found (404) - cleared invalid table data"
+              );
+              // Don't show alert on mount - user might not be actively using the feature
+              return;
+            }
+
             if (res.ok) {
               const payload = await res.json().catch(() => ({}));
               if (payload?.table) {
@@ -627,6 +643,16 @@ export default function SecondPage() {
                 setIsTableOccupied(false);
                 setShowWaitlistModal(false);
               }
+            } else if (res.status === 404) {
+              // Handle 404 if it wasn't caught above (shouldn't happen, but safety check)
+              localStorage.removeItem("terra_selectedTable");
+              localStorage.removeItem("terra_scanToken");
+              localStorage.removeItem("terra_sessionToken");
+              setTableInfo(null);
+              setSessionToken(null);
+              console.warn(
+                "[SecondPage] Table not found (404) during refresh - cleared invalid table data"
+              );
             }
           } catch (err) {
             console.warn("[SecondPage] Failed to refresh table status:", err);
@@ -948,6 +974,24 @@ export default function SecondPage() {
           params.toString() ? `?${params.toString()}` : ""
         }`;
         const res = await fetch(url);
+
+        // Handle 404 specifically - table not found
+        if (res.status === 404) {
+          // Clear invalid table data from localStorage
+          localStorage.removeItem("terra_selectedTable");
+          localStorage.removeItem("terra_scanToken");
+          localStorage.removeItem("terra_sessionToken");
+          setTableInfo(null);
+          setSessionToken(null);
+
+          const errorPayload = await res.json().catch(() => ({}));
+          const errorMessage = errorPayload?.message || "Table not found";
+          alert(
+            `${errorMessage}. The QR code may be invalid or the table may have been removed. Please scan the table QR code again or contact staff for assistance.`
+          );
+          return;
+        }
+
         const payload = await res.json().catch(() => ({}));
 
         // Table is occupied (423 status) - STRICT: Must join waitlist
@@ -1093,6 +1137,19 @@ export default function SecondPage() {
 
         // Table lookup failed
         if (!res.ok || !payload?.table) {
+          // If it's a 404, we already handled it above, but check again for safety
+          if (res.status === 404) {
+            // Clear invalid table data from localStorage
+            localStorage.removeItem("terra_selectedTable");
+            localStorage.removeItem("terra_scanToken");
+            localStorage.removeItem("terra_sessionToken");
+            setTableInfo(null);
+            setSessionToken(null);
+            alert(
+              "Table not found. The QR code may be invalid or the table may have been removed. Please scan the table QR code again or contact staff for assistance."
+            );
+            return;
+          }
           throw new Error(payload?.message || "Failed to check table status.");
         }
 
@@ -1222,7 +1279,25 @@ export default function SecondPage() {
         setShowWaitlistModal(true);
       } catch (err) {
         console.error("startServiceFlow error", err);
-        alert("Unable to check table availability. Please ask staff for help.");
+
+        // Check if error message indicates table not found
+        if (err.message && err.message.includes("Table not found")) {
+          // Clear invalid table data from localStorage
+          localStorage.removeItem("terra_selectedTable");
+          localStorage.removeItem("terra_scanToken");
+          localStorage.removeItem("terra_sessionToken");
+          setTableInfo(null);
+          setSessionToken(null);
+          alert(
+            "Table not found. The QR code may be invalid or the table may have been removed. Please scan the table QR code again or contact staff for assistance."
+          );
+        } else {
+          alert(
+            `Unable to check table availability: ${
+              err.message || "Unknown error"
+            }. Please try again or contact staff for help.`
+          );
+        }
       }
     },
     [navigate, waitlistToken, sessionToken]

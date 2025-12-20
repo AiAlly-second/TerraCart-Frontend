@@ -17,6 +17,18 @@ const nodeApi = (
   import.meta.env.VITE_NODE_API_URL || "http://localhost:5001"
 ).replace(/\/$/, "");
 
+// Validate API URL in production
+if (
+  import.meta.env.PROD &&
+  (!import.meta.env.VITE_NODE_API_URL || nodeApi.includes("localhost"))
+) {
+  console.error(
+    "[Landing] ⚠️ WARNING: VITE_NODE_API_URL is not set correctly in production!",
+    "Current value:",
+    import.meta.env.VITE_NODE_API_URL || "undefined"
+  );
+}
+
 // Helper function to clear old DINE_IN order data when session changes
 // CRITICAL: Preserves takeaway order data - only clears DINE_IN data
 function clearOldOrderData() {
@@ -148,6 +160,13 @@ export default function Landing() {
           storedWait || "No"
         );
         console.log("[Landing] Backend API URL:", nodeApi);
+        console.log("[Landing] Slug from URL:", slug);
+        console.log("[Landing] Environment:", {
+          mode: import.meta.env.MODE,
+          dev: import.meta.env.DEV,
+          prod: import.meta.env.PROD,
+          viteNodeApiUrl: import.meta.env.VITE_NODE_API_URL,
+        });
 
         // Use fetch with retry and timeout for better reliability
         const res = await getWithRetry(

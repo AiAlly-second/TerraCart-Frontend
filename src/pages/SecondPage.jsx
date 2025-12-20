@@ -14,6 +14,18 @@ const nodeApi = (
   import.meta.env.VITE_NODE_API_URL || "http://localhost:5001"
 ).replace(/\/$/, "");
 
+// Validate API URL in production
+if (
+  import.meta.env.PROD &&
+  (!import.meta.env.VITE_NODE_API_URL || nodeApi.includes("localhost"))
+) {
+  console.error(
+    "[SecondPage] ⚠️ WARNING: VITE_NODE_API_URL is not set correctly in production!",
+    "Current value:",
+    import.meta.env.VITE_NODE_API_URL || "undefined"
+  );
+}
+
 // Helper function to clear old DINE_IN order data when session changes
 // CRITICAL: Preserves takeaway order data - only clears DINE_IN data
 function clearOldOrderData() {
@@ -535,6 +547,16 @@ export default function SecondPage() {
             const url = `${nodeApi}/api/tables/lookup/${slug}${
               params.toString() ? `?${params.toString()}` : ""
             }`;
+
+            // Log for debugging
+            if (import.meta.env.DEV) {
+              console.log("[SecondPage] Refreshing table status:", {
+                nodeApi,
+                slug,
+                url,
+              });
+            }
+
             const res = await fetch(url);
 
             // Handle 404 specifically - table not found
@@ -973,6 +995,17 @@ export default function SecondPage() {
         const url = `${nodeApi}/api/tables/lookup/${slug}${
           params.toString() ? `?${params.toString()}` : ""
         }`;
+
+        // Log API URL and slug for debugging (only in development)
+        if (import.meta.env.DEV) {
+          console.log("[SecondPage] Table lookup:", {
+            nodeApi,
+            slug,
+            url,
+            storedTable: table,
+          });
+        }
+
         const res = await fetch(url);
 
         // Handle 404 specifically - table not found
@@ -986,6 +1019,15 @@ export default function SecondPage() {
 
           const errorPayload = await res.json().catch(() => ({}));
           const errorMessage = errorPayload?.message || "Table not found";
+
+          // Log additional info for debugging
+          console.error("[SecondPage] Table lookup 404:", {
+            url,
+            slug,
+            nodeApi,
+            response: errorPayload,
+          });
+
           alert(
             `${errorMessage}. The QR code may be invalid or the table may have been removed. Please scan the table QR code again or contact staff for assistance.`
           );

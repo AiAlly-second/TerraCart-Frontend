@@ -174,6 +174,24 @@ export default function SecondPage() {
     return !hasTakeawayQR && !hasScanToken && !hasTableInfo;
   }, []);
 
+  // Effect to clear dine-in order data if accessed without table info (normal link)
+  useEffect(() => {
+    // Only clear dine-in data, preserve takeaway data
+    if (isNormalLink) {
+      console.log("[SecondPage] Normal link detected - clearing dine-in order data");
+      clearOldOrderData();
+      // Also clear table-related data
+      localStorage.removeItem("terra_selectedTable");
+      localStorage.removeItem("terra_scanToken");
+      localStorage.removeItem("terra_sessionToken");
+      localStorage.removeItem("terra_waitToken");
+      // Update state
+      setTableInfo(null);
+      setSessionToken(null);
+      setWaitlistToken(null);
+    }
+  }, [isNormalLink]);
+
   // Fetch carts when order type and location are available
   useEffect(() => {
     if (!orderType || !customerLocation) {

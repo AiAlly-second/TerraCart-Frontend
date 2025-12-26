@@ -106,7 +106,17 @@ export default function Landing() {
     const params = new URLSearchParams(window.location.search);
     const slug = params.get("table");
 
+    // CRITICAL: If no table parameter in URL, clear all dine-in order data
+    // This ensures users opening normal links don't see old table/dine order data
     if (!slug) {
+      // Clear all dine-in order data when opening normal link (not from QR)
+      clearOldOrderData();
+      // Also clear table-related data
+      localStorage.removeItem("terra_selectedTable");
+      localStorage.removeItem("terra_scanToken");
+      localStorage.removeItem("terra_sessionToken");
+      localStorage.removeItem("terra_waitToken");
+      console.log("[Landing] No table parameter - cleared all dine-in order data");
       return;
     }
 

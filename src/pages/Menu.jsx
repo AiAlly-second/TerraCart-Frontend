@@ -5,7 +5,7 @@ import { FiMic, FiMicOff } from "react-icons/fi";
 import { useAITranslation } from "../hooks/useAITranslation";
 import fallbackMenuItems from "../data/menuData";
 import restaurantBg from "../assets/images/restaurant-img.jpg";
-import { HiSpeakerWave } from "react-icons/hi2";
+import { HiSpeakerWave, HiSparkles, HiArrowTrendingDown, HiArrowTrendingUp } from "react-icons/hi2";
 import { motion } from "framer-motion";
 import "./MenuPage.css";
 import { buildOrderPayload } from "../utils/orderUtils";
@@ -294,10 +294,10 @@ const TranslatedSummaryItem = ({ item, qty }) => {
 // NEW: CategoryBlock.jsx-inlined component
 // Updated: each category controls its own open/close state.
 // Opening one category will NOT auto-close others; user controls each independently.
-const CategoryBlock = ({ category, items, cart, onAdd, onRemove }) => {
+const CategoryBlock = ({ category, items, cart, onAdd, onRemove, isInitiallyOpen = false }) => {
   if (!category) return null;
   const [translatedCategory] = useAITranslation(category || "");
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState(isInitiallyOpen);
 
   const safeItems = Array.isArray(items) ? items : [];
 
@@ -383,6 +383,12 @@ export default function MenuPage() {
   const [menuCatalog, setMenuCatalog] = useState({});
   const [menuLoading, setMenuLoading] = useState(true);
   const [menuError, setMenuError] = useState(null);
+  // Filter states
+  const [activeFilters, setActiveFilters] = useState({
+    popular: false,
+    priceLowToHigh: false,
+    priceHighToLow: false,
+  });
   const flatMenuItems = useMemo(() => {
     if (!Array.isArray(menuCategories) || menuCategories.length === 0)
       return [];
@@ -396,21 +402,134 @@ export default function MenuPage() {
       );
     });
   }, [menuCategories]);
+  // Filter menu items based on active filters and search query
   const filteredItems = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    if (!query) return [];
     if (!Array.isArray(flatMenuItems) || flatMenuItems.length === 0) return [];
-    return flatMenuItems.filter((item) => {
-      if (!item?.name) return false;
-      return (
-        item.name.toLowerCase().includes(query) ||
-        (item.description || "").toLowerCase().includes(query) ||
-        (item.tags || []).some(
-          (tag) => tag && tag.toLowerCase().includes(query)
-        )
-      );
+    
+    let filtered = [...flatMenuItems];
+    
+    // Apply search query filter first
+    const query = searchQuery.trim().toLowerCase();
+    if (query) {
+      filtered = filtered.filter((item) => {
+        if (!item?.name) return false;
+        return (
+          item.name.toLowerCase().includes(query) ||
+          (item.description || "").toLowerCase().includes(query) ||
+          (item.tags || []).some(
+            (tag) => tag && tag.toLowerCase().includes(query)
+          )
+        );
+      });
+    }
+    
+    // Apply sorting filters (only one can be active at a time)
+    if (activeFilters.popular) {
+      // Sort by orderCount (descending) - items with higher order counts appear first
+      filtered = filtered.sort((a, b) => {
+        const countA = a.orderCount || 0;
+        const countB = b.orderCount || 0;
+        return countB - countA; // Descending order (highest first)
+      });
+    } else if (activeFilters.priceLowToHigh) {
+      // Sort by price (ascending) - lowest price first
+      filtered = filtered.sort((a, b) => {
+        const priceA = Number(a.price) || 0;
+        const priceB = Number(b.price) || 0;
+        return priceA - priceB;
+      });
+    } else if (activeFilters.priceHighToLow) {
+      // Sort by price (descending) - highest price first
+      filtered = filtered.sort((a, b) => {
+        const priceA = Number(a.price) || 0;
+        const priceB = Number(b.price) || 0;
+        return priceB - priceA;
+      });
+    }
+    
+    return filtered;
+  }, [flatMenuItems, activeFilters, searchQuery]);
+  
+  // Filter menu categories based on active filters
+  const filteredMenuCategories = useMemo(() => {
+    if (!Array.isArray(menuCategories) || menuCategories.length === 0) return [];
+    
+      // If no filters are active, return all categories
+      if (!activeFilters.popular && !activeFilters.priceLowToHigh && !activeFilters.priceHighToLow) {
+        return menuCategories;
+      }
+    
+    // Filter categories to only show those with items matching the filters
+    return menuCategories.map((category) => {
+      if (!category) return null;
+      const filteredCategoryItems = (Array.isArray(category.items) ? category.items : []).filter((item) => {
+        if (!item) return false;
+        
+        // Sorting filters are handled separately, not here
+        
+        return true;
+      });
+      
+      // Only return category if it has filtered items
+      if (filteredCategoryItems.length === 0) return null;
+      
+      // Apply sorting filters
+      let sortedItems = [...filteredCategoryItems];
+      if (activeFilters.popular) {
+        sortedItems = sortedItems.sort((a, b) => {
+          const countA = a.orderCount || 0;
+          const countB = b.orderCount || 0;
+          return countB - countA; // Descending order (highest first)
+        });
+      } else if (activeFilters.priceLowToHigh) {
+        sortedItems = sortedItems.sort((a, b) => {
+          const priceA = Number(a.price) || 0;
+          const priceB = Number(b.price) || 0;
+          return priceA - priceB;
+        });
+      } else if (activeFilters.priceHighToLow) {
+        sortedItems = sortedItems.sort((a, b) => {
+          const priceA = Number(a.price) || 0;
+          const priceB = Number(b.price) || 0;
+          return priceB - priceA;
+        });
+      }
+      
+      return {
+        ...category,
+        items: sortedItems,
+      };
+    }).filter(Boolean);
+  }, [menuCategories, activeFilters]);
+  
+  // Toggle filter function
+  const toggleFilter = (filterName) => {
+    setActiveFilters((prev) => {
+      // If it's a price filter, ensure only one price filter is active at a time
+      if (filterName === "priceLowToHigh" || filterName === "priceHighToLow") {
+        return {
+          ...prev,
+          priceLowToHigh: filterName === "priceLowToHigh" ? !prev.priceLowToHigh : false,
+          priceHighToLow: filterName === "priceHighToLow" ? !prev.priceHighToLow : false,
+          popular: false, // Disable popular when price filter is active
+        };
+      }
+      // If it's popular filter, disable price filters
+      if (filterName === "popular") {
+        return {
+          ...prev,
+          popular: !prev.popular,
+          priceLowToHigh: false,
+          priceHighToLow: false,
+        };
+      }
+      // For other filters, just toggle
+      return {
+        ...prev,
+        [filterName]: !prev[filterName],
+      };
     });
-  }, [flatMenuItems, searchQuery]);
+  };
   const navigate = useNavigate();
   const recognitionRef = useRef(null);
   const invoiceRef = useRef(null);
@@ -471,6 +590,50 @@ export default function MenuPage() {
     localStorage.getItem("terra_sessionToken")
   );
 
+  // Effect to clear dine-in order data if accessed without table info (normal link)
+  useEffect(() => {
+    const currentServiceType =
+      localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN";
+    
+    // Only check for dine-in orders
+    if (currentServiceType === "TAKEAWAY") {
+      return;
+    }
+
+    // Check if there's table info - if not, this is a normal link (not from QR)
+    const hasTableInfo = localStorage.getItem(TABLE_SELECTION_KEY);
+    const hasScanToken = localStorage.getItem("terra_scanToken");
+    const hasSessionToken = localStorage.getItem("terra_sessionToken");
+
+    // If no table info and no scan token, this is a normal link - clear dine-in order data
+    if (!hasTableInfo && !hasScanToken) {
+      console.log("[Menu] No table info detected - clearing dine-in order data (normal link)");
+      // Clear all dine-in order data
+      localStorage.removeItem("terra_orderId");
+      localStorage.removeItem("terra_orderId_DINE_IN");
+      localStorage.removeItem("terra_cart");
+      localStorage.removeItem("terra_cart_DINE_IN");
+      localStorage.removeItem("terra_orderStatus");
+      localStorage.removeItem("terra_orderStatus_DINE_IN");
+      localStorage.removeItem("terra_orderStatusUpdatedAt");
+      localStorage.removeItem("terra_orderStatusUpdatedAt_DINE_IN");
+      localStorage.removeItem("terra_previousOrder");
+      localStorage.removeItem("terra_previousOrderDetail");
+      localStorage.removeItem("terra_lastPaidOrderId");
+      localStorage.removeItem("terra_sessionToken");
+      localStorage.removeItem("terra_waitToken");
+      // Update state
+      setActiveOrderId(null);
+      setOrderStatus(null);
+      setOrderStatusUpdatedAt(null);
+      setTableInfo(null);
+      setSessionToken(null);
+      // Clear cart
+      setCart({});
+      return; // Don't proceed with order verification
+    }
+  }, []); // Only run once on mount
+
   // Effect to verify active order belongs to current session on mount
   useEffect(() => {
     const verifyActiveOrderSession = async () => {
@@ -480,6 +643,13 @@ export default function MenuPage() {
         localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN";
       if (currentServiceType === "TAKEAWAY") {
         return;
+      }
+
+      // Check if there's table info - if not, skip verification (already cleared above)
+      const hasTableInfo = localStorage.getItem(TABLE_SELECTION_KEY);
+      const hasScanToken = localStorage.getItem("terra_scanToken");
+      if (!hasTableInfo && !hasScanToken) {
+        return; // Normal link, data already cleared
       }
 
       const storedOrderId = localStorage.getItem("terra_orderId");
@@ -1695,6 +1865,24 @@ export default function MenuPage() {
             ? categories[0]?.name || null
             : null;
         });
+        
+        // CRITICAL: If menu is empty and user accessed via normal link (no table/cart), redirect to secondpage
+        if (categories.length === 0 || categories.every(cat => !cat.items || cat.items.length === 0)) {
+          // Check if this is a normal link (not from QR code)
+          const hasTableInfo = localStorage.getItem(TABLE_SELECTION_KEY) || localStorage.getItem("terra_selectedTable");
+          const hasScanToken = localStorage.getItem("terra_scanToken");
+          const hasSelectedCart = localStorage.getItem("terra_selectedCartId");
+          const hasTakeawayQR = localStorage.getItem("terra_takeaway_only") === "true";
+          
+          // If no table, no scan token, no selected cart, and no takeaway QR, it's a normal link
+          const isNormalLink = !hasTableInfo && !hasScanToken && !hasSelectedCart && !hasTakeawayQR;
+          
+          if (isNormalLink) {
+            console.log("[Menu] Menu not configured and accessed via normal link - redirecting to secondpage");
+            navigate("/secondpage");
+            return;
+          }
+        }
       } catch (err) {
         console.error("Menu fetch error", err);
         if (cancelled) return;
@@ -1703,6 +1891,21 @@ export default function MenuPage() {
         setMenuCategories([]);
         setMenuCatalog({});
         setOpenCategory(null);
+        
+        // Check if this is a normal link (not from QR code) - if so, redirect to secondpage
+        const hasTableInfo = localStorage.getItem(TABLE_SELECTION_KEY) || localStorage.getItem("terra_selectedTable");
+        const hasScanToken = localStorage.getItem("terra_scanToken");
+        const hasSelectedCart = localStorage.getItem("terra_selectedCartId");
+        const hasTakeawayQR = localStorage.getItem("terra_takeaway_only") === "true";
+        
+        const isNormalLink = !hasTableInfo && !hasScanToken && !hasSelectedCart && !hasTakeawayQR;
+        
+        if (isNormalLink) {
+          console.log("[Menu] Menu fetch error and accessed via normal link - redirecting to secondpage");
+          navigate("/secondpage");
+          return;
+        }
+        
         setMenuError(
           "Trying to connect to live menu... please check your network or ask staff."
         );
@@ -4911,17 +5114,26 @@ export default function MenuPage() {
 
               {/* Filter Pills */}
               <div className="filter-pills-container">
-                <button className="filter-pill veg-filter">
-                  <span className="filter-icon">🌿</span>
-                  <span>Veg Only</span>
-                </button>
-                <button className="filter-pill popular-filter">
-                  <span className="filter-icon">⭐</span>
+                <button
+                  className={`filter-pill popular-filter ${activeFilters.popular ? "active" : ""}`}
+                  onClick={() => toggleFilter("popular")}
+                >
+                  <HiSparkles className="filter-icon" />
                   <span>Popular</span>
                 </button>
-                <button className="filter-pill spicy-filter">
-                  <span className="filter-icon">🌶️</span>
-                  <span>Spicy</span>
+                <button
+                  className={`filter-pill price-filter ${activeFilters.priceLowToHigh ? "active" : ""}`}
+                  onClick={() => toggleFilter("priceLowToHigh")}
+                >
+                  <HiArrowTrendingDown className="filter-icon" />
+                  <span>Price: Low to High</span>
+                </button>
+                <button
+                  className={`filter-pill price-filter ${activeFilters.priceHighToLow ? "active" : ""}`}
+                  onClick={() => toggleFilter("priceHighToLow")}
+                >
+                  <HiArrowTrendingUp className="filter-icon" />
+                  <span>Price: High to Low</span>
                 </button>
               </div>
 
@@ -4953,17 +5165,20 @@ export default function MenuPage() {
                 )
               ) : (
                 <div className="category-container">
-                  {menuCategories.length === 0 ? (
+                  {filteredMenuCategories.length === 0 ? (
                     <div className="search-no-results">
-                      Menu is not configured yet. Please contact the
-                      administrator.
+                      {activeFilters.popular || activeFilters.priceLowToHigh || activeFilters.priceHighToLow
+                        ? "No items match the selected filters. Try adjusting your filters."
+                        : menuCategories.length === 0 || menuCategories.every(cat => !cat.items || cat.items.length === 0)
+                        ? "Menu is not configured yet. Please contact the administrator."
+                        : "No items match the selected filters. Try adjusting your filters."}
                     </div>
                   ) : (
                     <>
-                      {(Array.isArray(menuCategories)
-                        ? menuCategories
+                      {(Array.isArray(filteredMenuCategories)
+                        ? filteredMenuCategories
                         : []
-                      ).map((category) => (
+                      ).map((category, index) => (
                         <CategoryBlock
                           key={category?._id || category?.name || Math.random()}
                           category={category?.name || "Unnamed Category"}
@@ -4973,6 +5188,7 @@ export default function MenuPage() {
                           cart={cart}
                           onAdd={handleAdd}
                           onRemove={handleRemove}
+                          isInitiallyOpen={index === 0}
                         />
                       ))}
                     </>
@@ -5228,3 +5444,4 @@ export default function MenuPage() {
     </div>
   );
 }
+

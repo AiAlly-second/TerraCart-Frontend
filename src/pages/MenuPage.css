@@ -1446,6 +1446,9 @@
   background-color: #ffffff;
   color: #374151;
   cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+  cursor: pointer;
   transition: all 0.2s ease-in-out;
   touch-action: manipulation;
 }
@@ -1455,18 +1458,57 @@
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
+.filter-pill.active {
+  border-width: 2px;
+  font-weight: 600;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.filter-pill.price-filter.active {
+  background-color: #dbeafe;
+  border-color: #3b82f6;
+  color: #1e40af;
+}
+
+.filter-pill.spicy-filter.active {
+  background-color: #fee2e2;
+  border-color: #ef4444;
+  color: #991b1b;
+}
+
+.filter-pill.popular-filter.active {
+  background-color: #fef3c7;
+  border-color: #f59e0b;
+  color: #92400e;
+}
+
 .filter-icon {
-  font-size: 1rem;
+  font-size: 1.125rem;
+  width: 1.125rem;
+  height: 1.125rem;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.2s ease;
 }
 
-.veg-filter {
-  border-color: #10b981;
-  color: #059669;
+.filter-pill:hover .filter-icon {
+  transform: scale(1.1);
 }
 
-.veg-filter:hover {
-  background-color: #d1fae5;
-  border-color: #10b981;
+.filter-pill.active .filter-icon {
+  transform: scale(1.05);
+}
+
+.price-filter {
+  border-color: #3b82f6;
+  color: #2563eb;
+}
+
+.price-filter:hover {
+  background-color: #dbeafe;
+  border-color: #3b82f6;
 }
 
 .popular-filter {
@@ -1497,6 +1539,13 @@
 
 .accessibility-mode .filter-pill:hover {
   background-color: rgba(0, 191, 255, 0.2);
+}
+
+.accessibility-mode .filter-pill.active {
+  background-color: rgba(0, 191, 255, 0.3);
+  border-color: #00bfff;
+  border-width: 2px;
+  box-shadow: 0 0 8px rgba(0, 191, 255, 0.5);
 }
 .accessibility-mode .search-input {
   background-color: rgba(0, 0, 0, 0.6);

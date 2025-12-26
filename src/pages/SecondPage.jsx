@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import io from "socket.io-client";
@@ -8,6 +8,8 @@ import restaurantBg from "../assets/images/restaurant-img.jpg";
 import blindEyeIcon from "../assets/images/blind-eye-sign.png";
 import translations from "../data/translations/secondpage.json";
 import useVoiceAssistant from "../utils/useVoiceAssistant";
+import OrderTypeSelector from "../components/OrderTypeSelector";
+import { getNearbyCarts, getAvailableCarts, getCartById } from "../services/cartApi";
 import "./SecondPage.css";
 
 const nodeApi = (
@@ -145,12 +147,257 @@ export default function SecondPage() {
     return localStorage.getItem("terra_takeaway_customerEmail") || "";
   });
   const [showCustomerInfoModal, setShowCustomerInfoModal] = useState(false);
+  
+  // Order type and location state for PICKUP/DELIVERY
+  const [orderType, setOrderType] = useState(null); // PICKUP or DELIVERY
+  const [customerLocation, setCustomerLocation] = useState(null);
+  const [selectedCart, setSelectedCart] = useState(null);
+  const [nearbyCarts, setNearbyCarts] = useState([]);
+  const [loadingCarts, setLoadingCarts] = useState(false);
+  const [checkingDelivery, setCheckingDelivery] = useState(false);
+  const [specialInstructions, setSpecialInstructions] = useState("");
   const [showWaitlistInfoModal, setShowWaitlistInfoModal] = useState(false);
   const [waitlistGuestName, setWaitlistGuestName] = useState("");
   const [waitlistPartySize, setWaitlistPartySize] = useState("1");
   const [takeawayOnly, setTakeawayOnly] = useState(
     () => localStorage.getItem("terra_takeaway_only") === "true"
   );
+
+  // Check if this is a normal link (not from QR scan)
+  // Pickup/Delivery should only show on normal links, not QR scans
+  const isNormalLink = useMemo(() => {
+    const hasTakeawayQR = localStorage.getItem("terra_takeaway_only") === "true";
+    const hasScanToken = localStorage.getItem("terra_scanToken");
+    const hasTableInfo = localStorage.getItem("terra_selectedTable");
+    
+    // Normal link = no QR scan indicators
+    return !hasTakeawayQR && !hasScanToken && !hasTableInfo;
+  }, []);
+
+  // Fetch carts when order type and location are available
+  useEffect(() => {
+    if (!orderType || !customerLocation) {
+      setNearbyCarts([]);
+      return;
+    }
+
+    // For DELIVERY, require GPS coordinates or pin code - don't show carts until location is available
+    if (orderType === "DELIVERY" && (!customerLocation.latitude || !customerLocation.longitude)) {
+      // If manual address is provided, check if it's a pin code
+      if (customerLocation.address && customerLocation.address.trim()) {
+        const addressValue = customerLocation.address.trim();
+        const isPinCode = /^\d{6}$/.test(addressValue);
+        
+        setLoadingCarts(true);
+        
+        // If it's a pin code, fetch carts directly by pin code
+        if (isPinCode) {
+          console.log("[SecondPage] Fetching carts by pin code:", addressValue);
+          getNearbyCarts(null, null, orderType, addressValue)
+            .then((carts) => {
+              // All carts returned are already filtered by pin code match
+              setNearbyCarts(carts);
+              setLoadingCarts(false);
+              // Auto-select first available cart if none selected
+              if (carts.length > 0 && !selectedCart) {
+                setSelectedCart(carts[0]);
+              }
+            })
+            .catch((error) => {
+              console.error("[SecondPage] Error fetching carts by pin code:", error);
+              setLoadingCarts(false);
+              setNearbyCarts([]);
+            });
+        } else {
+          // Not a pin code, try to geocode the address
+          geocodeAddress(customerLocation.address)
+            .then((coords) => {
+              if (coords) {
+                // Update location with coordinates
+                const updatedLocation = {
+                  ...customerLocation,
+                  latitude: coords.latitude,
+                  longitude: coords.longitude,
+                };
+                setCustomerLocation(updatedLocation);
+                // Fetch carts with coordinates
+                return getNearbyCarts(
+                  coords.latitude,
+                  coords.longitude,
+                  orderType
+                );
+              } else {
+                setLoadingCarts(false);
+                setNearbyCarts([]);
+                return Promise.resolve([]);
+              }
+            })
+            .then((carts) => {
+              // Filter to only show carts that can deliver (within range)
+              const deliverableCarts = carts.filter((c) => c.canDeliver);
+              setNearbyCarts(deliverableCarts);
+              setLoadingCarts(false);
+              // Auto-select first available cart if none selected
+              if (deliverableCarts.length > 0 && !selectedCart) {
+                setSelectedCart(deliverableCarts[0]);
+              }
+            })
+            .catch((error) => {
+              console.error("[SecondPage] Error geocoding or fetching carts:", error);
+              setLoadingCarts(false);
+              setNearbyCarts([]);
+            });
+        }
+      } else {
+        // No address provided yet - don't show any carts
+        setNearbyCarts([]);
+      }
+      return;
+    }
+
+    setLoadingCarts(true);
+
+    // If location has GPS coordinates, use location-based fetching
+    if (customerLocation.latitude && customerLocation.longitude) {
+      getNearbyCarts(
+        customerLocation.latitude,
+        customerLocation.longitude,
+        orderType
+      )
+        .then((carts) => {
+          // For DELIVERY, only show carts that can deliver (within range)
+          // For PICKUP, show all carts with pickup enabled
+          const filteredCarts = orderType === "DELIVERY" 
+            ? carts.filter((c) => c.canDeliver)
+            : carts.filter((c) => c.canPickup);
+          
+          setNearbyCarts(filteredCarts);
+          setLoadingCarts(false);
+          // Auto-select first available cart if none selected
+          if (filteredCarts.length > 0 && !selectedCart) {
+            setSelectedCart(filteredCarts[0]);
+          }
+        })
+        .catch((error) => {
+          console.error("[SecondPage] Error fetching nearby carts:", error);
+          setLoadingCarts(false);
+        });
+    } else {
+      // Manual address entered (no GPS) - only for PICKUP
+      // For DELIVERY, this case is handled above
+      if (orderType === "PICKUP") {
+        getAvailableCarts(orderType)
+          .then((carts) => {
+            const pickupCarts = carts.filter((c) => c.canPickup);
+            setNearbyCarts(pickupCarts);
+            setLoadingCarts(false);
+            // Auto-select first available cart if none selected
+            if (pickupCarts.length > 0 && !selectedCart) {
+              setSelectedCart(pickupCarts[0]);
+            }
+          })
+          .catch((error) => {
+            console.error("[SecondPage] Error fetching available carts:", error);
+            setLoadingCarts(false);
+          });
+      } else {
+        setNearbyCarts([]);
+        setLoadingCarts(false);
+      }
+    }
+  }, [orderType, customerLocation, selectedCart]);
+
+  // Geocode function to convert address or pin code to coordinates
+  const geocodeAddress = async (addressOrPinCode) => {
+    try {
+      // If it's a 6-digit number, treat it as pin code (India format)
+      const isPinCode = /^\d{6}$/.test(addressOrPinCode.trim());
+      let searchQuery = addressOrPinCode;
+      
+      if (isPinCode) {
+        // For pin code, add "India" to improve search accuracy
+        searchQuery = `${addressOrPinCode}, India`;
+      }
+      
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&limit=1&countrycodes=in`,
+        {
+          headers: {
+            'User-Agent': 'TerraCart-Ordering-System'
+          }
+        }
+      );
+      
+      if (!response.ok) {
+        throw new Error("Failed to geocode address");
+      }
+      
+      const data = await response.json();
+      if (data && data.length > 0) {
+        return {
+          latitude: parseFloat(data[0].lat),
+          longitude: parseFloat(data[0].lon),
+        };
+      }
+      return null;
+    } catch (error) {
+      console.error("[SecondPage] Geocoding error:", error);
+      return null;
+    }
+  };
+
+  // Calculate distance between two coordinates (Haversine formula)
+  const calculateDistance = (lat1, lon1, lat2, lon2) => {
+    const R = 6371; // Earth's radius in kilometers
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLon = ((lon2 - lon1) * Math.PI) / 180;
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos((lat1 * Math.PI) / 180) *
+        Math.cos((lat2 * Math.PI) / 180) *
+        Math.sin(dLon / 2) *
+        Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return Math.round(R * c * 100) / 100; // Round to 2 decimal places
+  };
+
+  // Check if customer is within delivery range
+  const checkDeliveryAvailability = (cart, customerLat, customerLon) => {
+    if (!cart || !cart.coordinates?.latitude || !cart.coordinates?.longitude) {
+      return { available: false, distance: null, reason: "Cart location not configured" };
+    }
+    
+    if (!customerLat || !customerLon) {
+      return { available: false, distance: null, reason: "Customer location not available" };
+    }
+
+    if (!cart.deliveryEnabled) {
+      return { available: false, distance: null, reason: "Delivery not enabled for this store" };
+    }
+
+    const distance = calculateDistance(
+      customerLat,
+      customerLon,
+      cart.coordinates.latitude,
+      cart.coordinates.longitude
+    );
+    
+    const maxRadius = cart.deliveryRadius || 5;
+    const isWithinRange = distance <= maxRadius;
+
+    return {
+      available: isWithinRange,
+      distance: distance,
+      maxRadius: maxRadius,
+      reason: isWithinRange ? null : `You are ${distance.toFixed(2)} km away, but maximum delivery radius is ${maxRadius} km`,
+    };
+  };
+
+  // Handler for cart selection
+  // Note: For DELIVERY, carts are already filtered to only show those within range
+  const handleCartChange = useCallback((cart) => {
+    setSelectedCart(cart);
+  }, []);
 
   // Keep takeaway-only flag in sync with localStorage (set on Landing via QR params)
   useEffect(() => {
@@ -1365,7 +1612,7 @@ export default function SecondPage() {
 
   // Handle customer info modal submit for takeaway orders (fields OPTIONAL)
   // Works for both regular takeaway and takeaway-only QR flows
-  const handleCustomerInfoSubmit = useCallback(() => {
+  const handleCustomerInfoSubmit = useCallback(async () => {
     // Generate unique session token for this takeaway order
     const takeawaySessionToken = `TAKEAWAY-${Date.now()}-${Math.random()
       .toString(36)
@@ -1395,7 +1642,7 @@ export default function SecondPage() {
       "[SecondPage] Cleared previous customer data for new takeaway session"
     );
 
-    // Save customer info to localStorage (OPTIONAL)
+    // Save customer info to localStorage (OPTIONAL for regular takeaway, REQUIRED for PICKUP/DELIVERY)
     const cleanName = customerName && customerName.trim();
     const cleanMobile = customerMobile && customerMobile.trim();
     if (cleanName) {
@@ -1417,11 +1664,127 @@ export default function SecondPage() {
       localStorage.removeItem("terra_takeaway_customerEmail");
     }
 
+    // Check if this is a normal link (not from QR scan)
+    const hasTakeawayQR = localStorage.getItem("terra_takeaway_only") === "true";
+    const hasScanToken = localStorage.getItem("terra_scanToken");
+    const hasTableInfo = localStorage.getItem("terra_selectedTable");
+    const isNormalLinkCheck = !hasTakeawayQR && !hasScanToken && !hasTableInfo;
+
+    // For normal links, customer name and mobile are REQUIRED for all takeaway orders
+    if (isNormalLinkCheck) {
+      if (!cleanName || !cleanMobile) {
+        alert("Name and mobile number are required for takeaway orders.");
+        return;
+      }
+    }
+
+    // Save order type and location for PICKUP/DELIVERY (only for normal links)
+    if (isNormalLinkCheck && orderType) {
+      localStorage.setItem("terra_orderType", orderType);
+    } else {
+      // Clear order type if not from normal link
+      localStorage.removeItem("terra_orderType");
+    }
+
+    if (isNormalLinkCheck && customerLocation) {
+      localStorage.setItem("terra_customerLocation", JSON.stringify(customerLocation));
+    } else {
+      localStorage.removeItem("terra_customerLocation");
+    }
+
+    if (isNormalLinkCheck && selectedCart?._id) {
+      localStorage.setItem("terra_selectedCartId", selectedCart._id);
+    } else {
+      localStorage.removeItem("terra_selectedCartId");
+    }
+
+    if (isNormalLinkCheck && specialInstructions && specialInstructions.trim()) {
+      localStorage.setItem("terra_specialInstructions", specialInstructions.trim());
+    } else {
+      localStorage.removeItem("terra_specialInstructions");
+    }
+
+    // VALIDATION: Check delivery availability for DELIVERY orders
+    if (isNormalLinkCheck && orderType === "DELIVERY") {
+      // Validate that cart is selected
+      if (!selectedCart) {
+        alert("Please select a store for delivery.");
+        return;
+      }
+
+      // Validate that customer location is available
+      if (!customerLocation || !customerLocation.address) {
+        alert("Please provide your delivery address.");
+        return;
+      }
+
+      // If coordinates are not available, try to geocode the address
+      let customerLat = customerLocation.latitude;
+      let customerLon = customerLocation.longitude;
+
+      if (!customerLat || !customerLon) {
+        if (!customerLocation.address) {
+          alert("Please provide a valid delivery address.");
+          return;
+        }
+        
+        // Try to geocode the address
+        const coords = await geocodeAddress(customerLocation.address);
+        if (!coords) {
+          alert("Could not determine the location of your address. Please use 'Use Current Location' or enter a more specific address.");
+          return;
+        }
+        customerLat = coords.latitude;
+        customerLon = coords.longitude;
+      }
+
+      // Check delivery availability
+      const deliveryCheck = checkDeliveryAvailability(
+        selectedCart,
+        customerLat,
+        customerLon
+      );
+
+      if (!deliveryCheck.available) {
+        if (deliveryCheck.distance !== null) {
+          alert(
+            `❌ Delivery not available!\n\n${deliveryCheck.reason}\n\nPlease select a different store or choose Pickup instead.`
+          );
+        } else {
+          alert(
+            `❌ Delivery not available!\n\n${deliveryCheck.reason}\n\nPlease select a different store or choose Pickup instead.`
+          );
+        }
+        return;
+      }
+
+      // Update customer location with coordinates if they were geocoded
+      if (customerLocation.latitude !== customerLat || customerLocation.longitude !== customerLon) {
+        setCustomerLocation({
+          ...customerLocation,
+          latitude: customerLat,
+          longitude: customerLon,
+        });
+        localStorage.setItem("terra_customerLocation", JSON.stringify({
+          ...customerLocation,
+          latitude: customerLat,
+          longitude: customerLon,
+        }));
+      }
+    }
+
     // Save takeaway session token
     localStorage.setItem("terra_takeaway_sessionToken", takeawaySessionToken);
 
-    // Ensure serviceType is set to TAKEAWAY (for both regular and takeaway-only QR flows)
-    localStorage.setItem("terra_serviceType", "TAKEAWAY");
+    // Set serviceType based on order type (only for normal links)
+    if (isNormalLinkCheck && orderType === "PICKUP") {
+      localStorage.setItem("terra_serviceType", "PICKUP");
+    } else if (isNormalLinkCheck && orderType === "DELIVERY") {
+      localStorage.setItem("terra_serviceType", "DELIVERY");
+    } else {
+      // Regular takeaway (for QR scans or no order type)
+      localStorage.setItem("terra_serviceType", "TAKEAWAY");
+    }
 
     // CRITICAL: Clear waitlist state for takeaway orders
     localStorage.removeItem("terra_waitToken");
@@ -1433,7 +1796,7 @@ export default function SecondPage() {
     // Close modal and navigate to menu
     setShowCustomerInfoModal(false);
     navigate("/menu", { state: { serviceType: "TAKEAWAY" } });
-  }, [customerName, customerMobile, customerEmail, navigate]);
+  }, [customerName, customerMobile, customerEmail, navigate, orderType, selectedCart, customerLocation]);
 
   // Handle skip customer info (all fields optional)
   // Works for both regular takeaway and takeaway-only QR flows
@@ -1784,7 +2147,8 @@ export default function SecondPage() {
 
         <div className="content-wrapper">
           <div className="buttons-container">
-            {!takeawayOnly && (
+            {/* Dine-in button: Only show for QR scans (not normal links) and not takeaway-only */}
+            {!takeawayOnly && !isNormalLink && (
               <button
                 onClick={() => {
                   // CRITICAL: Check if user has active order first - grant immediate access
@@ -2123,12 +2487,13 @@ export default function SecondPage() {
           </div>
         )}
 
-        {/* Customer Info Modal for Takeaway Orders (OPTIONAL fields) */}
+        {/* Customer Info Modal for Takeaway Orders */}
         {showCustomerInfoModal && (
           <div
             className="customer-info-modal-overlay"
             onClick={(e) => {
-              if (e.target === e.currentTarget) {
+              // Prevent closing by clicking outside for normal links (required form)
+              if (e.target === e.currentTarget && !isNormalLink) {
                 handleSkipCustomerInfo();
               }
             }}
@@ -2138,28 +2503,58 @@ export default function SecondPage() {
               onClick={(e) => e.stopPropagation()}
             >
               <div className="customer-info-modal-header">
-                <h3>Customer Information (Optional)</h3>
-                <button
-                  className="customer-info-close-btn"
-                  onClick={handleSkipCustomerInfo}
-                >
-                  ✕
-                </button>
+                <h3>
+                  {isNormalLink 
+                    ? "Customer Information (Required)" 
+                    : "Customer Information (Optional)"}
+                </h3>
+                {/* Only show close button for QR scan takeaway (not normal links) */}
+                {!isNormalLink && (
+                  <button
+                    className="customer-info-close-btn"
+                    onClick={handleSkipCustomerInfo}
+                  >
+                    ✕
+                  </button>
+                )}
               </div>
               <div className="customer-info-modal-body">
                 <p
                   style={{
                     marginBottom: "16px",
-                    color: "#666",
+                    color: isNormalLink ? "#d97706" : "#666",
                     fontSize: "0.9rem",
+                    fontWeight: isNormalLink ? "600" : "400",
                   }}
                 >
-                  You can provide your details for the takeaway order
-                  (optional).
+                  {isNormalLink 
+                    ? (orderType 
+                        ? `Please provide your details for the ${orderType === "PICKUP" ? "pickup" : "delivery"} order. Name and mobile number are required.`
+                        : "Please provide your details for the takeaway order. Name and mobile number are required.")
+                    : "You can provide your details for the takeaway order (optional)."}
                 </p>
+
+                {/* Order Type Selector for PICKUP/DELIVERY - Only show on normal links (not QR scans) */}
+                {isNormalLink && (
+                  <div style={{ marginBottom: "20px", padding: "1rem", background: "#f9f9f9", borderRadius: "0.5rem" }}>
+                    <OrderTypeSelector
+                      selectedType={orderType}
+                      onTypeChange={setOrderType}
+                      customerLocation={customerLocation}
+                      onLocationChange={setCustomerLocation}
+                      selectedCart={selectedCart}
+                      onCartChange={handleCartChange}
+                      nearbyCarts={nearbyCarts}
+                      loading={loadingCarts}
+                    />
+                  </div>
+                )}
+
                 <div className="customer-info-form">
                   <div className="customer-info-field">
-                    <label htmlFor="customerName">Name (optional)</label>
+                    <label htmlFor="customerName">
+                      Name {isNormalLink ? "(required)" : "(optional)"}
+                    </label>
                     <input
                       type="text"
                       id="customerName"
@@ -2167,11 +2562,12 @@ export default function SecondPage() {
                       onChange={(e) => setCustomerName(e.target.value)}
                       placeholder="Enter your name"
                       className="customer-info-input"
+                      required={isNormalLink}
                     />
                   </div>
                   <div className="customer-info-field">
                     <label htmlFor="customerMobile">
-                      Mobile Number (optional)
+                      Mobile Number {isNormalLink ? "(required)" : "(optional)"}
                     </label>
                     <input
                       type="tel"
@@ -2180,6 +2576,7 @@ export default function SecondPage() {
                       onChange={(e) => setCustomerMobile(e.target.value)}
                       placeholder="Enter mobile number"
                       className="customer-info-input"
+                      required={isNormalLink}
                     />
                   </div>
                   <div className="customer-info-field">
@@ -2193,13 +2590,34 @@ export default function SecondPage() {
                       className="customer-info-input"
                     />
                   </div>
+                  {/* Special Instructions - Only show for PICKUP/DELIVERY on normal links */}
+                  {isNormalLink && (orderType === "PICKUP" || orderType === "DELIVERY") && (
+                    <div className="customer-info-field">
+                      <label htmlFor="specialInstructions">
+                        Special Instructions (Optional)
+                      </label>
+                      <textarea
+                        id="specialInstructions"
+                        value={specialInstructions}
+                        onChange={(e) => setSpecialInstructions(e.target.value)}
+                        placeholder="e.g., No onion, Urgent pickup, Leave at door"
+                        className="customer-info-input"
+                        rows={3}
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="customer-info-modal-footer">
                 <button
                   className="customer-info-submit-btn"
                   onClick={handleCustomerInfoSubmit}
-                  style={{ width: "100%" }}
+                  style={{ 
+                    width: "100%",
+                    opacity: isNormalLink && (!customerName?.trim() || !customerMobile?.trim()) ? 0.6 : 1,
+                    cursor: isNormalLink && (!customerName?.trim() || !customerMobile?.trim()) ? "not-allowed" : "pointer"
+                  }}
+                  disabled={isNormalLink && (!customerName?.trim() || !customerMobile?.trim())}
                 >
                   Continue
                 </button>

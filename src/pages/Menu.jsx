@@ -1587,21 +1587,66 @@ export default function MenuPage() {
         // Mark table as occupied when menu page loads
         await markTableOccupied();
 
-        // Get cartId from the selected table to filter menu
+        // Get cartId to filter menu - priority order:
+        // 1. Selected cart for PICKUP/DELIVERY (terra_selectedCartId)
+        // 2. Takeaway QR cart (terra_takeaway_cartId)
+        // 3. Table data cartId (for dine-in)
         let cartId = "";
-        try {
-          const tableData = JSON.parse(
-            localStorage.getItem(TABLE_SELECTION_KEY) || "{}"
-          );
-          cartId = tableData.cartId || tableData.cafeId || "";
-          // Loading menu
-        } catch (e) {
-          // Could not get cartId from table data
+        
+        // Check for selected cart (PICKUP/DELIVERY)
+        const selectedCartId = localStorage.getItem("terra_selectedCartId");
+        if (selectedCartId) {
+          cartId = selectedCartId;
+          console.log("[Menu] Using selected cart ID for menu:", cartId);
+        } else {
+          // Check for takeaway QR cart
+          const qrCartId = localStorage.getItem("terra_takeaway_cartId");
+          if (qrCartId) {
+            cartId = qrCartId;
+            console.log("[Menu] Using takeaway QR cart ID for menu:", cartId);
+          } else {
+            // Fallback to table data - check both terra_selectedTable and TABLE_SELECTION_KEY
+            try {
+              // Try terra_selectedTable first (set by Landing.jsx)
+              let tableDataStr = localStorage.getItem("terra_selectedTable");
+              if (!tableDataStr) {
+                // Fallback to TABLE_SELECTION_KEY if terra_selectedTable doesn't exist
+                tableDataStr = localStorage.getItem(TABLE_SELECTION_KEY) || "{}";
+              }
+              
+              const tableData = JSON.parse(tableDataStr);
+              cartId = tableData.cartId || tableData.cafeId || "";
+              
+              console.log("[Menu] Table data for cartId lookup:", {
+                hasTableData: !!tableDataStr,
+                tableDataKeys: tableData ? Object.keys(tableData) : [],
+                cartId: tableData.cartId,
+                cafeId: tableData.cafeId,
+                foundCartId: cartId
+              });
+              
+              if (cartId) {
+                console.log("[Menu] Using table cart ID for menu:", cartId);
+              } else {
+                console.warn("[Menu] No cartId or cafeId found in table data:", tableData);
+              }
+            } catch (e) {
+              // Could not get cartId from table data
+              console.error("[Menu] Error parsing table data:", e);
+              console.log("[Menu] No cart ID found, loading default menu");
+            }
+          }
         }
 
         const menuUrl = cartId
           ? `${nodeApi}/api/menu/public?cartId=${cartId}`
           : `${nodeApi}/api/menu/public`;
+        
+        console.log("[Menu] Loading menu from:", menuUrl, {
+          hasCartId: !!cartId,
+          cartId: cartId,
+          serviceType: serviceType
+        });
 
         const res = await fetch(menuUrl);
         if (!res.ok) {
@@ -2114,8 +2159,16 @@ export default function MenuPage() {
         }
       }
 
+      // Get order type and location for PICKUP/DELIVERY
+      const orderType = localStorage.getItem("terra_orderType") || null; // PICKUP or DELIVERY
+      const customerLocationStr = localStorage.getItem("terra_customerLocation");
+      const customerLocation = customerLocationStr ? JSON.parse(customerLocationStr) : null;
+      const specialInstructions = localStorage.getItem("terra_specialInstructions") || null;
+      const selectedCartId = localStorage.getItem("terra_selectedCartId") || cartId;
+
       const orderPayload = buildOrderPayload(cart, {
-        serviceType,
+        serviceType: orderType ? (orderType === "PICKUP" ? "PICKUP" : "DELIVERY") : serviceType,
+        orderType: orderType, // PICKUP or DELIVERY
         tableId:
           refreshedTableInfo?.id ||
           refreshedTableInfo?._id ||
@@ -2129,21 +2182,25 @@ export default function MenuPage() {
         menuCatalog,
         // CRITICAL: Use the latest sessionToken we just determined
         sessionToken: finalSessionToken,
-        // Only include customer info if it's not empty (avoid sending empty strings)
+        // Customer info - required for PICKUP/DELIVERY
         customerName:
-          serviceType === "TAKEAWAY" && storedCustomerName?.trim()
+          (serviceType === "TAKEAWAY" || orderType) && storedCustomerName?.trim()
             ? storedCustomerName.trim()
             : undefined,
         customerMobile:
-          serviceType === "TAKEAWAY" && storedCustomerMobile?.trim()
+          (serviceType === "TAKEAWAY" || orderType) && storedCustomerMobile?.trim()
             ? storedCustomerMobile.trim()
             : undefined,
         customerEmail:
-          serviceType === "TAKEAWAY" && storedCustomerEmail?.trim()
+          (serviceType === "TAKEAWAY" || orderType) && storedCustomerEmail?.trim()
             ? storedCustomerEmail.trim()
             : undefined,
-        // Include cartId for takeaway orders
-        cartId: serviceType === "TAKEAWAY" ? cartId : undefined,
+        // Include cartId for takeaway/pickup/delivery orders
+        cartId: (serviceType === "TAKEAWAY" || orderType) ? (selectedCartId || cartId) : undefined,
+        // Include customer location for PICKUP/DELIVERY
+        customerLocation: customerLocation,
+        // Include special instructions
+        specialInstructions: specialInstructions,
       });
 
       // CRITICAL: Validate order payload before sending
@@ -2200,6 +2257,59 @@ export default function MenuPage() {
             .substr(2, 9)}`;
           localStorage.setItem("terra_sessionToken", orderPayload.sessionToken);
           setSessionToken(orderPayload.sessionToken);
+        }
+      }
+
+      // VALIDATION: Check delivery availability for DELIVERY orders before placing order
+      if (orderPayload.serviceType === "DELIVERY" || orderPayload.orderType === "DELIVERY") {
+        if (!orderPayload.customerLocation || !orderPayload.customerLocation.latitude || !orderPayload.customerLocation.longitude) {
+          alert("❌ Delivery location is required. Please go back and provide your delivery address.");
+          setStepState(2, "error");
+          await wait(DUR.error);
+          setProcessOpen(false);
+          return;
+        }
+
+        if (!orderPayload.cartId) {
+          alert("❌ Store selection is required for delivery. Please go back and select a store.");
+          setStepState(2, "error");
+          await wait(DUR.error);
+          setProcessOpen(false);
+          return;
+        }
+
+        // Fetch cart details to check delivery availability
+        try {
+          const cartResponse = await fetch(
+            `${nodeApi}/api/carts/${orderPayload.cartId}?latitude=${orderPayload.customerLocation.latitude}&longitude=${orderPayload.customerLocation.longitude}&orderType=DELIVERY`
+          );
+          
+          if (cartResponse.ok) {
+            const cartData = await cartResponse.json();
+            if (cartData.success && cartData.data) {
+              const cart = cartData.data;
+              
+              // Check if delivery is available
+              if (!cart.canDeliver) {
+                let errorMessage = "❌ Delivery not available!\n\n";
+                if (cart.distance !== null) {
+                  errorMessage += `You are ${cart.distance.toFixed(2)} km away, but maximum delivery radius is ${cart.deliveryRadius || 5} km.\n\n`;
+                } else {
+                  errorMessage += "Delivery is not enabled for this store or the store location is not configured.\n\n";
+                }
+                errorMessage += "Please select a different store or choose Pickup instead.";
+                
+                alert(errorMessage);
+                setStepState(2, "error");
+                await wait(DUR.error);
+                setProcessOpen(false);
+                return;
+              }
+            }
+          }
+        } catch (error) {
+          console.error("[Menu] Error checking delivery availability:", error);
+          // Continue with order placement - backend will validate
         }
       }
 
@@ -4318,16 +4428,30 @@ export default function MenuPage() {
           <div className="panels-container">
             {/* Left Panel - Smart Serve */}
             <div className="left-panel">
-              <h3 className="smart-serve-title">{smartServe}</h3>
-
-              <div className="service-context">
-                <span className="service-badge">
-                  {serviceType === "DINE_IN"
-                    ? tableInfo?.number
-                      ? `Dine-In · Table ${tableInfo.number}`
-                      : "Dine-In"
-                    : "Takeaway"}
-                </span>
+              {/* Header Section with Table Info and Guest Count */}
+              <div className="order-header-section">
+                <div className="order-header-info">
+                  <div className="order-header-badge">
+                    {serviceType === "DINE_IN" ? (
+                      <>
+                        <span className="order-header-icon">📍</span>
+                        <span>
+                          {tableInfo?.number
+                            ? `Dine-In - Table ${tableInfo.number}`
+                            : "Dine-In"}
+                        </span>
+                      </>
+                    ) : (
+                      <span>Takeaway</span>
+                    )}
+                  </div>
+                  {serviceType === "DINE_IN" && (
+                    <div className="guest-count-badge">
+                      <span className="guest-icon">👥</span>
+                      <span>2</span>
+                    </div>
+                  )}
+                </div>
                 {/* Prominent takeaway token badge for better UX */}
                 {serviceType === "TAKEAWAY" &&
                   previousOrderDetail?.takeawayToken && (
@@ -4338,6 +4462,7 @@ export default function MenuPage() {
                   )}
               </div>
 
+              {/* Large Tap to Order Button */}
               <button
                 onClick={handleVoiceOrder}
                 className={`voice-button ${recording ? "recording" : ""}`}
@@ -4354,6 +4479,88 @@ export default function MenuPage() {
                   ? tapToStop
                   : tapToOrder}
               </p>
+
+              {/* Call Waiter and Request Water Buttons - Only show for DINE_IN orders */}
+              {serviceType === "DINE_IN" && (
+                <div className="action-buttons-row">
+                  <button
+                    onClick={async () => {
+                      try {
+                        const tableDataStr = localStorage.getItem('terra_selectedTable');
+                        if (!tableDataStr) {
+                          alert("Please select a table first");
+                          return;
+                        }
+                        const tableData = JSON.parse(tableDataStr);
+                        const tableId = tableData.id || tableData._id;
+                        const orderId = localStorage.getItem('terra_orderId') || null;
+                        const nodeApi = (import.meta.env.VITE_NODE_API_URL || "http://localhost:5001").replace(/\/$/, "");
+                        
+                        const response = await fetch(`${nodeApi}/api/customer-requests`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            tableId: tableId,
+                            requestType: "assistance",
+                            customerNotes: "Call Waiter",
+                            ...(orderId && { orderId: orderId }),
+                          }),
+                        });
+                        
+                        if (response.ok) {
+                          alert("✅ Waiter called! Someone will be with you shortly.");
+                        } else {
+                          throw new Error("Failed to send request");
+                        }
+                      } catch (error) {
+                        console.error("Error calling waiter:", error);
+                        alert("❌ Failed to call waiter. Please try again.");
+                      }
+                    }}
+                    className="action-button call-waiter-button"
+                  >
+                    Call Waiter
+                  </button>
+                  <button
+                    onClick={async () => {
+                      try {
+                        const tableDataStr = localStorage.getItem('terra_selectedTable');
+                        if (!tableDataStr) {
+                          alert("Please select a table first");
+                          return;
+                        }
+                        const tableData = JSON.parse(tableDataStr);
+                        const tableId = tableData.id || tableData._id;
+                        const orderId = localStorage.getItem('terra_orderId') || null;
+                        const nodeApi = (import.meta.env.VITE_NODE_API_URL || "http://localhost:5001").replace(/\/$/, "");
+                        
+                        const response = await fetch(`${nodeApi}/api/customer-requests`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            tableId: tableId,
+                            requestType: "water",
+                            customerNotes: "Request Water",
+                            ...(orderId && { orderId: orderId }),
+                          }),
+                        });
+                        
+                        if (response.ok) {
+                          alert("✅ Water requested! Someone will bring it shortly.");
+                        } else {
+                          throw new Error("Failed to send request");
+                        }
+                      } catch (error) {
+                        console.error("Error requesting water:", error);
+                        alert("❌ Failed to request water. Please try again.");
+                      }
+                    }}
+                    className="action-button request-water-button"
+                  >
+                    💧 Request Water
+                  </button>
+                </div>
+              )}
 
               {orderText && (
                 <p className="ai-ordered-text">
@@ -4511,12 +4718,6 @@ export default function MenuPage() {
                             className="billing-button"
                             onClick={handleConfirmPayment}
                             disabled={confirmingPayment}
-                            style={{
-                              backgroundColor: "#10b981",
-                              color: "#ffffff",
-                              border: "1px solid #059669",
-                              fontWeight: "600",
-                            }}
                           >
                             {confirmingPayment
                               ? "Confirming..."
@@ -4573,16 +4774,8 @@ export default function MenuPage() {
                                 localStorage.getItem("terra_lastPaidOrderId");
                               navigate("/feedback", { state: { orderId } });
                             }}
-                            style={{
-                              backgroundColor: "#10b981",
-                              color: "#ffffff",
-                              border: "1px solid #059669",
-                              fontWeight: "600",
-                            }}
                           >
-                            <span style={{ color: "#ffffff" }}>
-                              Share Feedback
-                            </span>
+                            Share Feedback
                           </button>
                         );
                       }
@@ -4707,6 +4900,7 @@ export default function MenuPage() {
             <div className="right-panel">
               <h3 className="manual-entry-title">{menuHeading}</h3>
 
+              {/* Search Bar */}
               <input
                 type="text"
                 placeholder={searchPlaceholder}
@@ -4714,6 +4908,22 @@ export default function MenuPage() {
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="search-input"
               />
+
+              {/* Filter Pills */}
+              <div className="filter-pills-container">
+                <button className="filter-pill veg-filter">
+                  <span className="filter-icon">🌿</span>
+                  <span>Veg Only</span>
+                </button>
+                <button className="filter-pill popular-filter">
+                  <span className="filter-icon">⭐</span>
+                  <span>Popular</span>
+                </button>
+                <button className="filter-pill spicy-filter">
+                  <span className="filter-icon">🌶️</span>
+                  <span>Spicy</span>
+                </button>
+              </div>
 
               {menuError && !menuLoading && (
                 <div className="menu-warning">{menuError}</div>

@@ -1,6 +1,7 @@
 export function buildOrderPayload(cart, options = {}) {
   const {
     serviceType = "DINE_IN",
+    orderType, // PICKUP or DELIVERY
     tableId,
     tableNumber,
     menuCatalog = {},
@@ -9,6 +10,8 @@ export function buildOrderPayload(cart, options = {}) {
     customerMobile,
     customerEmail,
     cartId,
+    customerLocation, // { latitude, longitude, address }
+    specialInstructions, // Special notes from customer
   } = options;
   const items = Object.entries(cart)
     .filter(([name, quantity]) => {
@@ -64,7 +67,7 @@ export function buildOrderPayload(cart, options = {}) {
     totalAmount,
   };
 
-  // For TAKEAWAY orders, don't include tableId, tableNumber, or sessionToken
+  // For TAKEAWAY/PICKUP/DELIVERY orders, don't include tableId, tableNumber
   if (serviceType === "DINE_IN") {
     if (tableId) payload.tableId = tableId;
     if (tableNumber !== undefined && tableNumber !== null) {
@@ -73,16 +76,43 @@ export function buildOrderPayload(cart, options = {}) {
     if (sessionToken) {
       payload.sessionToken = sessionToken;
     }
-  } else if (serviceType === "TAKEAWAY") {
-    // TAKEAWAY orders don't need table information
-    // Backend will set tableNumber to "TAKEAWAY" automatically
-    // Include customer information for takeaway orders (name and mobile are required)
+  } else if (
+    serviceType === "TAKEAWAY" ||
+    serviceType === "PICKUP" ||
+    serviceType === "DELIVERY"
+  ) {
+    // PICKUP/DELIVERY orders don't need table information
+    // Set serviceType and orderType
+    if (orderType === "PICKUP" || orderType === "DELIVERY") {
+      payload.serviceType = orderType === "PICKUP" ? "PICKUP" : "DELIVERY";
+      payload.orderType = orderType;
+    } else {
+      payload.serviceType = "TAKEAWAY"; // Legacy support
+    }
+
+    // Include customer information (required for PICKUP/DELIVERY)
     if (customerName) payload.customerName = customerName;
     if (customerMobile) payload.customerMobile = customerMobile;
     if (customerEmail) payload.customerEmail = customerEmail;
-    // Include sessionToken for takeaway orders to isolate each customer session
+
+    // Include customer location for PICKUP/DELIVERY
+    if (customerLocation) {
+      payload.customerLocation = {
+        latitude: customerLocation.latitude,
+        longitude: customerLocation.longitude,
+        address: customerLocation.address || customerLocation.fullAddress || "",
+      };
+    }
+
+    // Include special instructions
+    if (specialInstructions && specialInstructions.trim()) {
+      payload.specialInstructions = specialInstructions.trim();
+    }
+
+    // Include sessionToken to isolate each customer session
     if (sessionToken) payload.sessionToken = sessionToken;
-    // Include cartId for takeaway orders so they're assigned to the correct cart
+
+    // Include cartId (required for PICKUP/DELIVERY)
     if (cartId) payload.cartId = cartId;
   } else {
     payload.tableNumber = String(tableNumber || "TAKEAWAY");

@@ -108,7 +108,11 @@ export default function Landing() {
 
     // CRITICAL: If no table parameter in URL, clear all dine-in order data
     // This ensures users opening normal links don't see old table/dine order data
-    if (!slug) {
+    if (!slug || slug.trim().length < 5) {
+      // Also clear if slug is too short (likely invalid)
+      if (slug && slug.trim().length < 5) {
+        console.warn("[Landing] Invalid slug detected (too short):", slug);
+      }
       // Clear all dine-in order data when opening normal link (not from QR)
       clearOldOrderData();
       // Also clear table-related data
@@ -161,7 +165,15 @@ export default function Landing() {
         if (storedWait) {
           query.set("waitToken", storedWait);
         }
-        const url = `${nodeApi}/api/tables/lookup/${slug}${
+        // Validate and encode slug
+        const validSlug = slug.trim();
+        if (validSlug.length < 5) {
+          console.error("[Landing] Invalid slug (too short):", validSlug);
+          alert("Invalid table QR code. Please scan the table QR code again.");
+          return;
+        }
+        
+        const url = `${nodeApi}/api/tables/lookup/${encodeURIComponent(validSlug)}${
           query.toString() ? `?${query.toString()}` : ""
         }`;
         console.log("[Landing] Table lookup URL:", url);

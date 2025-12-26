@@ -1257,7 +1257,14 @@ export default function SecondPage() {
           params.set("waitToken", waitlistToken);
         }
 
-        const url = `${nodeApi}/api/tables/lookup/${slug}${
+        // Validate and encode slug
+        if (!slug || slug.trim().length < 5) {
+          console.error("[SecondPage] Invalid slug:", slug);
+          alert("Invalid table QR code. Please scan the table QR code again.");
+          return;
+        }
+        
+        const url = `${nodeApi}/api/tables/lookup/${encodeURIComponent(slug.trim())}${
           params.toString() ? `?${params.toString()}` : ""
         }`;
 

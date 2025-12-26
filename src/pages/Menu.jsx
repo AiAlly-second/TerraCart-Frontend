@@ -1146,11 +1146,19 @@ export default function MenuPage() {
           // Also verify on backend that this session owns the table
           const slug =
             tableData.qrSlug || localStorage.getItem("terra_scanToken");
-          if (slug) {
+          if (slug && slug.trim().length >= 5) {
             try {
               const tableRes = await fetch(
-                `${nodeApi}/api/tables/lookup/${slug}?sessionToken=${sessionToken}`
+                `${nodeApi}/api/tables/lookup/${encodeURIComponent(slug.trim())}?sessionToken=${encodeURIComponent(sessionToken || "")}`
               );
+              
+              // Handle 404 - table not found
+              if (tableRes.status === 404) {
+                console.warn("[Menu] Table not found (404):", slug);
+                localStorage.removeItem("terra_scanToken");
+                localStorage.removeItem("terra_selectedTable");
+                return;
+              }
               if (tableRes.ok) {
                 const tablePayload = await tableRes.json();
                 const tableSessionToken = tablePayload?.table?.sessionToken;
@@ -1265,11 +1273,17 @@ export default function MenuPage() {
         try {
           const slug = tableData.qrSlug || scanToken;
           if (slug) {
+            // Validate slug is not empty and has reasonable length
+            if (!slug || slug.trim().length < 5) {
+              console.warn("[Menu] Invalid slug detected:", slug);
+              return; // Skip if slug is invalid
+            }
+            
             // NOTE: 423 (Locked) responses are EXPECTED when table is occupied
             // Browser console may show this as an error, but it's normal behavior
             const refreshRes = await fetch(
-              `${nodeApi}/api/tables/lookup/${slug}${
-                sessionToken ? `?sessionToken=${sessionToken}` : ""
+              `${nodeApi}/api/tables/lookup/${encodeURIComponent(slug)}${
+                sessionToken ? `?sessionToken=${encodeURIComponent(sessionToken)}` : ""
               }`
             ).catch((fetchErr) => {
               // Only log actual network errors, not 423 status codes
@@ -1279,6 +1293,15 @@ export default function MenuPage() {
               );
               throw fetchErr; // Re-throw to be handled by outer catch
             });
+            
+            // Handle 404 - table not found (invalid slug)
+            if (refreshRes.status === 404) {
+              console.warn("[Menu] Table not found (404) - invalid slug:", slug);
+              // Clear invalid slug from localStorage
+              localStorage.removeItem("terra_scanToken");
+              localStorage.removeItem("terra_selectedTable");
+              return; // Skip marking as occupied
+            }
 
             // Handle 423 (Locked) response - table is occupied
             // NOTE: 423 is EXPECTED when table is occupied - browser console shows this as an error
@@ -1709,12 +1732,18 @@ export default function MenuPage() {
             try {
               const slug =
                 tableData.qrSlug || localStorage.getItem("terra_scanToken");
-              if (slug) {
+              if (slug && slug.trim().length >= 5) {
                 const refreshRes = await fetch(
-                  `${nodeApi}/api/tables/lookup/${slug}?sessionToken=${
-                    sessionToken || ""
-                  }`
+                  `${nodeApi}/api/tables/lookup/${encodeURIComponent(slug.trim())}?sessionToken=${encodeURIComponent(sessionToken || "")}`
                 );
+                
+                // Handle 404 - table not found
+                if (refreshRes.status === 404) {
+                  console.warn("[Menu] Table not found (404):", slug);
+                  localStorage.removeItem("terra_scanToken");
+                  localStorage.removeItem("terra_selectedTable");
+                  return;
+                }
                 if (refreshRes.ok) {
                   const refreshPayload = await refreshRes
                     .json()
@@ -2259,8 +2288,19 @@ export default function MenuPage() {
       setStepState(2, "active");
       await wait(DUR.beforeSend);
 
-      // Use existing tableInfo - no complex refresh logic
+      // Use existing tableInfo - fallback to localStorage if needed
       let refreshedTableInfo = tableInfo;
+      if (!refreshedTableInfo) {
+        try {
+          const storedTable = localStorage.getItem(TABLE_SELECTION_KEY) || localStorage.getItem("terra_selectedTable");
+          if (storedTable) {
+            refreshedTableInfo = JSON.parse(storedTable);
+            console.log("[Menu] Retrieved table info from localStorage:", refreshedTableInfo);
+          }
+        } catch (e) {
+          console.warn("[Menu] Failed to parse stored table info:", e);
+        }
+      }
 
       // Get customer info from localStorage for takeaway orders (in case state wasn't updated)
       const storedCustomerName =
@@ -2445,21 +2485,57 @@ export default function MenuPage() {
         return;
       }
 
-      // Simple validation for DINE_IN orders - just ensure sessionToken exists
-      if (
-        orderPayload.serviceType === "DINE_IN" &&
-        !orderPayload.sessionToken
-      ) {
-        // Use the finalSessionToken we already determined
-        if (finalSessionToken) {
-          orderPayload.sessionToken = finalSessionToken;
-        } else {
-          // Generate a new one if still missing
-          orderPayload.sessionToken = `session_${Date.now()}_${Math.random()
-            .toString(36)
-            .substr(2, 9)}`;
-          localStorage.setItem("terra_sessionToken", orderPayload.sessionToken);
-          setSessionToken(orderPayload.sessionToken);
+      // CRITICAL: Validate DINE_IN order requirements before sending
+      if (orderPayload.serviceType === "DINE_IN") {
+        // Ensure sessionToken exists
+        if (!orderPayload.sessionToken) {
+          // Use the finalSessionToken we already determined
+          if (finalSessionToken) {
+            orderPayload.sessionToken = finalSessionToken;
+          } else {
+            // Generate a new one if still missing
+            orderPayload.sessionToken = `session_${Date.now()}_${Math.random()
+              .toString(36)
+              .substr(2, 9)}`;
+            localStorage.setItem("terra_sessionToken", orderPayload.sessionToken);
+            setSessionToken(orderPayload.sessionToken);
+          }
+        }
+        
+        // Ensure tableId or tableNumber exists for DINE_IN orders
+        if (!orderPayload.tableId && !orderPayload.tableNumber) {
+          // Try to get from localStorage as fallback
+          try {
+            const storedTable = localStorage.getItem(TABLE_SELECTION_KEY) || localStorage.getItem("terra_selectedTable");
+            if (storedTable) {
+              const tableData = JSON.parse(storedTable);
+              if (tableData.id || tableData._id) {
+                orderPayload.tableId = tableData.id || tableData._id;
+              }
+              if (tableData.number || tableData.tableNumber) {
+                orderPayload.tableNumber = String(tableData.number || tableData.tableNumber);
+              }
+            }
+          } catch (e) {
+            console.warn("[Menu] Failed to parse stored table data:", e);
+          }
+          
+          // If still missing, show error
+          if (!orderPayload.tableId && !orderPayload.tableNumber) {
+            console.error("[Menu] Missing table information for DINE_IN order:", {
+              tableId: orderPayload.tableId,
+              tableNumber: orderPayload.tableNumber,
+              tableInfo: tableInfo,
+              refreshedTableInfo: refreshedTableInfo,
+            });
+            alert(
+              "❌ Table information is missing. Please scan the table QR code again."
+            );
+            setStepState(2, "error");
+            await wait(DUR.error);
+            setProcessOpen(false);
+            return;
+          }
         }
       }
 
@@ -2655,27 +2731,36 @@ export default function MenuPage() {
             status: res.status,
             statusText: res.statusText,
             error: data,
-            payload: orderPayload,
-            itemsCount: orderPayload.items?.length,
-            serviceType: orderPayload.serviceType,
-            hasSessionToken: !!orderPayload.sessionToken,
-            hasTableId: !!orderPayload.tableId,
-            hasTableNumber: !!orderPayload.tableNumber,
+            errorMessage: errorMessage,
+            payload: {
+              serviceType: orderPayload.serviceType,
+              itemsCount: orderPayload.items?.length,
+              hasSessionToken: !!orderPayload.sessionToken,
+              hasTableId: !!orderPayload.tableId,
+              hasTableNumber: !!orderPayload.tableNumber,
+              tableId: orderPayload.tableId,
+              tableNumber: orderPayload.tableNumber,
+              sessionToken: orderPayload.sessionToken ? "present" : "missing",
+            },
           });
-          // Show more helpful error message
+          // Show more helpful error message based on backend response
           let userMessage = errorMessage;
-          if (data?.message?.includes("No items supplied")) {
-            userMessage =
-              "Your cart is empty. Please add items before placing an order.";
-          } else if (data?.message?.includes("Session token is required")) {
-            userMessage =
-              "Session token is missing. Please scan the table QR code again.";
-          } else if (data?.message?.includes("Table selection is required")) {
-            userMessage =
-              "Table information is missing. Please scan the table QR code again.";
-          } else if (data?.message?.includes("Invalid order items")) {
-            userMessage =
-              "Some items in your cart are invalid. Please refresh the page and try again.";
+          if (data?.message) {
+            const msg = data.message.toLowerCase();
+            if (msg.includes("no items") || msg.includes("items supplied")) {
+              userMessage = "Your cart is empty. Please add items before placing an order.";
+            } else if (msg.includes("session token") || msg.includes("sessiontoken")) {
+              userMessage = "Session token is missing. Please scan the table QR code again or refresh the page.";
+            } else if (msg.includes("table") && msg.includes("required")) {
+              userMessage = "Table information is missing. Please scan the table QR code again.";
+            } else if (msg.includes("invalid") && msg.includes("items")) {
+              userMessage = "Some items in your cart are invalid. Please refresh the page and try again.";
+            } else if (msg.includes("invalid service type")) {
+              userMessage = "Invalid order type. Please refresh the page and try again.";
+            } else {
+              // Show the actual backend error message
+              userMessage = data.message;
+            }
           }
           alert(`❌ ${userMessage}`);
         } else {
@@ -3240,6 +3325,12 @@ export default function MenuPage() {
 
       const table = JSON.parse(storedTable);
       const slug = table.qrSlug || localStorage.getItem("terra_scanToken");
+      
+      // Validate slug before making request
+      if (!slug || typeof slug !== "string" || slug.trim().length < 5) {
+        console.warn("[Menu] Invalid slug for table refresh:", slug);
+        throw new Error("Invalid table identifier. Please scan the table QR code again.");
+      }
 
       // CRITICAL: Always use the latest sessionToken from localStorage
       // This ensures we use the token that was updated by markTableOccupied()
@@ -3250,10 +3341,20 @@ export default function MenuPage() {
       if (latestSessionToken) {
         params.set("sessionToken", latestSessionToken);
       }
-      const url = `${nodeApi}/api/tables/lookup/${slug}${
+      const url = `${nodeApi}/api/tables/lookup/${encodeURIComponent(slug.trim())}${
         params.toString() ? `?${params.toString()}` : ""
       }`;
       let res = await fetch(url);
+      
+      // Handle 404 - table not found (invalid slug)
+      if (res.status === 404) {
+        console.warn("[Menu] Table not found (404) during refresh - invalid slug:", slug);
+        // Clear invalid slug from localStorage
+        localStorage.removeItem("terra_scanToken");
+        localStorage.removeItem("terra_selectedTable");
+        throw new Error("Table not found. The QR code may be invalid. Please scan the table QR code again.");
+      }
+      
       let payload = await res.json().catch(() => ({}));
 
       if (res.status === 423) {
@@ -3279,10 +3380,18 @@ export default function MenuPage() {
 
             const retryParams = new URLSearchParams();
             const retryQuery = retryParams.toString();
-            const retryUrl = `${nodeApi}/api/tables/lookup/${slug}${
+            const retryUrl = `${nodeApi}/api/tables/lookup/${encodeURIComponent(slug.trim())}${
               retryQuery ? `?${retryQuery}` : ""
             }`;
             const retryRes = await fetch(retryUrl);
+            
+            // Handle 404 - table not found
+            if (retryRes.status === 404) {
+              console.warn("[Menu] Table not found (404) on retry:", slug);
+              localStorage.removeItem("terra_scanToken");
+              localStorage.removeItem("terra_selectedTable");
+              throw new Error("Table not found. Please scan the table QR code again.");
+            }
             const retryPayload = await retryRes.json().catch(() => ({}));
 
             if (!retryRes.ok) {

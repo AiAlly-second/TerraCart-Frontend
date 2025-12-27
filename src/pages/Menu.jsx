@@ -1024,9 +1024,27 @@ export default function MenuPage() {
     const storedServiceType = localStorage.getItem(SERVICE_TYPE_KEY);
     const takeawayOnly = localStorage.getItem("terra_takeaway_only") === "true";
     const hasTakeawayOrder = localStorage.getItem("terra_orderId_TAKEAWAY");
+    
+    // CRITICAL: Check if we have a table scan - if so, prioritize DINE_IN over takeaway
+    // This prevents stale takeaway orders from redirecting when scanning table QR
+    const hasTableScan = localStorage.getItem("terra_scanToken") || 
+                         localStorage.getItem("terra_selectedTable");
+
+    // If we have a table scan and serviceType is DINE_IN, don't override to TAKEAWAY
+    // This ensures table QR scans always use DINE_IN, not takeaway
+    if (hasTableScan && storedServiceType === "DINE_IN") {
+      console.log(
+        "[Menu] Table scan detected with DINE_IN serviceType - preserving DINE_IN (ignoring takeaway data)"
+      );
+      setServiceType("DINE_IN");
+      localStorage.setItem(SERVICE_TYPE_KEY, "DINE_IN");
+      return; // Don't override with takeaway data when we have a table scan
+    }
 
     // If we have a takeaway order or takeaway-only flag, ensure serviceType is TAKEAWAY
+    // BUT only if we don't have a table scan (table scans should always be DINE_IN)
     if (
+      !hasTableScan &&
       (hasTakeawayOrder || takeawayOnly) &&
       storedServiceType !== "TAKEAWAY"
     ) {

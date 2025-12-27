@@ -131,7 +131,7 @@ export default function Landing() {
         const storedWait = localStorage.getItem("terra_waitToken");
 
         // CRITICAL: When scanning a dine-in table QR, always clear takeaway-related data
-        // This ensures dine-in tables don't show takeaway orders
+        // This ensures dine-in tables don't show takeaway orders and don't redirect to takeaway
         // Only clear takeaway data if this is a DIFFERENT table QR scan (not a refresh)
         // Don't clear takeaway data on page refresh (same slug) - preserve order data
         const isNewTableScan = previousSlug && previousSlug !== slug;
@@ -145,19 +145,24 @@ export default function Landing() {
           // CRITICAL: Clear takeaway cartId when scanning dine-in table QR
           // This prevents menu from loading takeaway cart instead of table's cart
           localStorage.removeItem("terra_takeaway_cartId");
-          // Clear takeaway order data only when switching to a different table
+          // CRITICAL: Clear takeaway order data to prevent redirect to takeaway flow
           localStorage.removeItem("terra_orderId_TAKEAWAY");
           localStorage.removeItem("terra_cart_TAKEAWAY");
           localStorage.removeItem("terra_orderStatus_TAKEAWAY");
           localStorage.removeItem("terra_orderStatusUpdatedAt_TAKEAWAY");
+          // CRITICAL: Clear takeaway-only flag to prevent takeaway mode
+          localStorage.removeItem("terra_takeaway_only");
           console.log(
-            "[Landing] Different table QR scan detected, cleared takeaway data and cartId"
+            "[Landing] Different table QR scan detected, cleared takeaway data, cartId, and flags"
           );
         } else if (!previousSlug) {
-          // First scan (no previous slug) - clear takeaway cartId to ensure clean state
+          // First scan (no previous slug) - clear takeaway data to ensure clean state
           localStorage.removeItem("terra_takeaway_cartId");
+          localStorage.removeItem("terra_takeaway_only");
+          // Also clear stale takeaway order IDs to prevent redirect
+          localStorage.removeItem("terra_orderId_TAKEAWAY");
           console.log(
-            "[Landing] First table QR scan - cleared takeaway cartId for clean state"
+            "[Landing] First table QR scan - cleared takeaway cartId, flags, and order IDs for clean state"
           );
         } else {
           // Same slug (page refresh) - preserve takeaway order data
@@ -425,6 +430,10 @@ export default function Landing() {
         // This ensures menu loads the correct cart for dine-in orders
         localStorage.removeItem("terra_takeaway_cartId");
         localStorage.removeItem("terra_takeaway_only");
+        
+        // CRITICAL: Explicitly set serviceType to DINE_IN when table QR is scanned
+        // This prevents Menu.jsx from detecting stale takeaway orders and redirecting
+        localStorage.setItem("terra_serviceType", "DINE_IN");
         
         localStorage.setItem("terra_selectedTable", JSON.stringify(tableData));
         localStorage.setItem("terra_scanToken", slug);

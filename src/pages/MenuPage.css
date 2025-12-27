@@ -992,13 +992,13 @@
   font-size: 0.875rem;
   font-weight: 600;
   transition: all 0.2s ease;
-  background: linear-gradient(135deg, #fc8019 0%, #d86d2a 100%);
+  background: linear-gradient(135deg, #fb923c 0%, #f97316 100%);
   color: white;
   border: none;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
   min-height: 48px;
-  box-shadow: 0 2px 4px rgba(252, 128, 25, 0.3);
+  box-shadow: 0 2px 4px rgba(251, 146, 60, 0.3);
 }
 
 @media (max-width: 640px) {
@@ -1010,8 +1010,8 @@
 }
 
 .billing-button:hover {
-  background: linear-gradient(135deg, #d86d2a 0%, #c75b1a 100%);
-  box-shadow: 0 4px 8px rgba(252, 128, 25, 0.4);
+  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+  box-shadow: 0 4px 8px rgba(251, 146, 60, 0.4);
   transform: translateY(-1px);
 }
 
@@ -1041,16 +1041,17 @@
   color: #d1d5db;
 }
 
-/* Status Actions Billing Button - Orange theme */
+/* Status Actions Billing Button - Similar to cancel button but lighter */
 .button-group.status-actions .billing-button {
-  background: linear-gradient(135deg, #fc8019 0%, #d86d2a 100%) !important;
+  background: linear-gradient(135deg, #fb923c 0%, #f97316 100%) !important;
   border: none !important;
-  box-shadow: 0 2px 4px rgba(252, 128, 25, 0.3) !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 4px rgba(251, 146, 60, 0.3) !important;
 }
 
 .button-group.status-actions .billing-button:hover {
-  background: linear-gradient(135deg, #d86d2a 0%, #c75b1a 100%) !important;
-  box-shadow: 0 4px 8px rgba(252, 128, 25, 0.4) !important;
+  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%) !important;
+  box-shadow: 0 4px 8px rgba(251, 146, 60, 0.4) !important;
 }
 .confirm-button {
   padding-left: 0.75rem;
@@ -1245,17 +1246,17 @@
 :not(.accessibility-mode) .reset-button:hover {
   background-color: #e16f19;
 }
-/* Cancel Order Button - Orange/Red to match website theme */
+/* Cancel Order Button - Matches website theme but slightly darker */
 .button-group.status-actions .cancel-button {
-  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+  background: linear-gradient(135deg, #fc8019 0%, #d86d2a 100%);
   border: none;
   color: #ffffff;
-  box-shadow: 0 2px 4px rgba(249, 115, 22, 0.3);
+  box-shadow: 0 2px 4px rgba(252, 128, 25, 0.3);
 }
 
 .button-group.status-actions .cancel-button:hover {
-  background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%);
-  box-shadow: 0 4px 8px rgba(249, 115, 22, 0.4);
+  background: linear-gradient(135deg, #d86d2a 0%, #c75b1a 100%);
+  box-shadow: 0 4px 8px rgba(252, 128, 25, 0.4);
 }
 
 .button-group.status-actions .cancel-button:disabled {

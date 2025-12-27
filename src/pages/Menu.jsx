@@ -1787,53 +1787,50 @@ export default function MenuPage() {
         await markTableOccupied();
 
         // Get cartId to filter menu - priority order:
-        // 1. Selected cart for PICKUP/DELIVERY (terra_selectedCartId)
-        // 2. Takeaway QR cart (terra_takeaway_cartId)
-        // 3. Table data cartId (for dine-in)
+        // 1. Table data cartId (for dine-in) - CRITICAL: prioritize table cartId for dine-in orders
+        // 2. Selected cart for PICKUP/DELIVERY (terra_selectedCartId)
+        // 3. Takeaway QR cart (terra_takeaway_cartId) - only if no table and takeaway mode
         let cartId = "";
         
-        // Check for selected cart (PICKUP/DELIVERY)
-        const selectedCartId = localStorage.getItem("terra_selectedCartId");
-        if (selectedCartId) {
-          cartId = selectedCartId;
-          console.log("[Menu] Using selected cart ID for menu:", cartId);
-        } else {
-          // Check for takeaway QR cart
+        // CRITICAL: Check for table data first (dine-in orders)
+        // This ensures dine-in tables use their own cartId, not takeaway cartId
+        try {
+          // Try terra_selectedTable first (set by Landing.jsx)
+          let tableDataStr = localStorage.getItem("terra_selectedTable");
+          if (!tableDataStr) {
+            // Fallback to TABLE_SELECTION_KEY if terra_selectedTable doesn't exist
+            tableDataStr = localStorage.getItem(TABLE_SELECTION_KEY) || "{}";
+          }
+          
+          const tableData = JSON.parse(tableDataStr);
+          const tableCartId = tableData.cartId || tableData.cafeId || "";
+          
+          if (tableCartId) {
+            cartId = tableCartId;
+            console.log("[Menu] Using table cart ID for menu (dine-in):", cartId);
+          }
+        } catch (e) {
+          // Could not get cartId from table data - continue to other options
+          console.warn("[Menu] Error parsing table data:", e);
+        }
+        
+        // If no table cartId found, check for selected cart (PICKUP/DELIVERY)
+        if (!cartId) {
+          const selectedCartId = localStorage.getItem("terra_selectedCartId");
+          if (selectedCartId) {
+            cartId = selectedCartId;
+            console.log("[Menu] Using selected cart ID for menu:", cartId);
+          }
+        }
+        
+        // If still no cartId, check for takeaway QR cart (only if no table)
+        if (!cartId) {
           const qrCartId = localStorage.getItem("terra_takeaway_cartId");
           if (qrCartId) {
             cartId = qrCartId;
             console.log("[Menu] Using takeaway QR cart ID for menu:", cartId);
           } else {
-            // Fallback to table data - check both terra_selectedTable and TABLE_SELECTION_KEY
-            try {
-              // Try terra_selectedTable first (set by Landing.jsx)
-              let tableDataStr = localStorage.getItem("terra_selectedTable");
-              if (!tableDataStr) {
-                // Fallback to TABLE_SELECTION_KEY if terra_selectedTable doesn't exist
-                tableDataStr = localStorage.getItem(TABLE_SELECTION_KEY) || "{}";
-              }
-              
-              const tableData = JSON.parse(tableDataStr);
-              cartId = tableData.cartId || tableData.cafeId || "";
-              
-              console.log("[Menu] Table data for cartId lookup:", {
-                hasTableData: !!tableDataStr,
-                tableDataKeys: tableData ? Object.keys(tableData) : [],
-                cartId: tableData.cartId,
-                cafeId: tableData.cafeId,
-                foundCartId: cartId
-              });
-              
-              if (cartId) {
-                console.log("[Menu] Using table cart ID for menu:", cartId);
-              } else {
-                console.warn("[Menu] No cartId or cafeId found in table data:", tableData);
-              }
-            } catch (e) {
-              // Could not get cartId from table data
-              console.error("[Menu] Error parsing table data:", e);
-              console.log("[Menu] No cart ID found, loading default menu");
-            }
+            console.log("[Menu] No cart ID found, loading default menu");
           }
         }
 

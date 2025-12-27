@@ -130,7 +130,9 @@ export default function Landing() {
         const storedSession = localStorage.getItem("terra_sessionToken");
         const storedWait = localStorage.getItem("terra_waitToken");
 
-        // CRITICAL: Only clear takeaway data if this is a DIFFERENT table QR scan (not a refresh)
+        // CRITICAL: When scanning a dine-in table QR, always clear takeaway-related data
+        // This ensures dine-in tables don't show takeaway orders
+        // Only clear takeaway data if this is a DIFFERENT table QR scan (not a refresh)
         // Don't clear takeaway data on page refresh (same slug) - preserve order data
         const isNewTableScan = previousSlug && previousSlug !== slug;
         if (isNewTableScan) {
@@ -140,16 +142,25 @@ export default function Landing() {
           localStorage.removeItem("terra_takeaway_customerMobile");
           localStorage.removeItem("terra_takeaway_customerEmail");
           localStorage.removeItem("terra_takeaway_sessionToken");
+          // CRITICAL: Clear takeaway cartId when scanning dine-in table QR
+          // This prevents menu from loading takeaway cart instead of table's cart
+          localStorage.removeItem("terra_takeaway_cartId");
           // Clear takeaway order data only when switching to a different table
           localStorage.removeItem("terra_orderId_TAKEAWAY");
           localStorage.removeItem("terra_cart_TAKEAWAY");
           localStorage.removeItem("terra_orderStatus_TAKEAWAY");
           localStorage.removeItem("terra_orderStatusUpdatedAt_TAKEAWAY");
           console.log(
-            "[Landing] Different table QR scan detected, cleared takeaway data"
+            "[Landing] Different table QR scan detected, cleared takeaway data and cartId"
+          );
+        } else if (!previousSlug) {
+          // First scan (no previous slug) - clear takeaway cartId to ensure clean state
+          localStorage.removeItem("terra_takeaway_cartId");
+          console.log(
+            "[Landing] First table QR scan - cleared takeaway cartId for clean state"
           );
         } else {
-          // Same slug (page refresh) or first scan - preserve takeaway order data
+          // Same slug (page refresh) - preserve takeaway order data
           console.log(
             "[Landing] Same table QR or first scan - preserving takeaway order data"
           );
@@ -401,6 +412,20 @@ export default function Landing() {
           );
         }
 
+        // CRITICAL: Ensure table data includes cartId for proper menu filtering
+        // If cartId is missing from response, log a warning
+        if (!tableData.cartId && !tableData.cafeId) {
+          console.warn(
+            "[Landing] Table response missing cartId/cafeId:",
+            tableData
+          );
+        }
+        
+        // CRITICAL: Clear takeaway cartId when table is successfully scanned
+        // This ensures menu loads the correct cart for dine-in orders
+        localStorage.removeItem("terra_takeaway_cartId");
+        localStorage.removeItem("terra_takeaway_only");
+        
         localStorage.setItem("terra_selectedTable", JSON.stringify(tableData));
         localStorage.setItem("terra_scanToken", slug);
 

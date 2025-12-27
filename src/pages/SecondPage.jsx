@@ -851,6 +851,9 @@ export default function SecondPage() {
                   ...payload.table,
                   // Preserve qrSlug if it exists
                   qrSlug: table.qrSlug || payload.table.qrSlug,
+                  // CRITICAL: Preserve capacity from payload to ensure dynamic seat display linked with cart admin
+                  capacity: payload.table.capacity || payload.table.originalCapacity || table.capacity || table.originalCapacity || null,
+                  originalCapacity: payload.table.originalCapacity || table.originalCapacity || null,
                 };
                 setTableInfo(refreshedTable);
                 localStorage.setItem(
@@ -1033,6 +1036,9 @@ export default function SecondPage() {
         status: updatedTable.status,
         currentOrder: updatedTable.currentOrder || null,
         sessionToken: updatedTable.sessionToken || tableInfo.sessionToken,
+        // CRITICAL: Preserve capacity from updated table data to ensure dynamic seat display linked with cart admin
+        capacity: updatedTable.capacity || updatedTable.originalCapacity || tableInfo.capacity || tableInfo.originalCapacity || null,
+        originalCapacity: updatedTable.originalCapacity || tableInfo.originalCapacity || null,
       };
       setTableInfo(updatedTableInfo);
       // Update localStorage to persist the change
@@ -1587,8 +1593,15 @@ export default function SecondPage() {
         }
         // CRITICAL: Set table as occupied and show waitlist modal
         setIsTableOccupied(true);
-        setTableInfo(tableData);
-        localStorage.setItem("terra_selectedTable", JSON.stringify(tableData));
+        // CRITICAL: Ensure capacity is preserved when setting table info
+        // This ensures the UI shows the actual capacity from cart admin, not a hardcoded value
+        const tableDataWithCapacity = {
+          ...tableData,
+          capacity: tableData.capacity || tableData.originalCapacity || tableInfo?.capacity || tableInfo?.originalCapacity || null,
+          originalCapacity: tableData.originalCapacity || tableInfo?.originalCapacity || null,
+        };
+        setTableInfo(tableDataWithCapacity);
+        localStorage.setItem("terra_selectedTable", JSON.stringify(tableDataWithCapacity));
         // Show waitlist modal - don't show alert, let modal handle the message
         setShowWaitlistModal(true);
       } catch (err) {
@@ -1922,6 +1935,7 @@ export default function SecondPage() {
     }
 
     // Validate against table capacity
+    // CRITICAL: Use capacity or originalCapacity from tableInfo to ensure it's linked with cart admin table seats
     const tableCapacity =
       tableInfo?.capacity || tableInfo?.originalCapacity || null;
     if (tableCapacity && partySize > tableCapacity) {
@@ -2431,10 +2445,10 @@ export default function SecondPage() {
                       placeholder="Enter number of members"
                       className="customer-info-input"
                       min="1"
-                      max={tableInfo?.capacity || undefined}
+                      max={tableInfo?.capacity || tableInfo?.originalCapacity || undefined}
                       required
                     />
-                    {tableInfo?.capacity && (
+                    {(tableInfo?.capacity || tableInfo?.originalCapacity) && (
                       <p
                         style={{
                           marginTop: "4px",
@@ -2442,10 +2456,10 @@ export default function SecondPage() {
                           color: "#666",
                         }}
                       >
-                        Available Seats: <strong>{tableInfo.capacity}</strong>
+                        Available Seats: <strong>{tableInfo.capacity || tableInfo.originalCapacity || "N/A"}</strong>
                         {waitlistPartySize &&
                           parseInt(waitlistPartySize, 10) >
-                            tableInfo.capacity && (
+                            (tableInfo.capacity || tableInfo.originalCapacity) && (
                             <span
                               style={{
                                 display: "block",
@@ -2454,7 +2468,7 @@ export default function SecondPage() {
                                 fontWeight: "500",
                               }}
                             >
-                              ⚠️ Maximum capacity is {tableInfo.capacity}{" "}
+                              ⚠️ Maximum capacity is {tableInfo.capacity || tableInfo.originalCapacity}{" "}
                               members. Please reduce the number of members.
                             </span>
                           )}

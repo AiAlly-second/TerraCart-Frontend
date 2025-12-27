@@ -2400,18 +2400,41 @@ export default function MenuPage() {
           );
         }
       } else {
-        // For DINE_IN: Use regular sessionToken
-        finalSessionToken = localStorage.getItem("terra_sessionToken");
+        // For DINE_IN: Use getSessionToken to properly recover sessionToken
+        // This ensures we get it from the right source (existing order, table lookup, etc.)
+        finalSessionToken = await getSessionToken({
+          existingOrderId: existingId,
+          refreshedTableInfo: refreshedTableInfo,
+          tableInfo: tableInfo,
+        });
 
-        // If no sessionToken exists for DINE_IN, generate a simple one
+        // If still no sessionToken exists for DINE_IN, try one more table lookup
+        if (!finalSessionToken && refreshedTableInfo) {
+          const recoveredToken = await recoverSessionToken({
+            existingOrderId: existingId,
+            tableInfo: refreshedTableInfo,
+            refreshedTableInfo: refreshedTableInfo,
+            performTableLookup: true,
+          });
+          if (recoveredToken) {
+            finalSessionToken = recoveredToken;
+          }
+        }
+
+        // If still no sessionToken, generate a simple one as last resort
         if (!finalSessionToken) {
           finalSessionToken = `session_${Date.now()}_${Math.random()
             .toString(36)
             .substr(2, 9)}`;
           localStorage.setItem("terra_sessionToken", finalSessionToken);
           setSessionToken(finalSessionToken);
+          console.warn(
+            "[Menu] Generated new DINE_IN sessionToken as last resort:",
+            finalSessionToken
+          );
+        } else {
           console.log(
-            "[Menu] Generated new DINE_IN sessionToken:",
+            "[Menu] Using recovered DINE_IN sessionToken:",
             finalSessionToken
           );
         }
@@ -2502,37 +2525,64 @@ export default function MenuPage() {
 
       // CRITICAL: Validate DINE_IN order requirements before sending
       if (orderPayload.serviceType === "DINE_IN") {
-        // Ensure sessionToken exists
-        if (!orderPayload.sessionToken) {
-          // Use the finalSessionToken we already determined
-          if (finalSessionToken) {
-            orderPayload.sessionToken = finalSessionToken;
-          } else {
-            // Generate a new one if still missing
-            orderPayload.sessionToken = `session_${Date.now()}_${Math.random()
-              .toString(36)
-              .substr(2, 9)}`;
-            localStorage.setItem("terra_sessionToken", orderPayload.sessionToken);
-            setSessionToken(orderPayload.sessionToken);
-          }
+        // Ensure sessionToken exists - use finalSessionToken we already determined
+        if (!orderPayload.sessionToken && finalSessionToken) {
+          orderPayload.sessionToken = finalSessionToken;
+          console.log("[Menu] Set sessionToken in orderPayload:", finalSessionToken);
+        } else if (!orderPayload.sessionToken && !finalSessionToken) {
+          // This should not happen if getSessionToken worked correctly
+          console.error("[Menu] CRITICAL: No sessionToken available for DINE_IN order!");
+          alert(
+            "❌ Session token is missing. Please scan the table QR code again."
+          );
+          setStepState(2, "error");
+          await wait(DUR.error);
+          setProcessOpen(false);
+          return;
         }
         
         // Ensure tableId or tableNumber exists for DINE_IN orders
         if (!orderPayload.tableId && !orderPayload.tableNumber) {
-          // Try to get from localStorage as fallback
-          try {
-            const storedTable = localStorage.getItem(TABLE_SELECTION_KEY) || localStorage.getItem("terra_selectedTable");
-            if (storedTable) {
-              const tableData = JSON.parse(storedTable);
-              if (tableData.id || tableData._id) {
-                orderPayload.tableId = tableData.id || tableData._id;
+          // Try to get from refreshedTableInfo first (most recent)
+          if (refreshedTableInfo) {
+            orderPayload.tableId = refreshedTableInfo.id || refreshedTableInfo._id;
+            orderPayload.tableNumber = refreshedTableInfo.number || refreshedTableInfo.tableNumber;
+            console.log("[Menu] Using table info from refreshedTableInfo:", {
+              tableId: orderPayload.tableId,
+              tableNumber: orderPayload.tableNumber,
+            });
+          }
+          
+          // If still missing, try tableInfo state
+          if (!orderPayload.tableId && !orderPayload.tableNumber && tableInfo) {
+            orderPayload.tableId = tableInfo.id || tableInfo._id;
+            orderPayload.tableNumber = tableInfo.number || tableInfo.tableNumber;
+            console.log("[Menu] Using table info from tableInfo state:", {
+              tableId: orderPayload.tableId,
+              tableNumber: orderPayload.tableNumber,
+            });
+          }
+          
+          // If still missing, try localStorage as fallback
+          if (!orderPayload.tableId && !orderPayload.tableNumber) {
+            try {
+              const storedTable = localStorage.getItem(TABLE_SELECTION_KEY) || localStorage.getItem("terra_selectedTable");
+              if (storedTable) {
+                const tableData = JSON.parse(storedTable);
+                if (tableData.id || tableData._id) {
+                  orderPayload.tableId = tableData.id || tableData._id;
+                }
+                if (tableData.number || tableData.tableNumber) {
+                  orderPayload.tableNumber = String(tableData.number || tableData.tableNumber);
+                }
+                console.log("[Menu] Using table info from localStorage:", {
+                  tableId: orderPayload.tableId,
+                  tableNumber: orderPayload.tableNumber,
+                });
               }
-              if (tableData.number || tableData.tableNumber) {
-                orderPayload.tableNumber = String(tableData.number || tableData.tableNumber);
-              }
+            } catch (e) {
+              console.warn("[Menu] Failed to parse stored table data:", e);
             }
-          } catch (e) {
-            console.warn("[Menu] Failed to parse stored table data:", e);
           }
           
           // If still missing, show error
@@ -2542,6 +2592,10 @@ export default function MenuPage() {
               tableNumber: orderPayload.tableNumber,
               tableInfo: tableInfo,
               refreshedTableInfo: refreshedTableInfo,
+              localStorage: {
+                terra_selectedTable: localStorage.getItem("terra_selectedTable"),
+                terra_scanToken: localStorage.getItem("terra_scanToken"),
+              },
             });
             alert(
               "❌ Table information is missing. Please scan the table QR code again."
@@ -2552,6 +2606,16 @@ export default function MenuPage() {
             return;
           }
         }
+        
+        // Final validation before sending
+        console.log("[Menu] DINE_IN order validation:", {
+          hasSessionToken: !!orderPayload.sessionToken,
+          hasTableId: !!orderPayload.tableId,
+          hasTableNumber: !!orderPayload.tableNumber,
+          sessionToken: orderPayload.sessionToken ? "present" : "missing",
+          tableId: orderPayload.tableId,
+          tableNumber: orderPayload.tableNumber,
+        });
       }
 
       // VALIDATION: Check delivery availability for DELIVERY orders before placing order
@@ -4561,6 +4625,9 @@ export default function MenuPage() {
         currentOrder: updatedTable.currentOrder || null,
         sessionToken:
           updatedTable.sessionToken || currentTableInfo.sessionToken,
+        // CRITICAL: Preserve capacity from updated table data to ensure dynamic seat display linked with cart admin
+        capacity: updatedTable.capacity || updatedTable.originalCapacity || currentTableInfo.capacity || currentTableInfo.originalCapacity || null,
+        originalCapacity: updatedTable.originalCapacity || currentTableInfo.originalCapacity || null,
       };
       setTableInfo(updatedTableInfo);
       // Update localStorage to persist the change
@@ -4775,7 +4842,7 @@ export default function MenuPage() {
                   {serviceType === "DINE_IN" && (
                     <div className="guest-count-badge">
                       <span className="guest-icon">👥</span>
-                      <span>2</span>
+                      <span>{tableInfo?.capacity || tableInfo?.originalCapacity || 2}</span>
                     </div>
                   )}
                 </div>

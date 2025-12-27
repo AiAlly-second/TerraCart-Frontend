@@ -2441,15 +2441,19 @@ export default function MenuPage() {
       }
 
       // Get order type and location for PICKUP/DELIVERY
-      const orderType = localStorage.getItem("terra_orderType") || null; // PICKUP or DELIVERY
+      // CRITICAL: Only use orderType for TAKEAWAY service type, not for DINE_IN
+      // This prevents DINE_IN orders from being incorrectly identified as PICKUP/DELIVERY
+      const orderType = (serviceType === "TAKEAWAY") ? (localStorage.getItem("terra_orderType") || null) : null; // PICKUP or DELIVERY
       const customerLocationStr = localStorage.getItem("terra_customerLocation");
       const customerLocation = customerLocationStr ? JSON.parse(customerLocationStr) : null;
       const specialInstructions = localStorage.getItem("terra_specialInstructions") || null;
       const selectedCartId = localStorage.getItem("terra_selectedCartId") || cartId;
 
       const orderPayload = buildOrderPayload(cart, {
-        serviceType: orderType ? (orderType === "PICKUP" ? "PICKUP" : "DELIVERY") : serviceType,
-        orderType: orderType, // PICKUP or DELIVERY
+        // CRITICAL: For DINE_IN, always use DINE_IN serviceType, never override with orderType
+        // Only use orderType for TAKEAWAY service type
+        serviceType: (serviceType === "DINE_IN") ? "DINE_IN" : (orderType ? (orderType === "PICKUP" ? "PICKUP" : "DELIVERY") : serviceType),
+        orderType: orderType, // PICKUP or DELIVERY (only for TAKEAWAY)
         tableId:
           refreshedTableInfo?.id ||
           refreshedTableInfo?._id ||

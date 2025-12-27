@@ -85,6 +85,14 @@ export function buildOrderPayload(cart, options = {}) {
         sessionTokenLength: sessionToken ? sessionToken.length : 0,
       });
     }
+    // CRITICAL: Never include customer info for DINE_IN orders
+    // This prevents "customer name required" errors for dine-in orders
+    // Customer info is only needed for PICKUP/DELIVERY orders
+    if (payload.customerName) delete payload.customerName;
+    if (payload.customerMobile) delete payload.customerMobile;
+    if (payload.customerEmail) delete payload.customerEmail;
+    if (payload.customerLocation) delete payload.customerLocation;
+    if (payload.cartId) delete payload.cartId; // DINE_IN orders get cartId from table, not from request
   } else if (
     serviceType === "TAKEAWAY" ||
     serviceType === "PICKUP" ||
@@ -92,6 +100,7 @@ export function buildOrderPayload(cart, options = {}) {
   ) {
     // PICKUP/DELIVERY orders don't need table information
     // Set serviceType and orderType
+    // CRITICAL: Only process orderType if serviceType is TAKEAWAY/PICKUP/DELIVERY, not DINE_IN
     if (orderType === "PICKUP" || orderType === "DELIVERY") {
       payload.serviceType = orderType === "PICKUP" ? "PICKUP" : "DELIVERY";
       payload.orderType = orderType;

@@ -757,9 +757,23 @@ export default function SecondPage() {
         // CRITICAL: Check table status immediately and show waitlist modal if needed
         // This ensures new users who scan QR for occupied table see the waitlist option
         // BUT ONLY if it's not a TAKEAWAY order
+        // CRITICAL: If table is AVAILABLE, never show waitlist modal
         const tableStatus = table.status || "AVAILABLE";
         const currentWaitlistToken = localStorage.getItem("terra_waitToken");
-        if (
+        
+        if (tableStatus === "AVAILABLE") {
+          // Table is available - hide waitlist modal and clear waitlist state
+          setIsTableOccupied(false);
+          setShowWaitlistModal(false);
+          if (currentWaitlistToken) {
+            localStorage.removeItem("terra_waitToken");
+            setWaitlistToken(null);
+            setWaitlistInfo(null);
+          }
+          console.log(
+            "[SecondPage] Table is AVAILABLE on mount - hiding waitlist modal"
+          );
+        } else if (
           !isTakeaway &&
           tableStatus !== "AVAILABLE" &&
           !currentWaitlistToken
@@ -868,8 +882,10 @@ export default function SecondPage() {
                 const isTakeaway = currentServiceType === "TAKEAWAY";
                 const refreshedStatus = refreshedTable.status || "AVAILABLE";
 
+                // CRITICAL: Check refreshed status and update waitlist modal accordingly
+                // This ensures proper sync between admin table management and customer frontend
                 if (refreshedStatus === "AVAILABLE") {
-                  // Table is available - hide waitlist modal
+                  // Table is available - hide waitlist modal and clear waitlist state
                   setIsTableOccupied(false);
                   setShowWaitlistModal(false);
                   // Clear waitlist token when table is available
@@ -880,7 +896,7 @@ export default function SecondPage() {
                   // This ensures new customers don't see previous customer's orders
                   clearOldOrderData();
                   console.log(
-                    "[SecondPage] Table is AVAILABLE - cleared all order data for new customer"
+                    "[SecondPage] Table is AVAILABLE (from refresh) - cleared all order data and waitlist state"
                   );
                 } else if (
                   !isTakeaway &&
@@ -890,6 +906,9 @@ export default function SecondPage() {
                   // Table is occupied and user is not in waitlist - show modal
                   setIsTableOccupied(true);
                   setShowWaitlistModal(true);
+                  console.log(
+                    "[SecondPage] Table is OCCUPIED (from refresh) - showing waitlist modal"
+                  );
                 } else if (isTakeaway) {
                   // TAKEAWAY orders should never show waitlist
                   setIsTableOccupied(false);
@@ -914,24 +933,52 @@ export default function SecondPage() {
                 );
               }
               const lockedTable = lockedPayload?.table || table;
-              setTableInfo(lockedTable);
+              
+              // CRITICAL: Check the actual table status from the response
+              // Even if we get 423, the table might actually be AVAILABLE (edge case)
+              const lockedTableStatus = lockedTable?.status || "OCCUPIED";
+              
+              // CRITICAL: Preserve capacity when storing locked table
+              const lockedTableWithCapacity = {
+                ...lockedTable,
+                capacity: lockedTable.capacity || lockedTable.originalCapacity || table.capacity || table.originalCapacity || null,
+                originalCapacity: lockedTable.originalCapacity || table.originalCapacity || null,
+              };
+              
+              setTableInfo(lockedTableWithCapacity);
               localStorage.setItem(
                 "terra_selectedTable",
-                JSON.stringify(lockedTable)
+                JSON.stringify(lockedTableWithCapacity)
               );
-              setIsTableOccupied(true);
-              // CRITICAL: Always show waitlist modal for 423 responses if user is not in waitlist
-              // BUT ONLY for DINE_IN orders
-              const currentWaitlistToken =
-                localStorage.getItem("terra_waitToken");
-              if (!isTakeaway && !currentWaitlistToken) {
-                console.log(
-                  "[SecondPage] Table is locked (423) - showing waitlist modal (this is expected behavior)"
-                );
-                setShowWaitlistModal(true);
-              } else if (isTakeaway) {
+              
+              // CRITICAL: Only show waitlist if table is actually OCCUPIED, not AVAILABLE
+              // This ensures proper sync between admin table management and customer frontend
+              if (lockedTableStatus === "AVAILABLE") {
+                // Table is actually available despite 423 response - hide waitlist
                 setIsTableOccupied(false);
                 setShowWaitlistModal(false);
+                localStorage.removeItem("terra_waitToken");
+                setWaitlistToken(null);
+                setWaitlistInfo(null);
+                console.log(
+                  "[SecondPage] Table is AVAILABLE (despite 423 response) - hiding waitlist modal"
+                );
+              } else {
+                // Table is actually occupied - show waitlist modal
+                setIsTableOccupied(true);
+                // CRITICAL: Always show waitlist modal for 423 responses if user is not in waitlist
+                // BUT ONLY for DINE_IN orders
+                const currentWaitlistToken =
+                  localStorage.getItem("terra_waitToken");
+                if (!isTakeaway && !currentWaitlistToken) {
+                  console.log(
+                    "[SecondPage] Table is locked (423) and OCCUPIED - showing waitlist modal (this is expected behavior)"
+                  );
+                  setShowWaitlistModal(true);
+                } else if (isTakeaway) {
+                  setIsTableOccupied(false);
+                  setShowWaitlistModal(false);
+                }
               }
             } else if (res.status === 404) {
               // Handle 404 if it wasn't caught above (shouldn't happen, but safety check)
@@ -949,11 +996,25 @@ export default function SecondPage() {
             // Don't fail silently - keep existing table info
             // But still check if we should show waitlist modal based on stored table status
             // BUT ONLY if it's not a TAKEAWAY order
+            // CRITICAL: If table is AVAILABLE, never show waitlist modal
             const currentServiceType =
               localStorage.getItem("terra_serviceType") || "DINE_IN";
             const isTakeaway = currentServiceType === "TAKEAWAY";
             const tableStatus = table.status || "AVAILABLE";
-            if (!isTakeaway && tableStatus !== "AVAILABLE" && !waitlistToken) {
+            
+            if (tableStatus === "AVAILABLE") {
+              // Table is available - hide waitlist modal
+              setIsTableOccupied(false);
+              setShowWaitlistModal(false);
+              if (waitlistToken) {
+                localStorage.removeItem("terra_waitToken");
+                setWaitlistToken(null);
+                setWaitlistInfo(null);
+              }
+              console.log(
+                "[SecondPage] Table is AVAILABLE (refresh failed) - hiding waitlist modal"
+              );
+            } else if (!isTakeaway && tableStatus !== "AVAILABLE" && !waitlistToken) {
               setIsTableOccupied(true);
               setShowWaitlistModal(true);
             } else if (isTakeaway) {
@@ -965,7 +1026,57 @@ export default function SecondPage() {
 
         // Refresh table status after a short delay to avoid blocking initial render
         const timeoutId = setTimeout(refreshTableStatus, 500);
-        return () => clearTimeout(timeoutId);
+        
+        // CRITICAL: Set up periodic refresh as fallback ONLY if socket is disconnected
+        // Primary sync method is socket connection (real-time), periodic refresh is fallback
+        // This is more efficient for Vercel deployments and reduces server load
+        // Note: Socket connection status is tracked via window.__tableStatusSocketConnected
+        // which is updated by the socket useEffect below
+        let refreshInterval = null;
+        
+        // Track socket connection status for fallback refresh
+        const checkSocketAndRefresh = () => {
+          // Only use periodic refresh if socket is not connected (fallback mechanism)
+          // Socket connection is handled in separate useEffect below
+          const socketConnected = (typeof window !== "undefined" && window.__tableStatusSocketConnected) || false;
+          if (!socketConnected) {
+            // Only refresh if user doesn't have active order (to avoid disrupting their session)
+            const existingOrderId =
+              localStorage.getItem("terra_orderId") ||
+              localStorage.getItem("terra_orderId_DINE_IN");
+            const existingOrderStatus =
+              localStorage.getItem("terra_orderStatus") ||
+              localStorage.getItem("terra_orderStatus_DINE_IN");
+            const hasActiveOrder =
+              existingOrderId &&
+              existingOrderStatus &&
+              !["Paid", "Cancelled", "Returned", "Completed"].includes(
+                existingOrderStatus
+              );
+            
+            if (!hasActiveOrder) {
+              console.log("[SecondPage] Socket disconnected - using fallback refresh");
+              refreshTableStatus();
+            }
+          }
+        };
+        
+        // Set up periodic refresh with longer interval (30 seconds) as fallback
+        // Only runs if socket is disconnected - socket is primary sync method
+        // This reduces load on Vercel and backend servers
+        refreshInterval = setInterval(checkSocketAndRefresh, 30000); // Refresh every 30 seconds as fallback
+        
+        // Initialize socket connection status (will be updated by socket useEffect)
+        if (typeof window !== "undefined") {
+          window.__tableStatusSocketConnected = false;
+        }
+        
+        return () => {
+          clearTimeout(timeoutId);
+          if (refreshInterval) {
+            clearInterval(refreshInterval);
+          }
+        };
       } catch {
         setTableInfo(null);
       }
@@ -1025,9 +1136,12 @@ export default function SecondPage() {
 
       console.log(
         "[SecondPage] Table status updated via socket:",
-        updatedTable.status,
-        "Previous status:",
-        tableInfo.status
+        {
+          newStatus: updatedTable.status,
+          previousStatus: tableInfo.status,
+          tableId: updatedTableId,
+          tableNumber: updatedTable.number,
+        }
       );
 
       // Update table info with new status
@@ -1049,6 +1163,7 @@ export default function SecondPage() {
 
       // CRITICAL: If table becomes AVAILABLE, clear waitlist state and hide modal
       // Also clear all previous customer order data to prevent showing old orders
+      // This ensures proper sync between admin table management and customer frontend
       if (updatedTable.status === "AVAILABLE") {
         console.log(
           "[SecondPage] Table became AVAILABLE via socket - clearing waitlist state and order data"
@@ -1074,11 +1189,24 @@ export default function SecondPage() {
         }
       } else if (updatedTable.status !== "AVAILABLE") {
         // Table is occupied - ensure waitlist modal is shown if user is not in waitlist
-        // BUT only if user doesn't have an active order
-        const currentWaitlistToken = localStorage.getItem("terra_waitToken");
-        if (!currentWaitlistToken) {
-          setIsTableOccupied(true);
-          setShowWaitlistModal(true);
+        // BUT only if user doesn't have an active order and it's not a TAKEAWAY order
+        const currentServiceType =
+          localStorage.getItem("terra_serviceType") || "DINE_IN";
+        const isTakeaway = currentServiceType === "TAKEAWAY";
+        
+        if (!isTakeaway) {
+          const currentWaitlistToken = localStorage.getItem("terra_waitToken");
+          if (!currentWaitlistToken) {
+            setIsTableOccupied(true);
+            setShowWaitlistModal(true);
+            console.log(
+              "[SecondPage] Table is OCCUPIED via socket - showing waitlist modal"
+            );
+          }
+        } else {
+          // TAKEAWAY orders should never show waitlist
+          setIsTableOccupied(false);
+          setShowWaitlistModal(false);
         }
       }
     };
@@ -1101,6 +1229,10 @@ export default function SecondPage() {
 
       tableStatusSocket.on("connect", () => {
         console.log("[SecondPage] Table status socket connected");
+        // Mark socket as connected for fallback refresh logic
+        if (typeof window !== "undefined") {
+          window.__tableStatusSocketConnected = true;
+        }
       });
 
       tableStatusSocket.on("connect_error", (error) => {
@@ -1112,11 +1244,19 @@ export default function SecondPage() {
             error.message
           );
         }
+        // Mark socket as disconnected for fallback refresh logic
+        if (typeof window !== "undefined") {
+          window.__tableStatusSocketConnected = false;
+        }
       });
 
       tableStatusSocket.on("disconnect", (reason) => {
         if (reason !== "io client disconnect") {
           console.log("[SecondPage] Table status socket disconnected:", reason);
+        }
+        // Mark socket as disconnected for fallback refresh logic
+        if (typeof window !== "undefined") {
+          window.__tableStatusSocketConnected = false;
         }
       });
 

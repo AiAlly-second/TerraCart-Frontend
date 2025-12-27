@@ -1019,32 +1019,97 @@ export default function MenuPage() {
   ]);
 
   useEffect(() => {
+    // CRITICAL: First check URL parameter - if table parameter exists, ALWAYS use DINE_IN
+    // This ensures table QR links always show dine-in, not takeaway
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlTableSlug = urlParams.get("table");
+    const urlTakeaway = urlParams.get("takeaway");
+    
+    // CRITICAL: If URL has table parameter, this is a table QR link - ALWAYS use DINE_IN
+    if (urlTableSlug && urlTableSlug.trim().length >= 5) {
+      console.log("[Menu] Table parameter detected in URL - forcing DINE_IN:", urlTableSlug);
+      setServiceType("DINE_IN");
+      localStorage.setItem(SERVICE_TYPE_KEY, "DINE_IN");
+      // Clear takeaway flags
+      localStorage.removeItem("terra_takeaway_only");
+      // Validate stored table matches URL slug
+      const storedSlug = localStorage.getItem("terra_scanToken");
+      if (storedSlug && storedSlug !== urlTableSlug) {
+        console.warn("[Menu] URL table slug doesn't match stored slug - clearing old table data:", {
+          urlSlug: urlTableSlug,
+          storedSlug: storedSlug,
+        });
+        // Clear old table data if it doesn't match URL
+        localStorage.removeItem("terra_selectedTable");
+        localStorage.removeItem("terra_scanToken");
+        localStorage.removeItem("terra_sessionToken");
+        localStorage.removeItem("terra_waitToken");
+        setTableInfo(null);
+      }
+      return; // Don't process other logic when URL has table parameter
+    }
+    
+    // If URL has takeaway parameter, use takeaway mode
+    if (urlTakeaway) {
+      console.log("[Menu] Takeaway parameter detected in URL - using TAKEAWAY");
+      setServiceType("TAKEAWAY");
+      localStorage.setItem(SERVICE_TYPE_KEY, "TAKEAWAY");
+      localStorage.setItem("terra_takeaway_only", "true");
+      return;
+    }
+    
     // CRITICAL: On mount/refresh, check localStorage first to preserve serviceType
     // This ensures takeaway mode is maintained across page refreshes
     const storedServiceType = localStorage.getItem(SERVICE_TYPE_KEY);
     const takeawayOnly = localStorage.getItem("terra_takeaway_only") === "true";
     const hasTakeawayOrder = localStorage.getItem("terra_orderId_TAKEAWAY");
     
-    // CRITICAL: Check if we have a table scan - if so, prioritize DINE_IN over takeaway
+    // CRITICAL: Check if we have a table scan - if so, ALWAYS prioritize DINE_IN over takeaway
     // This prevents stale takeaway orders from redirecting when scanning table QR
-    const hasTableScan = localStorage.getItem("terra_scanToken") || 
-                         localStorage.getItem("terra_selectedTable");
+    // Check both scanToken and selectedTable to ensure we detect table scans correctly
+    const scanToken = localStorage.getItem("terra_scanToken");
+    const selectedTableStr = localStorage.getItem("terra_selectedTable");
+    let hasTableScan = false;
+    let tableData = null;
+    
+    if (scanToken && scanToken.trim().length >= 5) {
+      hasTableScan = true;
+      console.log("[Menu] Table scan detected via terra_scanToken:", scanToken);
+    }
+    
+    if (selectedTableStr) {
+      try {
+        tableData = JSON.parse(selectedTableStr);
+        // Validate that it's actually a table (has number, qrSlug, or id)
+        if (tableData && (tableData.number || tableData.qrSlug || tableData.id || tableData._id)) {
+          hasTableScan = true;
+          console.log("[Menu] Table scan detected via terra_selectedTable:", {
+            tableNumber: tableData.number,
+            tableId: tableData.id || tableData._id,
+            qrSlug: tableData.qrSlug,
+          });
+        }
+      } catch (e) {
+        console.warn("[Menu] Failed to parse terra_selectedTable:", e);
+      }
+    }
 
-    // If we have a table scan and serviceType is DINE_IN, don't override to TAKEAWAY
-    // This ensures table QR scans always use DINE_IN, not takeaway
-    if (hasTableScan && storedServiceType === "DINE_IN") {
+    // CRITICAL: If we have a table scan, ALWAYS use DINE_IN, regardless of other flags
+    // This ensures table QR scans never show takeaway mode
+    if (hasTableScan) {
       console.log(
-        "[Menu] Table scan detected with DINE_IN serviceType - preserving DINE_IN (ignoring takeaway data)"
+        "[Menu] Table scan detected - forcing DINE_IN serviceType (ignoring takeaway flags)"
       );
       setServiceType("DINE_IN");
       localStorage.setItem(SERVICE_TYPE_KEY, "DINE_IN");
-      return; // Don't override with takeaway data when we have a table scan
+      // Clear takeaway flags to prevent confusion
+      localStorage.removeItem("terra_takeaway_only");
+      return; // Don't process takeaway logic when we have a table scan
     }
 
     // If we have a takeaway order or takeaway-only flag, ensure serviceType is TAKEAWAY
     // BUT only if we don't have a table scan (table scans should always be DINE_IN)
     if (
-      !hasTableScan &&
       (hasTakeawayOrder || takeawayOnly) &&
       storedServiceType !== "TAKEAWAY"
     ) {

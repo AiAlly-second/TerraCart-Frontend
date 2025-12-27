@@ -120,8 +120,53 @@ export default function Landing() {
       localStorage.removeItem("terra_scanToken");
       localStorage.removeItem("terra_sessionToken");
       localStorage.removeItem("terra_waitToken");
+      localStorage.removeItem("terra_serviceType"); // Clear serviceType for normal links
       console.log("[Landing] No table parameter - cleared all dine-in order data");
       return;
+    }
+    
+    // CRITICAL: Validate stored table matches URL slug
+    // This prevents using wrong table data when URL changes
+    const storedSlug = localStorage.getItem("terra_scanToken");
+    const storedTableStr = localStorage.getItem("terra_selectedTable");
+    
+    if (storedSlug && storedSlug !== slug) {
+      console.warn("[Landing] URL table slug doesn't match stored slug - clearing old table data:", {
+        urlSlug: slug,
+        storedSlug: storedSlug,
+      });
+      // Clear old table data if it doesn't match URL
+      localStorage.removeItem("terra_selectedTable");
+      localStorage.removeItem("terra_scanToken");
+      localStorage.removeItem("terra_sessionToken");
+      localStorage.removeItem("terra_waitToken");
+      localStorage.removeItem("terra_serviceType");
+      clearOldOrderData();
+    } else if (storedTableStr) {
+      // Validate stored table data matches URL slug
+      try {
+        const storedTable = JSON.parse(storedTableStr);
+        const storedTableSlug = storedTable.qrSlug || storedSlug;
+        if (storedTableSlug && storedTableSlug !== slug) {
+          console.warn("[Landing] Stored table qrSlug doesn't match URL slug - clearing:", {
+            urlSlug: slug,
+            storedTableSlug: storedTableSlug,
+            tableNumber: storedTable.number,
+          });
+          // Clear mismatched table data
+          localStorage.removeItem("terra_selectedTable");
+          localStorage.removeItem("terra_scanToken");
+          localStorage.removeItem("terra_sessionToken");
+          localStorage.removeItem("terra_waitToken");
+          localStorage.removeItem("terra_serviceType");
+          clearOldOrderData();
+        }
+      } catch (e) {
+        console.warn("[Landing] Failed to validate stored table data:", e);
+        // Clear invalid table data
+        localStorage.removeItem("terra_selectedTable");
+        localStorage.removeItem("terra_scanToken");
+      }
     }
 
     const assignTableFromSlug = async () => {
@@ -130,11 +175,40 @@ export default function Landing() {
         const storedSession = localStorage.getItem("terra_sessionToken");
         const storedWait = localStorage.getItem("terra_waitToken");
 
+        // CRITICAL: Always clear old table data when scanning a NEW slug
+        // This prevents wrong table data from being used (e.g., scanning table 12 but using cached table 8 data)
+        const isNewTableScan = previousSlug && previousSlug !== slug;
+        
+        if (isNewTableScan) {
+          // CRITICAL: Clear ALL table-related data when scanning a different table QR
+          // This ensures we start fresh and don't use cached data from a different table
+          console.log("[Landing] New table QR scan detected - clearing old table data:", {
+            previousSlug,
+            newSlug: slug,
+          });
+          // Clear ALL table-related data first
+          localStorage.removeItem("terra_selectedTable");
+          localStorage.removeItem("terra_scanToken");
+          localStorage.removeItem("terra_sessionToken");
+          localStorage.removeItem("terra_waitToken");
+          // Clear serviceType to force fresh detection
+          localStorage.removeItem("terra_serviceType");
+          // Clear order data for the old table
+          clearOldOrderData();
+          // CRITICAL: Also clear takeaway flags to ensure clean state
+          localStorage.removeItem("terra_takeaway_only");
+          localStorage.removeItem("terra_takeaway_cartId");
+        } else if (!previousSlug) {
+          // First scan - ensure clean state
+          console.log("[Landing] First table QR scan - ensuring clean state");
+          localStorage.removeItem("terra_takeaway_only");
+          localStorage.removeItem("terra_takeaway_cartId");
+        }
+
         // CRITICAL: When scanning a dine-in table QR, always clear takeaway-related data
         // This ensures dine-in tables don't show takeaway orders and don't redirect to takeaway
         // Only clear takeaway data if this is a DIFFERENT table QR scan (not a refresh)
         // Don't clear takeaway data on page refresh (same slug) - preserve order data
-        const isNewTableScan = previousSlug && previousSlug !== slug;
         if (isNewTableScan) {
           // Only clear takeaway data when scanning a DIFFERENT table QR
           // This preserves takeaway order data on page refresh
@@ -371,6 +445,41 @@ export default function Landing() {
           throw new Error("Invalid table response");
         }
 
+        // CRITICAL: Validate table data has required fields
+        // This ensures we're storing a valid table, not corrupted data
+        if (!tableData.id && !tableData._id) {
+          console.error("[Landing] Table response missing ID:", tableData);
+          throw new Error("Invalid table response: missing table ID");
+        }
+        if (!tableData.number && !tableData.tableNumber) {
+          console.error("[Landing] Table response missing number:", tableData);
+          throw new Error("Invalid table response: missing table number");
+        }
+
+        // CRITICAL: Validate that the returned table matches the slug we scanned
+        // This prevents wrong table data from being stored (e.g., scanning table 12 but getting table 8)
+        const returnedQrSlug = tableData.qrSlug || tableData.qrToken;
+        if (returnedQrSlug && returnedQrSlug !== slug) {
+          console.error("[Landing] Table slug mismatch!", {
+            scannedSlug: slug,
+            returnedQrSlug: returnedQrSlug,
+            tableNumber: tableData.number || tableData.tableNumber,
+            tableId: tableData.id || tableData._id,
+          });
+          throw new Error(
+            `Table QR code mismatch: Scanned slug "${slug}" but got table with slug "${returnedQrSlug}" (Table ${tableData.number || tableData.tableNumber}). Please scan the correct QR code.`
+          );
+        }
+
+        // Log table lookup for debugging
+        console.log("[Landing] Table lookup successful:", {
+          scannedSlug: slug,
+          tableNumber: tableData.number || tableData.tableNumber,
+          tableId: tableData.id || tableData._id,
+          qrSlug: returnedQrSlug,
+          cartId: tableData.cartId || tableData.cafeId,
+        });
+
         const isNewTable = previousSlug && previousSlug !== slug;
 
         // CRITICAL: Check table status - if AVAILABLE, clear DINE_IN order data only
@@ -435,8 +544,60 @@ export default function Landing() {
         // This prevents Menu.jsx from detecting stale takeaway orders and redirecting
         localStorage.setItem("terra_serviceType", "DINE_IN");
         
-        localStorage.setItem("terra_selectedTable", JSON.stringify(tableData));
+        // CRITICAL: Store table data with all required fields
+        // Ensure we include id, number, qrSlug, cartId, and status for proper table identification
+        // CRITICAL: Always use the slug from the URL (the one we scanned), not from the response
+        // This ensures we store the correct slug even if there's a mismatch
+        const tableDataToStore = {
+          id: tableData.id || tableData._id,
+          _id: tableData._id || tableData.id,
+          number: tableData.number || tableData.tableNumber,
+          tableNumber: tableData.tableNumber || tableData.number,
+          name: tableData.name || null,
+          qrSlug: slug, // CRITICAL: Always use the slug from URL (the one we scanned)
+          cartId: tableData.cartId || tableData.cafeId || null,
+          cafeId: tableData.cartId || tableData.cafeId || null, // Alias for compatibility
+          status: tableData.status || "AVAILABLE",
+          capacity: tableData.capacity || null,
+          originalCapacity: tableData.originalCapacity || null,
+          sessionToken: tableData.sessionToken || null,
+          currentOrder: tableData.currentOrder || null,
+        };
+        
+        // CRITICAL: Validate table number matches what we expect
+        // Double-check that we're storing the correct table
+        const storedTableNumber = tableDataToStore.number;
+        console.log("[Landing] Storing table data:", {
+          scannedSlug: slug,
+          storedTableNumber: storedTableNumber,
+          tableId: tableDataToStore.id,
+          qrSlug: tableDataToStore.qrSlug,
+          cartId: tableDataToStore.cartId,
+          status: tableDataToStore.status,
+        });
+        
+        localStorage.setItem("terra_selectedTable", JSON.stringify(tableDataToStore));
         localStorage.setItem("terra_scanToken", slug);
+        
+        // CRITICAL: Verify the stored data matches what we scanned
+        const verifyStored = localStorage.getItem("terra_selectedTable");
+        if (verifyStored) {
+          try {
+            const verified = JSON.parse(verifyStored);
+            if (verified.qrSlug !== slug) {
+              console.error("[Landing] CRITICAL: Stored table slug doesn't match scanned slug!", {
+                scannedSlug: slug,
+                storedSlug: verified.qrSlug,
+                tableNumber: verified.number,
+              });
+              // Clear and re-store with correct slug
+              localStorage.setItem("terra_selectedTable", JSON.stringify(tableDataToStore));
+              localStorage.setItem("terra_scanToken", slug);
+            }
+          } catch (e) {
+            console.error("[Landing] Failed to verify stored table data:", e);
+          }
+        }
 
         // STRONG LOGIC: Check table status from response
         const tableStatus =

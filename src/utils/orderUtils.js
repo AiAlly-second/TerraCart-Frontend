@@ -73,8 +73,17 @@ export function buildOrderPayload(cart, options = {}) {
     if (tableNumber !== undefined && tableNumber !== null) {
       payload.tableNumber = String(tableNumber);
     }
-    if (sessionToken) {
-      payload.sessionToken = sessionToken;
+    // CRITICAL: Validate sessionToken before including it
+    // Ensure it's a valid non-empty string
+    if (sessionToken && typeof sessionToken === "string" && sessionToken.trim().length > 0) {
+      payload.sessionToken = sessionToken.trim();
+    } else if (serviceType === "DINE_IN") {
+      // Log warning if sessionToken is missing or invalid for DINE_IN
+      console.warn("[orderUtils] DINE_IN order missing or invalid sessionToken:", {
+        sessionToken,
+        sessionTokenType: typeof sessionToken,
+        sessionTokenLength: sessionToken ? sessionToken.length : 0,
+      });
     }
   } else if (
     serviceType === "TAKEAWAY" ||

@@ -2819,8 +2819,10 @@ export default function MenuPage() {
               hasTableNumber: !!orderPayload.tableNumber,
               tableId: orderPayload.tableId,
               tableNumber: orderPayload.tableNumber,
-              sessionToken: orderPayload.sessionToken ? "present" : "missing",
+              sessionToken: orderPayload.sessionToken ? orderPayload.sessionToken.substring(0, 20) + "..." : "missing",
+              sessionTokenLength: orderPayload.sessionToken ? orderPayload.sessionToken.length : 0,
             },
+            fullPayload: orderPayload, // Include full payload for debugging
           });
           // Show more helpful error message based on backend response
           let userMessage = errorMessage;

@@ -180,6 +180,8 @@ export default function Payment() {
         new Date().toISOString()
       );
       localStorage.setItem("terra_lastPaidOrderId", orderId);
+      // Set flag to show invoice automatically when redirected to menu
+      localStorage.setItem("terra_showInvoiceOnLoad", "true");
 
       // Also set service-type-specific keys if needed
       const serviceType =

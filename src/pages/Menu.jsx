@@ -4022,6 +4022,8 @@ export default function MenuPage() {
       localStorage.setItem("terra_orderStatus", "Paid");
       localStorage.setItem("terra_orderStatusUpdatedAt", updatedAt);
       localStorage.setItem("terra_lastPaidOrderId", activeOrderId);
+      // Set flag to show invoice automatically
+      localStorage.setItem("terra_showInvoiceOnLoad", "true");
       alert("Payment confirmed successfully!");
     } catch (err) {
       console.error("handleConfirmPayment error", err);
@@ -4220,6 +4222,24 @@ export default function MenuPage() {
     setInvoiceOrder(previousOrderDetail);
     setShowInvoiceModal(true);
   }, [previousOrderDetail]);
+
+  // Auto-show invoice when payment is completed
+  useEffect(() => {
+    const shouldShowInvoice = localStorage.getItem("terra_showInvoiceOnLoad") === "true";
+    const isPaid = orderStatus === "Paid" || orderStatus === "paid";
+    
+    if (shouldShowInvoice && isPaid && activeOrderId && !showInvoiceModal) {
+      // Clear the flag first to prevent multiple triggers
+      localStorage.removeItem("terra_showInvoiceOnLoad");
+      
+      // Show invoice after a short delay to ensure order data is loaded
+      const timer = setTimeout(() => {
+        handleViewInvoice();
+      }, 500);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [orderStatus, activeOrderId, showInvoiceModal, handleViewInvoice]);
 
   const processVoiceOrder = (text) => {
     if (!text) return;

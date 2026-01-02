@@ -5,7 +5,7 @@ import { FiMic, FiMicOff } from "react-icons/fi";
 import { useAITranslation } from "../hooks/useAITranslation";
 import fallbackMenuItems from "../data/menuData";
 import restaurantBg from "../assets/images/restaurant-img.jpg";
-import { HiSpeakerWave, HiSparkles, HiArrowTrendingDown, HiArrowTrendingUp } from "react-icons/hi2";
+import { HiSpeakerWave } from "react-icons/hi2";
 import { motion } from "framer-motion";
 import "./MenuPage.css";
 import { buildOrderPayload } from "../utils/orderUtils";
@@ -294,10 +294,10 @@ const TranslatedSummaryItem = ({ item, qty }) => {
 // NEW: CategoryBlock.jsx-inlined component
 // Updated: each category controls its own open/close state.
 // Opening one category will NOT auto-close others; user controls each independently.
-const CategoryBlock = ({ category, items, cart, onAdd, onRemove, isInitiallyOpen = false }) => {
+const CategoryBlock = ({ category, items, cart, onAdd, onRemove }) => {
   if (!category) return null;
   const [translatedCategory] = useAITranslation(category || "");
-  const [isOpen, setIsOpen] = useState(isInitiallyOpen);
+  const [isOpen, setIsOpen] = useState(false);
 
   const safeItems = Array.isArray(items) ? items : [];
 
@@ -383,12 +383,6 @@ export default function MenuPage() {
   const [menuCatalog, setMenuCatalog] = useState({});
   const [menuLoading, setMenuLoading] = useState(true);
   const [menuError, setMenuError] = useState(null);
-  // Filter states
-  const [activeFilters, setActiveFilters] = useState({
-    popular: false,
-    priceLowToHigh: false,
-    priceHighToLow: false,
-  });
   const flatMenuItems = useMemo(() => {
     if (!Array.isArray(menuCategories) || menuCategories.length === 0)
       return [];
@@ -402,134 +396,21 @@ export default function MenuPage() {
       );
     });
   }, [menuCategories]);
-  // Filter menu items based on active filters and search query
   const filteredItems = useMemo(() => {
-    if (!Array.isArray(flatMenuItems) || flatMenuItems.length === 0) return [];
-    
-    let filtered = [...flatMenuItems];
-    
-    // Apply search query filter first
     const query = searchQuery.trim().toLowerCase();
-    if (query) {
-      filtered = filtered.filter((item) => {
-        if (!item?.name) return false;
-        return (
-          item.name.toLowerCase().includes(query) ||
-          (item.description || "").toLowerCase().includes(query) ||
-          (item.tags || []).some(
-            (tag) => tag && tag.toLowerCase().includes(query)
-          )
-        );
-      });
-    }
-    
-    // Apply sorting filters (only one can be active at a time)
-    if (activeFilters.popular) {
-      // Sort by orderCount (descending) - items with higher order counts appear first
-      filtered = filtered.sort((a, b) => {
-        const countA = a.orderCount || 0;
-        const countB = b.orderCount || 0;
-        return countB - countA; // Descending order (highest first)
-      });
-    } else if (activeFilters.priceLowToHigh) {
-      // Sort by price (ascending) - lowest price first
-      filtered = filtered.sort((a, b) => {
-        const priceA = Number(a.price) || 0;
-        const priceB = Number(b.price) || 0;
-        return priceA - priceB;
-      });
-    } else if (activeFilters.priceHighToLow) {
-      // Sort by price (descending) - highest price first
-      filtered = filtered.sort((a, b) => {
-        const priceA = Number(a.price) || 0;
-        const priceB = Number(b.price) || 0;
-        return priceB - priceA;
-      });
-    }
-    
-    return filtered;
-  }, [flatMenuItems, activeFilters, searchQuery]);
-  
-  // Filter menu categories based on active filters
-  const filteredMenuCategories = useMemo(() => {
-    if (!Array.isArray(menuCategories) || menuCategories.length === 0) return [];
-    
-      // If no filters are active, return all categories
-      if (!activeFilters.popular && !activeFilters.priceLowToHigh && !activeFilters.priceHighToLow) {
-        return menuCategories;
-      }
-    
-    // Filter categories to only show those with items matching the filters
-    return menuCategories.map((category) => {
-      if (!category) return null;
-      const filteredCategoryItems = (Array.isArray(category.items) ? category.items : []).filter((item) => {
-        if (!item) return false;
-        
-        // Sorting filters are handled separately, not here
-        
-        return true;
-      });
-      
-      // Only return category if it has filtered items
-      if (filteredCategoryItems.length === 0) return null;
-      
-      // Apply sorting filters
-      let sortedItems = [...filteredCategoryItems];
-      if (activeFilters.popular) {
-        sortedItems = sortedItems.sort((a, b) => {
-          const countA = a.orderCount || 0;
-          const countB = b.orderCount || 0;
-          return countB - countA; // Descending order (highest first)
-        });
-      } else if (activeFilters.priceLowToHigh) {
-        sortedItems = sortedItems.sort((a, b) => {
-          const priceA = Number(a.price) || 0;
-          const priceB = Number(b.price) || 0;
-          return priceA - priceB;
-        });
-      } else if (activeFilters.priceHighToLow) {
-        sortedItems = sortedItems.sort((a, b) => {
-          const priceA = Number(a.price) || 0;
-          const priceB = Number(b.price) || 0;
-          return priceB - priceA;
-        });
-      }
-      
-      return {
-        ...category,
-        items: sortedItems,
-      };
-    }).filter(Boolean);
-  }, [menuCategories, activeFilters]);
-  
-  // Toggle filter function
-  const toggleFilter = (filterName) => {
-    setActiveFilters((prev) => {
-      // If it's a price filter, ensure only one price filter is active at a time
-      if (filterName === "priceLowToHigh" || filterName === "priceHighToLow") {
-        return {
-          ...prev,
-          priceLowToHigh: filterName === "priceLowToHigh" ? !prev.priceLowToHigh : false,
-          priceHighToLow: filterName === "priceHighToLow" ? !prev.priceHighToLow : false,
-          popular: false, // Disable popular when price filter is active
-        };
-      }
-      // If it's popular filter, disable price filters
-      if (filterName === "popular") {
-        return {
-          ...prev,
-          popular: !prev.popular,
-          priceLowToHigh: false,
-          priceHighToLow: false,
-        };
-      }
-      // For other filters, just toggle
-      return {
-        ...prev,
-        [filterName]: !prev[filterName],
-      };
+    if (!query) return [];
+    if (!Array.isArray(flatMenuItems) || flatMenuItems.length === 0) return [];
+    return flatMenuItems.filter((item) => {
+      if (!item?.name) return false;
+      return (
+        item.name.toLowerCase().includes(query) ||
+        (item.description || "").toLowerCase().includes(query) ||
+        (item.tags || []).some(
+          (tag) => tag && tag.toLowerCase().includes(query)
+        )
+      );
     });
-  };
+  }, [flatMenuItems, searchQuery]);
   const navigate = useNavigate();
   const recognitionRef = useRef(null);
   const invoiceRef = useRef(null);
@@ -590,50 +471,6 @@ export default function MenuPage() {
     localStorage.getItem("terra_sessionToken")
   );
 
-  // Effect to clear dine-in order data if accessed without table info (normal link)
-  useEffect(() => {
-    const currentServiceType =
-      localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN";
-    
-    // Only check for dine-in orders
-    if (currentServiceType === "TAKEAWAY") {
-      return;
-    }
-
-    // Check if there's table info - if not, this is a normal link (not from QR)
-    const hasTableInfo = localStorage.getItem(TABLE_SELECTION_KEY);
-    const hasScanToken = localStorage.getItem("terra_scanToken");
-    const hasSessionToken = localStorage.getItem("terra_sessionToken");
-
-    // If no table info and no scan token, this is a normal link - clear dine-in order data
-    if (!hasTableInfo && !hasScanToken) {
-      console.log("[Menu] No table info detected - clearing dine-in order data (normal link)");
-      // Clear all dine-in order data
-      localStorage.removeItem("terra_orderId");
-      localStorage.removeItem("terra_orderId_DINE_IN");
-      localStorage.removeItem("terra_cart");
-      localStorage.removeItem("terra_cart_DINE_IN");
-      localStorage.removeItem("terra_orderStatus");
-      localStorage.removeItem("terra_orderStatus_DINE_IN");
-      localStorage.removeItem("terra_orderStatusUpdatedAt");
-      localStorage.removeItem("terra_orderStatusUpdatedAt_DINE_IN");
-      localStorage.removeItem("terra_previousOrder");
-      localStorage.removeItem("terra_previousOrderDetail");
-      localStorage.removeItem("terra_lastPaidOrderId");
-      localStorage.removeItem("terra_sessionToken");
-      localStorage.removeItem("terra_waitToken");
-      // Update state
-      setActiveOrderId(null);
-      setOrderStatus(null);
-      setOrderStatusUpdatedAt(null);
-      setTableInfo(null);
-      setSessionToken(null);
-      // Clear cart
-      setCart({});
-      return; // Don't proceed with order verification
-    }
-  }, []); // Only run once on mount
-
   // Effect to verify active order belongs to current session on mount
   useEffect(() => {
     const verifyActiveOrderSession = async () => {
@@ -643,13 +480,6 @@ export default function MenuPage() {
         localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN";
       if (currentServiceType === "TAKEAWAY") {
         return;
-      }
-
-      // Check if there's table info - if not, skip verification (already cleared above)
-      const hasTableInfo = localStorage.getItem(TABLE_SELECTION_KEY);
-      const hasScanToken = localStorage.getItem("terra_scanToken");
-      if (!hasTableInfo && !hasScanToken) {
-        return; // Normal link, data already cleared
       }
 
       const storedOrderId = localStorage.getItem("terra_orderId");
@@ -1019,96 +849,13 @@ export default function MenuPage() {
   ]);
 
   useEffect(() => {
-    // CRITICAL: First check URL parameter - if table parameter exists, ALWAYS use DINE_IN
-    // This ensures table QR links always show dine-in, not takeaway
-    const urlParams = new URLSearchParams(window.location.search);
-    const urlTableSlug = urlParams.get("table");
-    const urlTakeaway = urlParams.get("takeaway");
-    
-    // CRITICAL: If URL has table parameter, this is a table QR link - ALWAYS use DINE_IN
-    if (urlTableSlug && urlTableSlug.trim().length >= 5) {
-      console.log("[Menu] Table parameter detected in URL - forcing DINE_IN:", urlTableSlug);
-      setServiceType("DINE_IN");
-      localStorage.setItem(SERVICE_TYPE_KEY, "DINE_IN");
-      // Clear takeaway flags
-      localStorage.removeItem("terra_takeaway_only");
-      // Validate stored table matches URL slug
-      const storedSlug = localStorage.getItem("terra_scanToken");
-      if (storedSlug && storedSlug !== urlTableSlug) {
-        console.warn("[Menu] URL table slug doesn't match stored slug - clearing old table data:", {
-          urlSlug: urlTableSlug,
-          storedSlug: storedSlug,
-        });
-        // Clear old table data if it doesn't match URL
-        localStorage.removeItem("terra_selectedTable");
-        localStorage.removeItem("terra_scanToken");
-        localStorage.removeItem("terra_sessionToken");
-        localStorage.removeItem("terra_waitToken");
-        setTableInfo(null);
-      }
-      return; // Don't process other logic when URL has table parameter
-    }
-    
-    // If URL has takeaway parameter, use takeaway mode
-    if (urlTakeaway) {
-      console.log("[Menu] Takeaway parameter detected in URL - using TAKEAWAY");
-      setServiceType("TAKEAWAY");
-      localStorage.setItem(SERVICE_TYPE_KEY, "TAKEAWAY");
-      localStorage.setItem("terra_takeaway_only", "true");
-      return;
-    }
-    
     // CRITICAL: On mount/refresh, check localStorage first to preserve serviceType
     // This ensures takeaway mode is maintained across page refreshes
     const storedServiceType = localStorage.getItem(SERVICE_TYPE_KEY);
     const takeawayOnly = localStorage.getItem("terra_takeaway_only") === "true";
     const hasTakeawayOrder = localStorage.getItem("terra_orderId_TAKEAWAY");
-    
-    // CRITICAL: Check if we have a table scan - if so, ALWAYS prioritize DINE_IN over takeaway
-    // This prevents stale takeaway orders from redirecting when scanning table QR
-    // Check both scanToken and selectedTable to ensure we detect table scans correctly
-    const scanToken = localStorage.getItem("terra_scanToken");
-    const selectedTableStr = localStorage.getItem("terra_selectedTable");
-    let hasTableScan = false;
-    let tableData = null;
-    
-    if (scanToken && scanToken.trim().length >= 5) {
-      hasTableScan = true;
-      console.log("[Menu] Table scan detected via terra_scanToken:", scanToken);
-    }
-    
-    if (selectedTableStr) {
-      try {
-        tableData = JSON.parse(selectedTableStr);
-        // Validate that it's actually a table (has number, qrSlug, or id)
-        if (tableData && (tableData.number || tableData.qrSlug || tableData.id || tableData._id)) {
-          hasTableScan = true;
-          console.log("[Menu] Table scan detected via terra_selectedTable:", {
-            tableNumber: tableData.number,
-            tableId: tableData.id || tableData._id,
-            qrSlug: tableData.qrSlug,
-          });
-        }
-      } catch (e) {
-        console.warn("[Menu] Failed to parse terra_selectedTable:", e);
-      }
-    }
-
-    // CRITICAL: If we have a table scan, ALWAYS use DINE_IN, regardless of other flags
-    // This ensures table QR scans never show takeaway mode
-    if (hasTableScan) {
-      console.log(
-        "[Menu] Table scan detected - forcing DINE_IN serviceType (ignoring takeaway flags)"
-      );
-      setServiceType("DINE_IN");
-      localStorage.setItem(SERVICE_TYPE_KEY, "DINE_IN");
-      // Clear takeaway flags to prevent confusion
-      localStorage.removeItem("terra_takeaway_only");
-      return; // Don't process takeaway logic when we have a table scan
-    }
 
     // If we have a takeaway order or takeaway-only flag, ensure serviceType is TAKEAWAY
-    // BUT only if we don't have a table scan (table scans should always be DINE_IN)
     if (
       (hasTakeawayOrder || takeawayOnly) &&
       storedServiceType !== "TAKEAWAY"
@@ -1229,19 +976,11 @@ export default function MenuPage() {
           // Also verify on backend that this session owns the table
           const slug =
             tableData.qrSlug || localStorage.getItem("terra_scanToken");
-          if (slug && slug.trim().length >= 5) {
+          if (slug) {
             try {
               const tableRes = await fetch(
-                `${nodeApi}/api/tables/lookup/${encodeURIComponent(slug.trim())}?sessionToken=${encodeURIComponent(sessionToken || "")}`
+                `${nodeApi}/api/tables/lookup/${slug}?sessionToken=${sessionToken}`
               );
-              
-              // Handle 404 - table not found
-              if (tableRes.status === 404) {
-                console.warn("[Menu] Table not found (404):", slug);
-                localStorage.removeItem("terra_scanToken");
-                localStorage.removeItem("terra_selectedTable");
-                return;
-              }
               if (tableRes.ok) {
                 const tablePayload = await tableRes.json();
                 const tableSessionToken = tablePayload?.table?.sessionToken;
@@ -1356,17 +1095,11 @@ export default function MenuPage() {
         try {
           const slug = tableData.qrSlug || scanToken;
           if (slug) {
-            // Validate slug is not empty and has reasonable length
-            if (!slug || slug.trim().length < 5) {
-              console.warn("[Menu] Invalid slug detected:", slug);
-              return; // Skip if slug is invalid
-            }
-            
             // NOTE: 423 (Locked) responses are EXPECTED when table is occupied
             // Browser console may show this as an error, but it's normal behavior
             const refreshRes = await fetch(
-              `${nodeApi}/api/tables/lookup/${encodeURIComponent(slug)}${
-                sessionToken ? `?sessionToken=${encodeURIComponent(sessionToken)}` : ""
+              `${nodeApi}/api/tables/lookup/${slug}${
+                sessionToken ? `?sessionToken=${sessionToken}` : ""
               }`
             ).catch((fetchErr) => {
               // Only log actual network errors, not 423 status codes
@@ -1376,15 +1109,6 @@ export default function MenuPage() {
               );
               throw fetchErr; // Re-throw to be handled by outer catch
             });
-            
-            // Handle 404 - table not found (invalid slug)
-            if (refreshRes.status === 404) {
-              console.warn("[Menu] Table not found (404) - invalid slug:", slug);
-              // Clear invalid slug from localStorage
-              localStorage.removeItem("terra_scanToken");
-              localStorage.removeItem("terra_selectedTable");
-              return; // Skip marking as occupied
-            }
 
             // Handle 423 (Locked) response - table is occupied
             // NOTE: 423 is EXPECTED when table is occupied - browser console shows this as an error
@@ -1815,18 +1539,12 @@ export default function MenuPage() {
             try {
               const slug =
                 tableData.qrSlug || localStorage.getItem("terra_scanToken");
-              if (slug && slug.trim().length >= 5) {
+              if (slug) {
                 const refreshRes = await fetch(
-                  `${nodeApi}/api/tables/lookup/${encodeURIComponent(slug.trim())}?sessionToken=${encodeURIComponent(sessionToken || "")}`
+                  `${nodeApi}/api/tables/lookup/${slug}?sessionToken=${
+                    sessionToken || ""
+                  }`
                 );
-                
-                // Handle 404 - table not found
-                if (refreshRes.status === 404) {
-                  console.warn("[Menu] Table not found (404):", slug);
-                  localStorage.removeItem("terra_scanToken");
-                  localStorage.removeItem("terra_selectedTable");
-                  return;
-                }
                 if (refreshRes.ok) {
                   const refreshPayload = await refreshRes
                     .json()
@@ -1870,50 +1588,53 @@ export default function MenuPage() {
         await markTableOccupied();
 
         // Get cartId to filter menu - priority order:
-        // 1. Table data cartId (for dine-in) - CRITICAL: prioritize table cartId for dine-in orders
-        // 2. Selected cart for PICKUP/DELIVERY (terra_selectedCartId)
-        // 3. Takeaway QR cart (terra_takeaway_cartId) - only if no table and takeaway mode
+        // 1. Selected cart for PICKUP/DELIVERY (terra_selectedCartId)
+        // 2. Takeaway QR cart (terra_takeaway_cartId)
+        // 3. Table data cartId (for dine-in)
         let cartId = "";
         
-        // CRITICAL: Check for table data first (dine-in orders)
-        // This ensures dine-in tables use their own cartId, not takeaway cartId
-        try {
-          // Try terra_selectedTable first (set by Landing.jsx)
-          let tableDataStr = localStorage.getItem("terra_selectedTable");
-          if (!tableDataStr) {
-            // Fallback to TABLE_SELECTION_KEY if terra_selectedTable doesn't exist
-            tableDataStr = localStorage.getItem(TABLE_SELECTION_KEY) || "{}";
-          }
-          
-          const tableData = JSON.parse(tableDataStr);
-          const tableCartId = tableData.cartId || tableData.cafeId || "";
-          
-          if (tableCartId) {
-            cartId = tableCartId;
-            console.log("[Menu] Using table cart ID for menu (dine-in):", cartId);
-          }
-        } catch (e) {
-          // Could not get cartId from table data - continue to other options
-          console.warn("[Menu] Error parsing table data:", e);
-        }
-        
-        // If no table cartId found, check for selected cart (PICKUP/DELIVERY)
-        if (!cartId) {
-          const selectedCartId = localStorage.getItem("terra_selectedCartId");
-          if (selectedCartId) {
-            cartId = selectedCartId;
-            console.log("[Menu] Using selected cart ID for menu:", cartId);
-          }
-        }
-        
-        // If still no cartId, check for takeaway QR cart (only if no table)
-        if (!cartId) {
+        // Check for selected cart (PICKUP/DELIVERY)
+        const selectedCartId = localStorage.getItem("terra_selectedCartId");
+        if (selectedCartId) {
+          cartId = selectedCartId;
+          console.log("[Menu] Using selected cart ID for menu:", cartId);
+        } else {
+          // Check for takeaway QR cart
           const qrCartId = localStorage.getItem("terra_takeaway_cartId");
           if (qrCartId) {
             cartId = qrCartId;
             console.log("[Menu] Using takeaway QR cart ID for menu:", cartId);
           } else {
-            console.log("[Menu] No cart ID found, loading default menu");
+            // Fallback to table data - check both terra_selectedTable and TABLE_SELECTION_KEY
+            try {
+              // Try terra_selectedTable first (set by Landing.jsx)
+              let tableDataStr = localStorage.getItem("terra_selectedTable");
+              if (!tableDataStr) {
+                // Fallback to TABLE_SELECTION_KEY if terra_selectedTable doesn't exist
+                tableDataStr = localStorage.getItem(TABLE_SELECTION_KEY) || "{}";
+              }
+              
+              const tableData = JSON.parse(tableDataStr);
+              cartId = tableData.cartId || tableData.cafeId || "";
+              
+              console.log("[Menu] Table data for cartId lookup:", {
+                hasTableData: !!tableDataStr,
+                tableDataKeys: tableData ? Object.keys(tableData) : [],
+                cartId: tableData.cartId,
+                cafeId: tableData.cafeId,
+                foundCartId: cartId
+              });
+              
+              if (cartId) {
+                console.log("[Menu] Using table cart ID for menu:", cartId);
+              } else {
+                console.warn("[Menu] No cartId or cafeId found in table data:", tableData);
+              }
+            } catch (e) {
+              // Could not get cartId from table data
+              console.error("[Menu] Error parsing table data:", e);
+              console.log("[Menu] No cart ID found, loading default menu");
+            }
           }
         }
 
@@ -1974,24 +1695,6 @@ export default function MenuPage() {
             ? categories[0]?.name || null
             : null;
         });
-        
-        // CRITICAL: If menu is empty and user accessed via normal link (no table/cart), redirect to secondpage
-        if (categories.length === 0 || categories.every(cat => !cat.items || cat.items.length === 0)) {
-          // Check if this is a normal link (not from QR code)
-          const hasTableInfo = localStorage.getItem(TABLE_SELECTION_KEY) || localStorage.getItem("terra_selectedTable");
-          const hasScanToken = localStorage.getItem("terra_scanToken");
-          const hasSelectedCart = localStorage.getItem("terra_selectedCartId");
-          const hasTakeawayQR = localStorage.getItem("terra_takeaway_only") === "true";
-          
-          // If no table, no scan token, no selected cart, and no takeaway QR, it's a normal link
-          const isNormalLink = !hasTableInfo && !hasScanToken && !hasSelectedCart && !hasTakeawayQR;
-          
-          if (isNormalLink) {
-            console.log("[Menu] Menu not configured and accessed via normal link - redirecting to secondpage");
-            navigate("/secondpage");
-            return;
-          }
-        }
       } catch (err) {
         console.error("Menu fetch error", err);
         if (cancelled) return;
@@ -2000,21 +1703,6 @@ export default function MenuPage() {
         setMenuCategories([]);
         setMenuCatalog({});
         setOpenCategory(null);
-        
-        // Check if this is a normal link (not from QR code) - if so, redirect to secondpage
-        const hasTableInfo = localStorage.getItem(TABLE_SELECTION_KEY) || localStorage.getItem("terra_selectedTable");
-        const hasScanToken = localStorage.getItem("terra_scanToken");
-        const hasSelectedCart = localStorage.getItem("terra_selectedCartId");
-        const hasTakeawayQR = localStorage.getItem("terra_takeaway_only") === "true";
-        
-        const isNormalLink = !hasTableInfo && !hasScanToken && !hasSelectedCart && !hasTakeawayQR;
-        
-        if (isNormalLink) {
-          console.log("[Menu] Menu fetch error and accessed via normal link - redirecting to secondpage");
-          navigate("/secondpage");
-          return;
-        }
-        
         setMenuError(
           "Trying to connect to live menu... please check your network or ask staff."
         );
@@ -2368,19 +2056,8 @@ export default function MenuPage() {
       setStepState(2, "active");
       await wait(DUR.beforeSend);
 
-      // Use existing tableInfo - fallback to localStorage if needed
+      // Use existing tableInfo - no complex refresh logic
       let refreshedTableInfo = tableInfo;
-      if (!refreshedTableInfo) {
-        try {
-          const storedTable = localStorage.getItem(TABLE_SELECTION_KEY) || localStorage.getItem("terra_selectedTable");
-          if (storedTable) {
-            refreshedTableInfo = JSON.parse(storedTable);
-            console.log("[Menu] Retrieved table info from localStorage:", refreshedTableInfo);
-          }
-        } catch (e) {
-          console.warn("[Menu] Failed to parse stored table info:", e);
-        }
-      }
 
       // Get customer info from localStorage for takeaway orders (in case state wasn't updated)
       const storedCustomerName =
@@ -2465,60 +2142,33 @@ export default function MenuPage() {
           );
         }
       } else {
-        // For DINE_IN: Use getSessionToken to properly recover sessionToken
-        // This ensures we get it from the right source (existing order, table lookup, etc.)
-        finalSessionToken = await getSessionToken({
-          existingOrderId: existingId,
-          refreshedTableInfo: refreshedTableInfo,
-          tableInfo: tableInfo,
-        });
+        // For DINE_IN: Use regular sessionToken
+        finalSessionToken = localStorage.getItem("terra_sessionToken");
 
-        // If still no sessionToken exists for DINE_IN, try one more table lookup
-        if (!finalSessionToken && refreshedTableInfo) {
-          const recoveredToken = await recoverSessionToken({
-            existingOrderId: existingId,
-            tableInfo: refreshedTableInfo,
-            refreshedTableInfo: refreshedTableInfo,
-            performTableLookup: true,
-          });
-          if (recoveredToken) {
-            finalSessionToken = recoveredToken;
-          }
-        }
-
-        // If still no sessionToken, generate a simple one as last resort
+        // If no sessionToken exists for DINE_IN, generate a simple one
         if (!finalSessionToken) {
           finalSessionToken = `session_${Date.now()}_${Math.random()
             .toString(36)
             .substr(2, 9)}`;
           localStorage.setItem("terra_sessionToken", finalSessionToken);
           setSessionToken(finalSessionToken);
-          console.warn(
-            "[Menu] Generated new DINE_IN sessionToken as last resort:",
-            finalSessionToken
-          );
-        } else {
           console.log(
-            "[Menu] Using recovered DINE_IN sessionToken:",
+            "[Menu] Generated new DINE_IN sessionToken:",
             finalSessionToken
           );
         }
       }
 
       // Get order type and location for PICKUP/DELIVERY
-      // CRITICAL: Only use orderType for TAKEAWAY service type, not for DINE_IN
-      // This prevents DINE_IN orders from being incorrectly identified as PICKUP/DELIVERY
-      const orderType = (serviceType === "TAKEAWAY") ? (localStorage.getItem("terra_orderType") || null) : null; // PICKUP or DELIVERY
+      const orderType = localStorage.getItem("terra_orderType") || null; // PICKUP or DELIVERY
       const customerLocationStr = localStorage.getItem("terra_customerLocation");
       const customerLocation = customerLocationStr ? JSON.parse(customerLocationStr) : null;
       const specialInstructions = localStorage.getItem("terra_specialInstructions") || null;
       const selectedCartId = localStorage.getItem("terra_selectedCartId") || cartId;
 
       const orderPayload = buildOrderPayload(cart, {
-        // CRITICAL: For DINE_IN, always use DINE_IN serviceType, never override with orderType
-        // Only use orderType for TAKEAWAY service type
-        serviceType: (serviceType === "DINE_IN") ? "DINE_IN" : (orderType ? (orderType === "PICKUP" ? "PICKUP" : "DELIVERY") : serviceType),
-        orderType: orderType, // PICKUP or DELIVERY (only for TAKEAWAY)
+        serviceType: orderType ? (orderType === "PICKUP" ? "PICKUP" : "DELIVERY") : serviceType,
+        orderType: orderType, // PICKUP or DELIVERY
         tableId:
           refreshedTableInfo?.id ||
           refreshedTableInfo?._id ||
@@ -2592,99 +2242,22 @@ export default function MenuPage() {
         return;
       }
 
-      // CRITICAL: Validate DINE_IN order requirements before sending
-      if (orderPayload.serviceType === "DINE_IN") {
-        // Ensure sessionToken exists - use finalSessionToken we already determined
-        if (!orderPayload.sessionToken && finalSessionToken) {
+      // Simple validation for DINE_IN orders - just ensure sessionToken exists
+      if (
+        orderPayload.serviceType === "DINE_IN" &&
+        !orderPayload.sessionToken
+      ) {
+        // Use the finalSessionToken we already determined
+        if (finalSessionToken) {
           orderPayload.sessionToken = finalSessionToken;
-          console.log("[Menu] Set sessionToken in orderPayload:", finalSessionToken);
-        } else if (!orderPayload.sessionToken && !finalSessionToken) {
-          // This should not happen if getSessionToken worked correctly
-          console.error("[Menu] CRITICAL: No sessionToken available for DINE_IN order!");
-          alert(
-            "❌ Session token is missing. Please scan the table QR code again."
-          );
-          setStepState(2, "error");
-          await wait(DUR.error);
-          setProcessOpen(false);
-          return;
+        } else {
+          // Generate a new one if still missing
+          orderPayload.sessionToken = `session_${Date.now()}_${Math.random()
+            .toString(36)
+            .substr(2, 9)}`;
+          localStorage.setItem("terra_sessionToken", orderPayload.sessionToken);
+          setSessionToken(orderPayload.sessionToken);
         }
-        
-        // Ensure tableId or tableNumber exists for DINE_IN orders
-        if (!orderPayload.tableId && !orderPayload.tableNumber) {
-          // Try to get from refreshedTableInfo first (most recent)
-          if (refreshedTableInfo) {
-            orderPayload.tableId = refreshedTableInfo.id || refreshedTableInfo._id;
-            orderPayload.tableNumber = refreshedTableInfo.number || refreshedTableInfo.tableNumber;
-            console.log("[Menu] Using table info from refreshedTableInfo:", {
-              tableId: orderPayload.tableId,
-              tableNumber: orderPayload.tableNumber,
-            });
-          }
-          
-          // If still missing, try tableInfo state
-          if (!orderPayload.tableId && !orderPayload.tableNumber && tableInfo) {
-            orderPayload.tableId = tableInfo.id || tableInfo._id;
-            orderPayload.tableNumber = tableInfo.number || tableInfo.tableNumber;
-            console.log("[Menu] Using table info from tableInfo state:", {
-              tableId: orderPayload.tableId,
-              tableNumber: orderPayload.tableNumber,
-            });
-          }
-          
-          // If still missing, try localStorage as fallback
-          if (!orderPayload.tableId && !orderPayload.tableNumber) {
-            try {
-              const storedTable = localStorage.getItem(TABLE_SELECTION_KEY) || localStorage.getItem("terra_selectedTable");
-              if (storedTable) {
-                const tableData = JSON.parse(storedTable);
-                if (tableData.id || tableData._id) {
-                  orderPayload.tableId = tableData.id || tableData._id;
-                }
-                if (tableData.number || tableData.tableNumber) {
-                  orderPayload.tableNumber = String(tableData.number || tableData.tableNumber);
-                }
-                console.log("[Menu] Using table info from localStorage:", {
-                  tableId: orderPayload.tableId,
-                  tableNumber: orderPayload.tableNumber,
-                });
-              }
-            } catch (e) {
-              console.warn("[Menu] Failed to parse stored table data:", e);
-            }
-          }
-          
-          // If still missing, show error
-          if (!orderPayload.tableId && !orderPayload.tableNumber) {
-            console.error("[Menu] Missing table information for DINE_IN order:", {
-              tableId: orderPayload.tableId,
-              tableNumber: orderPayload.tableNumber,
-              tableInfo: tableInfo,
-              refreshedTableInfo: refreshedTableInfo,
-              localStorage: {
-                terra_selectedTable: localStorage.getItem("terra_selectedTable"),
-                terra_scanToken: localStorage.getItem("terra_scanToken"),
-              },
-            });
-            alert(
-              "❌ Table information is missing. Please scan the table QR code again."
-            );
-            setStepState(2, "error");
-            await wait(DUR.error);
-            setProcessOpen(false);
-            return;
-          }
-        }
-        
-        // Final validation before sending
-        console.log("[Menu] DINE_IN order validation:", {
-          hasSessionToken: !!orderPayload.sessionToken,
-          hasTableId: !!orderPayload.tableId,
-          hasTableNumber: !!orderPayload.tableNumber,
-          sessionToken: orderPayload.sessionToken ? "present" : "missing",
-          tableId: orderPayload.tableId,
-          tableNumber: orderPayload.tableNumber,
-        });
       }
 
       // VALIDATION: Check delivery availability for DELIVERY orders before placing order
@@ -2879,38 +2452,27 @@ export default function MenuPage() {
             status: res.status,
             statusText: res.statusText,
             error: data,
-            errorMessage: errorMessage,
-            payload: {
-              serviceType: orderPayload.serviceType,
-              itemsCount: orderPayload.items?.length,
-              hasSessionToken: !!orderPayload.sessionToken,
-              hasTableId: !!orderPayload.tableId,
-              hasTableNumber: !!orderPayload.tableNumber,
-              tableId: orderPayload.tableId,
-              tableNumber: orderPayload.tableNumber,
-              sessionToken: orderPayload.sessionToken ? orderPayload.sessionToken.substring(0, 20) + "..." : "missing",
-              sessionTokenLength: orderPayload.sessionToken ? orderPayload.sessionToken.length : 0,
-            },
-            fullPayload: orderPayload, // Include full payload for debugging
+            payload: orderPayload,
+            itemsCount: orderPayload.items?.length,
+            serviceType: orderPayload.serviceType,
+            hasSessionToken: !!orderPayload.sessionToken,
+            hasTableId: !!orderPayload.tableId,
+            hasTableNumber: !!orderPayload.tableNumber,
           });
-          // Show more helpful error message based on backend response
+          // Show more helpful error message
           let userMessage = errorMessage;
-          if (data?.message) {
-            const msg = data.message.toLowerCase();
-            if (msg.includes("no items") || msg.includes("items supplied")) {
-              userMessage = "Your cart is empty. Please add items before placing an order.";
-            } else if (msg.includes("session token") || msg.includes("sessiontoken")) {
-              userMessage = "Session token is missing. Please scan the table QR code again or refresh the page.";
-            } else if (msg.includes("table") && msg.includes("required")) {
-              userMessage = "Table information is missing. Please scan the table QR code again.";
-            } else if (msg.includes("invalid") && msg.includes("items")) {
-              userMessage = "Some items in your cart are invalid. Please refresh the page and try again.";
-            } else if (msg.includes("invalid service type")) {
-              userMessage = "Invalid order type. Please refresh the page and try again.";
-            } else {
-              // Show the actual backend error message
-              userMessage = data.message;
-            }
+          if (data?.message?.includes("No items supplied")) {
+            userMessage =
+              "Your cart is empty. Please add items before placing an order.";
+          } else if (data?.message?.includes("Session token is required")) {
+            userMessage =
+              "Session token is missing. Please scan the table QR code again.";
+          } else if (data?.message?.includes("Table selection is required")) {
+            userMessage =
+              "Table information is missing. Please scan the table QR code again.";
+          } else if (data?.message?.includes("Invalid order items")) {
+            userMessage =
+              "Some items in your cart are invalid. Please refresh the page and try again.";
           }
           alert(`❌ ${userMessage}`);
         } else {
@@ -3475,12 +3037,6 @@ export default function MenuPage() {
 
       const table = JSON.parse(storedTable);
       const slug = table.qrSlug || localStorage.getItem("terra_scanToken");
-      
-      // Validate slug before making request
-      if (!slug || typeof slug !== "string" || slug.trim().length < 5) {
-        console.warn("[Menu] Invalid slug for table refresh:", slug);
-        throw new Error("Invalid table identifier. Please scan the table QR code again.");
-      }
 
       // CRITICAL: Always use the latest sessionToken from localStorage
       // This ensures we use the token that was updated by markTableOccupied()
@@ -3491,20 +3047,10 @@ export default function MenuPage() {
       if (latestSessionToken) {
         params.set("sessionToken", latestSessionToken);
       }
-      const url = `${nodeApi}/api/tables/lookup/${encodeURIComponent(slug.trim())}${
+      const url = `${nodeApi}/api/tables/lookup/${slug}${
         params.toString() ? `?${params.toString()}` : ""
       }`;
       let res = await fetch(url);
-      
-      // Handle 404 - table not found (invalid slug)
-      if (res.status === 404) {
-        console.warn("[Menu] Table not found (404) during refresh - invalid slug:", slug);
-        // Clear invalid slug from localStorage
-        localStorage.removeItem("terra_scanToken");
-        localStorage.removeItem("terra_selectedTable");
-        throw new Error("Table not found. The QR code may be invalid. Please scan the table QR code again.");
-      }
-      
       let payload = await res.json().catch(() => ({}));
 
       if (res.status === 423) {
@@ -3530,18 +3076,10 @@ export default function MenuPage() {
 
             const retryParams = new URLSearchParams();
             const retryQuery = retryParams.toString();
-            const retryUrl = `${nodeApi}/api/tables/lookup/${encodeURIComponent(slug.trim())}${
+            const retryUrl = `${nodeApi}/api/tables/lookup/${slug}${
               retryQuery ? `?${retryQuery}` : ""
             }`;
             const retryRes = await fetch(retryUrl);
-            
-            // Handle 404 - table not found
-            if (retryRes.status === 404) {
-              console.warn("[Menu] Table not found (404) on retry:", slug);
-              localStorage.removeItem("terra_scanToken");
-              localStorage.removeItem("terra_selectedTable");
-              throw new Error("Table not found. Please scan the table QR code again.");
-            }
             const retryPayload = await retryRes.json().catch(() => ({}));
 
             if (!retryRes.ok) {
@@ -4022,8 +3560,6 @@ export default function MenuPage() {
       localStorage.setItem("terra_orderStatus", "Paid");
       localStorage.setItem("terra_orderStatusUpdatedAt", updatedAt);
       localStorage.setItem("terra_lastPaidOrderId", activeOrderId);
-      // Set flag to show invoice automatically
-      localStorage.setItem("terra_showInvoiceOnLoad", "true");
       alert("Payment confirmed successfully!");
     } catch (err) {
       console.error("handleConfirmPayment error", err);
@@ -4222,24 +3758,6 @@ export default function MenuPage() {
     setInvoiceOrder(previousOrderDetail);
     setShowInvoiceModal(true);
   }, [previousOrderDetail]);
-
-  // Auto-show invoice when payment is completed
-  useEffect(() => {
-    const shouldShowInvoice = localStorage.getItem("terra_showInvoiceOnLoad") === "true";
-    const isPaid = orderStatus === "Paid" || orderStatus === "paid";
-    
-    if (shouldShowInvoice && isPaid && activeOrderId && !showInvoiceModal) {
-      // Clear the flag first to prevent multiple triggers
-      localStorage.removeItem("terra_showInvoiceOnLoad");
-      
-      // Show invoice after a short delay to ensure order data is loaded
-      const timer = setTimeout(() => {
-        handleViewInvoice();
-      }, 500);
-      
-      return () => clearTimeout(timer);
-    }
-  }, [orderStatus, activeOrderId, showInvoiceModal, handleViewInvoice]);
 
   const processVoiceOrder = (text) => {
     if (!text) return;
@@ -4716,9 +4234,6 @@ export default function MenuPage() {
         currentOrder: updatedTable.currentOrder || null,
         sessionToken:
           updatedTable.sessionToken || currentTableInfo.sessionToken,
-        // CRITICAL: Preserve capacity from updated table data to ensure dynamic seat display linked with cart admin
-        capacity: updatedTable.capacity || updatedTable.originalCapacity || currentTableInfo.capacity || currentTableInfo.originalCapacity || null,
-        originalCapacity: updatedTable.originalCapacity || currentTableInfo.originalCapacity || null,
       };
       setTableInfo(updatedTableInfo);
       // Update localStorage to persist the change
@@ -4933,7 +4448,7 @@ export default function MenuPage() {
                   {serviceType === "DINE_IN" && (
                     <div className="guest-count-badge">
                       <span className="guest-icon">👥</span>
-                      <span>{tableInfo?.capacity || tableInfo?.originalCapacity || 2}</span>
+                      <span>2</span>
                     </div>
                   )}
                 </div>
@@ -5396,26 +4911,18 @@ export default function MenuPage() {
 
               {/* Filter Pills */}
               <div className="filter-pills-container">
-                <button
-                  className={`filter-pill popular-filter ${activeFilters.popular ? "active" : ""}`}
-                  onClick={() => toggleFilter("popular")}
-                >
-                  <HiSparkles className="filter-icon" />
+                <button className="filter-pill veg-filter">
+                  <span className="filter-icon">🌿</span>
+                  <span>Veg Only</span>
+                </button>
+                <button className="filter-pill popular-filter">
+                  <span className="filter-icon">⭐</span>
                   <span>Popular</span>
+
                 </button>
-                <button
-                  className={`filter-pill price-filter ${activeFilters.priceLowToHigh ? "active" : ""}`}
-                  onClick={() => toggleFilter("priceLowToHigh")}
-                >
-                  <HiArrowTrendingDown className="filter-icon" />
-                  <span>Price: Low to High</span>
-                </button>
-                <button
-                  className={`filter-pill price-filter ${activeFilters.priceHighToLow ? "active" : ""}`}
-                  onClick={() => toggleFilter("priceHighToLow")}
-                >
-                  <HiArrowTrendingUp className="filter-icon" />
-                  <span>Price: High to Low</span>
+                <button className="filter-pill spicy-filter">
+                  <span className="filter-icon">🌶️</span>
+                  <span>Spicy</span>
                 </button>
               </div>
 
@@ -5447,20 +4954,17 @@ export default function MenuPage() {
                 )
               ) : (
                 <div className="category-container">
-                  {filteredMenuCategories.length === 0 ? (
+                  {menuCategories.length === 0 ? (
                     <div className="search-no-results">
-                      {activeFilters.popular || activeFilters.priceLowToHigh || activeFilters.priceHighToLow
-                        ? "No items match the selected filters. Try adjusting your filters."
-                        : menuCategories.length === 0 || menuCategories.every(cat => !cat.items || cat.items.length === 0)
-                        ? "Menu is not configured yet. Please contact the administrator."
-                        : "No items match the selected filters. Try adjusting your filters."}
+                      Menu is not configured yet. Please contact the
+                      administrator.
                     </div>
                   ) : (
                     <>
-                      {(Array.isArray(filteredMenuCategories)
-                        ? filteredMenuCategories
+                      {(Array.isArray(menuCategories)
+                        ? menuCategories
                         : []
-                      ).map((category, index) => (
+                      ).map((category) => (
                         <CategoryBlock
                           key={category?._id || category?.name || Math.random()}
                           category={category?.name || "Unnamed Category"}
@@ -5470,7 +4974,6 @@ export default function MenuPage() {
                           cart={cart}
                           onAdd={handleAdd}
                           onRemove={handleRemove}
-                          isInitiallyOpen={index === 0}
                         />
                       ))}
                     </>

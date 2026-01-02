@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, useRef } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { FaQrcode, FaMoneyBillWave, FaArrowLeft } from "react-icons/fa";
 import { MdPayments } from "react-icons/md";
@@ -23,10 +23,7 @@ export default function Payment() {
   );
 
   const language = localStorage.getItem("language") || "en";
-  const t = useCallback(
-    (key) => translations[language]?.[key] || key,
-    [language]
-  );
+  const t = (key) => translations[language]?.[key] || key;
 
   // Read current order ID from localStorage (service-type aware)
   const serviceType = localStorage.getItem("terra_serviceType") || "DINE_IN";
@@ -44,56 +41,41 @@ export default function Payment() {
     [payment]
   );
 
-  const fetchLatestPayment = useCallback(
-    async (signal) => {
-      if (!orderId) return;
-      try {
-        setLoading(true);
-        const res = await fetch(
-          `${nodeApi}/api/payments/order/${orderId}/latest`,
-          { signal }
-        );
-        // Handle both 200 (with null) and 404 gracefully - both mean no payment exists yet
-        if (res.status === 404) {
-          setPayment(null);
-          return;
-        }
-        if (!res.ok) {
-          const errorData = await res.json().catch(() => ({}));
-          throw new Error(
-            errorData.message || "Failed to fetch payment status"
-          );
-        }
-        const data = await res.json();
-        // Backend now returns null instead of 404 when no payment exists
-        setPayment(data || null);
-      } catch (err) {
-        // Ignore AbortError (request was cancelled)
-        if (err.name === "AbortError") {
-          return;
-        }
-        // Silently handle expected "not found" scenarios
-        if (
-          err.message?.includes("404") ||
-          err.message?.includes("not found")
-        ) {
-          setPayment(null);
-        } else {
-          if (import.meta.env.DEV) {
-            console.warn("Failed to fetch payment:", err);
-          }
-          setPayment(null);
-        }
-      } finally {
-        setLoading(false);
-      }
-    },
-    [orderId]
-  );
-
-  const fetchUploadedQR = useCallback(async (signal) => {
+  const fetchLatestPayment = useCallback(async () => {
+    if (!orderId) return;
     try {
-      const res = await fetch(`${nodeApi}/api/payment-qr/active`, { signal });
+      setLoading(true);
+      const res = await fetch(
+        `${nodeApi}/api/payments/order/${orderId}/latest`
+      );
+      // Handle both 200 (with null) and 404 gracefully - both mean no payment exists yet
+      if (res.status === 404) {
+        setPayment(null);
+        return;
+      }
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.message || "Failed to fetch payment status");
+      }
+      const data = await res.json();
+      // Backend now returns null instead of 404 when no payment exists
+      setPayment(data || null);
+    } catch (err) {
+      // Silently handle expected "not found" scenarios
+      if (err.message?.includes("404") || err.message?.includes("not found")) {
+        setPayment(null);
+      } else {
+        console.warn("Failed to fetch payment:", err);
+        setPayment(null);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [orderId]);
+
+  const fetchUploadedQR = useCallback(async () => {
+    try {
+      const res = await fetch(`${nodeApi}/api/payment-qr/active`);
       // Handle both 200 (with null) and 404 gracefully - both mean no QR code exists yet
       if (res.status === 404) {
         setUploadedQR(null);
@@ -107,17 +89,10 @@ export default function Payment() {
       // Backend now returns null instead of 404 when no QR code exists
       setUploadedQR(data || null);
     } catch (err) {
-      // Ignore AbortError (request was cancelled)
-      if (err.name === "AbortError") {
-        return;
-      }
       // Silently handle expected "not found" scenarios - no uploaded QR is okay
       setUploadedQR(null);
     }
   }, []);
-
-  // Use ref to track if we're already fetching to prevent duplicate requests
-  const fetchingRef = useRef(false);
 
   useEffect(() => {
     if (!orderId) {
@@ -125,50 +100,23 @@ export default function Payment() {
       navigate("/menu");
       return;
     }
-
-    // Prevent duplicate simultaneous requests
-    if (fetchingRef.current) {
-      return;
-    }
-
-    fetchingRef.current = true;
-
-    // Create AbortController to cancel requests if component unmounts or orderId changes
-    const abortController = new AbortController();
-    const signal = abortController.signal;
-
-    // Fetch payment and QR code in parallel
-    Promise.all([
-      fetchLatestPayment(signal).catch(() => {}),
-      fetchUploadedQR(signal).catch(() => {}),
-    ]).finally(() => {
-      fetchingRef.current = false;
-    });
-
-    // Cleanup: abort requests if component unmounts or dependencies change
-    return () => {
-      fetchingRef.current = false;
-      abortController.abort();
-    };
+    fetchLatestPayment();
+    fetchUploadedQR();
   }, [orderId, fetchLatestPayment, fetchUploadedQR, navigate, t]);
 
   useEffect(() => {
     if (!paymentPending) return;
-
-    // Create AbortController for interval requests
-    const abortController = new AbortController();
-    const signal = abortController.signal;
-
     const interval = setInterval(() => {
-      fetchLatestPayment(signal);
+      fetchLatestPayment();
     }, 10000);
-
-    // Cleanup: clear interval and abort pending requests
-    return () => {
-      clearInterval(interval);
-      abortController.abort();
-    };
+    return () => clearInterval(interval);
   }, [paymentPending, fetchLatestPayment]);
+
+  useEffect(() => {
+    if (payment?.status === "PAID") {
+      handleCompleteAndRedirect();
+    }
+  }, [payment?.status, handleCompleteAndRedirect]);
 
   const handleCompleteAndRedirect = useCallback(() => {
     if (orderId) {
@@ -180,8 +128,6 @@ export default function Payment() {
         new Date().toISOString()
       );
       localStorage.setItem("terra_lastPaidOrderId", orderId);
-      // Set flag to show invoice automatically when redirected to menu
-      localStorage.setItem("terra_showInvoiceOnLoad", "true");
 
       // Also set service-type-specific keys if needed
       const serviceType =
@@ -199,9 +145,7 @@ export default function Payment() {
         localStorage.removeItem("terra_takeaway_customerName");
         localStorage.removeItem("terra_takeaway_customerMobile");
         localStorage.removeItem("terra_takeaway_customerEmail");
-        if (import.meta.env.DEV) {
-          console.log("[Payment] Cleared takeaway customer data after payment");
-        }
+        console.log("[Payment] Cleared takeaway customer data after payment");
       } else {
         localStorage.setItem("terra_orderId_DINE_IN", orderId);
         localStorage.setItem("terra_orderStatus_DINE_IN", "Paid");
@@ -215,12 +159,6 @@ export default function Payment() {
     localStorage.removeItem("terra_cart");
     navigate("/menu");
   }, [orderId, navigate]);
-
-  useEffect(() => {
-    if (payment?.status === "PAID") {
-      handleCompleteAndRedirect();
-    }
-  }, [payment?.status, handleCompleteAndRedirect]);
 
   const createPaymentIntent = async (method) => {
     if (!orderId) return;

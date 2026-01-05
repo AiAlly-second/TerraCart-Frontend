@@ -165,14 +165,44 @@ export default function SecondPage() {
 
   // Check if this is a normal link (not from QR scan)
   // Pickup/Delivery should only show on normal links, not QR scans
-  const isNormalLink = useMemo(() => {
+  // CRITICAL: Use useState and useEffect to make it reactive to localStorage changes
+  // This ensures it updates when QR scan sets terra_scanToken or terra_selectedTable
+  const [isNormalLink, setIsNormalLink] = useState(() => {
     const hasTakeawayQR = localStorage.getItem("terra_takeaway_only") === "true";
     const hasScanToken = localStorage.getItem("terra_scanToken");
     const hasTableInfo = localStorage.getItem("terra_selectedTable");
     
     // Normal link = no QR scan indicators
     return !hasTakeawayQR && !hasScanToken && !hasTableInfo;
-  }, []);
+  });
+
+  // Update isNormalLink when localStorage values or tableInfo state change (e.g., after QR scan)
+  useEffect(() => {
+    const checkNormalLink = () => {
+      const hasTakeawayQR = localStorage.getItem("terra_takeaway_only") === "true";
+      const hasScanToken = localStorage.getItem("terra_scanToken");
+      const hasTableInfo = localStorage.getItem("terra_selectedTable") || tableInfo;
+      
+      const isNormal = !hasTakeawayQR && !hasScanToken && !hasTableInfo;
+      setIsNormalLink(isNormal);
+    };
+
+    // Check immediately
+    checkNormalLink();
+
+    // Listen for storage events (when localStorage changes from other tabs/windows)
+    window.addEventListener("storage", checkNormalLink);
+
+    // Also check periodically in case localStorage was set after component mount
+    // This handles the case where Landing.jsx sets values after SecondPage mounts
+    // CRITICAL: On render deployment, there might be timing issues, so check more frequently initially
+    const interval = setInterval(checkNormalLink, 100);
+
+    return () => {
+      window.removeEventListener("storage", checkNormalLink);
+      clearInterval(interval);
+    };
+  }, [tableInfo]); // Also react to tableInfo state changes
 
   // Effect to clear dine-in order data if accessed without table info (normal link)
   useEffect(() => {
@@ -2327,7 +2357,14 @@ export default function SecondPage() {
         <div className="content-wrapper">
           <div className="buttons-container">
             {/* Dine-in button: Only show for QR scans (not normal links) and not takeaway-only */}
-            {!takeawayOnly && !isNormalLink && (
+            {/* CRITICAL: Check localStorage directly at render time to handle deployment timing issues */}
+            {(() => {
+              const hasTakeawayQR = localStorage.getItem("terra_takeaway_only") === "true";
+              const hasScanToken = localStorage.getItem("terra_scanToken");
+              const hasTableInfo = localStorage.getItem("terra_selectedTable") || tableInfo;
+              const isNormal = !hasTakeawayQR && !hasScanToken && !hasTableInfo;
+              return !takeawayOnly && !isNormal;
+            })() && (
               <button
                 onClick={() => {
                   // CRITICAL: Check if user has active order first - grant immediate access

@@ -2190,8 +2190,9 @@ export default function MenuPage() {
 
       const orderPayload = buildOrderPayload(cart, {
         serviceType: orderType ? (orderType === "PICKUP" ? "PICKUP" : "DELIVERY") : serviceType,
-        // CRITICAL: Only pass orderType for non-DINE_IN orders to prevent validation issues
-        orderType: serviceType !== "DINE_IN" ? orderType : undefined, // PICKUP or DELIVERY (only for non-DINE_IN)
+        // CRITICAL: Only pass orderType if it's actually PICKUP or DELIVERY
+        // For regular TAKEAWAY orders, orderType should be undefined to prevent validation errors
+        orderType: (orderType === "PICKUP" || orderType === "DELIVERY") ? orderType : undefined,
         tableId:
           refreshedTableInfo?.id ||
           refreshedTableInfo?._id ||
@@ -2284,15 +2285,15 @@ export default function MenuPage() {
       }
 
       // VALIDATION: Check customer info for PICKUP/DELIVERY orders before placing order
-      // CRITICAL: Only validate for PICKUP/DELIVERY orders, NOT for DINE_IN orders
-      // Explicitly exclude DINE_IN to prevent false positives from leftover orderType values
-      if (
-        orderPayload.serviceType !== "DINE_IN" &&
-        (orderPayload.serviceType === "PICKUP" || 
-         orderPayload.serviceType === "DELIVERY" || 
-         orderPayload.orderType === "PICKUP" || 
-         orderPayload.orderType === "DELIVERY")
-      ) {
+      // CRITICAL: Only validate for PICKUP/DELIVERY orders, NOT for DINE_IN or regular TAKEAWAY orders
+      // Explicitly exclude DINE_IN and TAKEAWAY to prevent false positives
+      const isPickupOrDelivery = 
+        orderPayload.serviceType === "PICKUP" || 
+        orderPayload.serviceType === "DELIVERY" || 
+        orderPayload.orderType === "PICKUP" || 
+        orderPayload.orderType === "DELIVERY";
+      
+      if (isPickupOrDelivery) {
         if (!orderPayload.customerName || !orderPayload.customerName.trim()) {
           alert("❌ Customer name is required for " + (orderPayload.orderType || orderPayload.serviceType) + " orders. Please provide your name.");
           setStepState(2, "error");

@@ -5,17 +5,26 @@ import Header from "../components/Header";
 import bgImage from "../assets/images/restaurant-img.jpg";
 import "./FeedbackPage.css";
 
-const nodeApi = (import.meta.env.VITE_NODE_API_URL || "http://localhost:5001").replace(/\/$/, "");
+const nodeApi = (
+  import.meta.env.VITE_NODE_API_URL || "http://localhost:5001"
+).replace(/\/$/, "");
 
 export default function FeedbackPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const orderId = location.state?.orderId || localStorage.getItem("terra_orderId") || localStorage.getItem("terra_lastPaidOrderId");
-  
+  const orderId =
+    location.state?.orderId ||
+    localStorage.getItem("terra_orderId") ||
+    localStorage.getItem("terra_lastPaidOrderId");
+
   // Get table info from localStorage to help identify cafeId
   const getTableInfo = () => {
     try {
-      const tableData = JSON.parse(localStorage.getItem("terra_tableSelection") || localStorage.getItem("tableSelection") || '{}');
+      const tableData = JSON.parse(
+        localStorage.getItem("terra_tableSelection") ||
+          localStorage.getItem("tableSelection") ||
+          "{}"
+      );
       return {
         tableId: tableData.id || tableData._id || tableData.tableId,
         cartId: tableData.cartId || tableData.cafeId,
@@ -25,7 +34,7 @@ export default function FeedbackPage() {
     }
   };
   const tableInfo = getTableInfo();
-  
+
   const [accessibilityMode, setAccessibilityMode] = useState(
     localStorage.getItem("accessibilityMode") === "true"
   );
@@ -74,7 +83,7 @@ export default function FeedbackPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
     if (overallRating === 0) {
       setError("Please provide an overall rating");
       return;
@@ -99,9 +108,11 @@ export default function FeedbackPage() {
       };
 
       // Remove empty nested fields
-      if (!feedbackData.orderFeedback.foodQuality && 
-          !feedbackData.orderFeedback.serviceSpeed && 
-          !feedbackData.orderFeedback.comments) {
+      if (
+        !feedbackData.orderFeedback.foodQuality &&
+        !feedbackData.orderFeedback.serviceSpeed &&
+        !feedbackData.orderFeedback.comments
+      ) {
         feedbackData.orderFeedback = undefined;
       }
 
@@ -118,7 +129,7 @@ export default function FeedbackPage() {
         throw new Error(errorData.message || "Failed to submit feedback");
       }
 
-    setSubmitted(true);
+      setSubmitted(true);
       setTimeout(() => {
         navigate("/menu");
       }, 3000);
@@ -130,7 +141,11 @@ export default function FeedbackPage() {
 
   if (submitted) {
     return (
-      <div className={`feedback-page ${accessibilityMode ? "accessibility-mode" : ""}`}>
+      <div
+        className={`feedback-page ${
+          accessibilityMode ? "accessibility-mode" : ""
+        }`}
+      >
         <div className="background-container">
           <img src={bgImage} alt="Restaurant" className="background-image" />
           <div className="background-overlay" />
@@ -142,9 +157,10 @@ export default function FeedbackPage() {
               <div className="success-icon">✓</div>
               <h2 className="success-title">Thank You!</h2>
               <p className="success-message">
-                Your feedback has been submitted successfully. We appreciate your time!
+                Your feedback has been submitted successfully. We appreciate
+                your time!
               </p>
-              <p className="redirect-message">Redirecting to menu...</p>
+              <p className="redirect-message">Redirecting to Main page...</p>
             </div>
           </div>
         </div>
@@ -153,7 +169,11 @@ export default function FeedbackPage() {
   }
 
   return (
-    <div className={`feedback-page ${accessibilityMode ? "accessibility-mode" : ""}`}>
+    <div
+      className={`feedback-page ${
+        accessibilityMode ? "accessibility-mode" : ""
+      }`}
+    >
       <div className="background-container">
         <img src={bgImage} alt="Restaurant" className="background-image" />
         <div className="background-overlay" />
@@ -220,10 +240,17 @@ export default function FeedbackPage() {
             {/* Customer Information - Optional */}
             <div className="section">
               <h3 className="section-title">Your Information (Optional)</h3>
-              <p className="section-subtitle" style={{ fontSize: "0.875rem", color: "#6b7280", marginBottom: "1rem" }}>
+              <p
+                className="section-subtitle"
+                style={{
+                  fontSize: "0.875rem",
+                  color: "#6b7280",
+                  marginBottom: "1rem",
+                }}
+              >
                 Help us track your visits and improve your experience
               </p>
-              
+
               <div className="input-group">
                 <label className="input-label">Name (Optional)</label>
                 <input
@@ -245,8 +272,16 @@ export default function FeedbackPage() {
                   placeholder="Enter your phone number"
                   pattern="[0-9]{10}"
                 />
-                <small style={{ fontSize: "0.75rem", color: "#6b7280", marginTop: "0.25rem", display: "block" }}>
-                  We'll use this to track your visit history and provide better service
+                <small
+                  style={{
+                    fontSize: "0.75rem",
+                    color: "#6b7280",
+                    marginTop: "0.25rem",
+                    display: "block",
+                  }}
+                >
+                  We'll use this to track your visit history and provide better
+                  service
                 </small>
               </div>
 
@@ -259,11 +294,18 @@ export default function FeedbackPage() {
                   onChange={(e) => setCustomerEmail(e.target.value)}
                   placeholder="Enter your email address"
                 />
-                <small style={{ fontSize: "0.75rem", color: "#6b7280", marginTop: "0.25rem", display: "block" }}>
+                <small
+                  style={{
+                    fontSize: "0.75rem",
+                    color: "#6b7280",
+                    marginTop: "0.25rem",
+                    display: "block",
+                  }}
+                >
                   Optional - helps us match your previous visits
                 </small>
               </div>
-        </div>
+            </div>
 
             {/* Submit Button */}
             <div className="button-group">

@@ -1,47 +1,53 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="shortcut icon" type="image/png" href="/favicon.png" />
+    <link rel="apple-touch-icon" href="/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Vite + React</title>
+    <title>TerraCart</title>
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
-    
+
     <script>
-      const mainColor = '#E5E4E2'; // Changed to light beige
-      const buttonColor = '#FFFFFF'; // White for buttons
-      
+      const mainColor = "#E5E4E2"; // Changed to light beige
+      const buttonColor = "#FFFFFF"; // White for buttons
+
       function applyStylesToMenuBtn(button) {
         if (!button) return;
-        button.style.setProperty('outline', '5px solid ' + mainColor, 'important');
-        button.style.setProperty('background', mainColor, 'important');
-        button.style.setProperty('background', 'linear-gradient(96deg, ' + mainColor + ' 0, ' + mainColor + ' 100%)', 'important');
-        button.style.setProperty('right', '20px', 'important');
-        button.style.setProperty('left', 'auto', 'important');
-        button.style.setProperty('bottom', '20px', 'important');
-        
+        button.style.setProperty(
+          "outline",
+          "5px solid " + mainColor,
+          "important"
+        );
+        button.style.setProperty("background", mainColor, "important");
+        button.style.setProperty(
+          "background",
+          "linear-gradient(96deg, " + mainColor + " 0, " + mainColor + " 100%)",
+          "important"
+        );
+        button.style.setProperty("right", "20px", "important");
+        button.style.setProperty("left", "auto", "important");
+        button.style.setProperty("bottom", "20px", "important");
       }
 
       function applyStylesToMenuHeader(header) {
         if (!header) return;
-        header.style.setProperty('background-color', mainColor, 'important');
-      
+        header.style.setProperty("background-color", mainColor, "important");
       }
 
-  
-
       function checkAndStyleElements() {
-        const menuBtn = document.querySelector('.asw-menu-btn');
-        const menuHeader = document.querySelector('.asw-menu-header');
-        const menu = document.querySelector('.asw-menu');
-        
+        const menuBtn = document.querySelector(".asw-menu-btn");
+        const menuHeader = document.querySelector(".asw-menu-header");
+        const menu = document.querySelector(".asw-menu");
+
         if (menuBtn) applyStylesToMenuBtn(menuBtn);
         if (menuHeader) applyStylesToMenuHeader(menuHeader);
         if (menu) addCloseButton();
-        
+
         if (menuBtn && menuHeader) {
           observer.disconnect();
         }
@@ -50,17 +56,16 @@
       const observer = new MutationObserver(checkAndStyleElements);
       observer.observe(document.body, {
         childList: true,
-        subtree: true
+        subtree: true,
       });
-      
+
       document.addEventListener("DOMContentLoaded", checkAndStyleElements);
     </script>
 
     <style>
-      
       :root {
-        --main-color: #E5E4E2; /* Light beige background */
-        --button-color: #FFFFFF; /* White buttons */
+        --main-color: #e5e4e2; /* Light beige background */
+        --button-color: #ffffff; /* White buttons */
         --button-text: #000000; /* Black text */
       }
 
@@ -123,25 +128,24 @@
         background: var(--button-color) !important;
         border-color: var(--button-color) !important;
         color: var(--button-text) !important;
-        border: 1px solid #E5E7EB !important;
+        border: 1px solid #e5e7eb !important;
       }
 
       /* Hover effect for buttons */
       .asw-menu button:hover {
-        background-color: #F3F4F6 !important;
-        background: #F3F4F6 !important;
+        background-color: #f3f4f6 !important;
+        background: #f3f4f6 !important;
       }
 
       .asw-menu-footer button,
       .asw-footer button {
         background-color: var(--button-color) !important;
         background: var(--button-color) !important;
-        border: 1px solid #E5E7EB !important;
+        border: 1px solid #e5e7eb !important;
         color: var(--button-text) !important;
       }
 
       /* Close button styles */
-      
 
       /* Additional styling for menu text to ensure readability */
       .asw-menu * {

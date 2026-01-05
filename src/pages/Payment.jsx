@@ -130,7 +130,10 @@ export default function Payment() {
       // Also set service-type-specific keys if needed
       const currentServiceType =
         localStorage.getItem("terra_serviceType") || "DINE_IN";
-      if (currentServiceType === "TAKEAWAY") {
+      const orderType = localStorage.getItem("terra_orderType") || null; // PICKUP or DELIVERY
+      const isPickupOrDelivery = orderType === "PICKUP" || orderType === "DELIVERY";
+      
+      if (currentServiceType === "TAKEAWAY" || currentServiceType === "PICKUP" || currentServiceType === "DELIVERY") {
         localStorage.setItem("terra_orderId_TAKEAWAY", orderId);
         localStorage.setItem("terra_orderStatus_TAKEAWAY", "Paid");
         localStorage.setItem(
@@ -138,12 +141,19 @@ export default function Payment() {
           new Date().toISOString()
         );
 
-        // CRITICAL: Clear takeaway customer data after order is paid
-        // This ensures new customers don't see previous customer's data
-        localStorage.removeItem("terra_takeaway_customerName");
-        localStorage.removeItem("terra_takeaway_customerMobile");
-        localStorage.removeItem("terra_takeaway_customerEmail");
-        console.log("[Payment] Cleared takeaway customer data after payment");
+        // CRITICAL: Only clear customer data for regular TAKEAWAY orders
+        // Preserve customer data for PICKUP/DELIVERY orders so users can reorder without re-entering info
+        if (!isPickupOrDelivery && currentServiceType === "TAKEAWAY") {
+          // Clear takeaway customer data after order is paid (only for regular TAKEAWAY, not PICKUP/DELIVERY)
+          // This ensures new customers don't see previous customer's data
+          localStorage.removeItem("terra_takeaway_customerName");
+          localStorage.removeItem("terra_takeaway_customerMobile");
+          localStorage.removeItem("terra_takeaway_customerEmail");
+          console.log("[Payment] Cleared takeaway customer data after payment (regular TAKEAWAY order)");
+        } else {
+          // Preserve customer data for PICKUP/DELIVERY orders to allow easy reordering
+          console.log("[Payment] Preserved customer data for " + (orderType || currentServiceType) + " order to allow reordering");
+        }
       } else {
         localStorage.setItem("terra_orderId_DINE_IN", orderId);
         localStorage.setItem("terra_orderStatus_DINE_IN", "Paid");

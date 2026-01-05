@@ -171,6 +171,36 @@ export default function Landing() {
 
     const assignTableFromSlug = async () => {
       try {
+        // CRITICAL: Check if payment was completed - if so, clear all previous session data
+        // This ensures that after payment completion, when user refreshes and scans a table (new or same),
+        // they start with a fresh session and don't see previous order data
+        const paymentCompleted = localStorage.getItem("terra_paymentCompleted") === "true";
+        if (paymentCompleted) {
+          console.log("[Landing] Payment was completed - clearing all previous session data for fresh start");
+          // Clear all session and order data
+          localStorage.removeItem("terra_selectedTable");
+          localStorage.removeItem("terra_scanToken");
+          localStorage.removeItem("terra_sessionToken");
+          localStorage.removeItem("terra_waitToken");
+          localStorage.removeItem("terra_serviceType");
+          // Clear all order data
+          clearOldOrderData();
+          // Clear takeaway data
+          localStorage.removeItem("terra_takeaway_only");
+          localStorage.removeItem("terra_takeaway_cartId");
+          localStorage.removeItem("terra_takeaway_customerName");
+          localStorage.removeItem("terra_takeaway_customerMobile");
+          localStorage.removeItem("terra_takeaway_customerEmail");
+          localStorage.removeItem("terra_takeaway_sessionToken");
+          localStorage.removeItem("terra_orderId_TAKEAWAY");
+          localStorage.removeItem("terra_cart_TAKEAWAY");
+          localStorage.removeItem("terra_orderStatus_TAKEAWAY");
+          localStorage.removeItem("terra_orderStatusUpdatedAt_TAKEAWAY");
+          // Clear the payment completed flag
+          localStorage.removeItem("terra_paymentCompleted");
+          console.log("[Landing] All session data cleared after payment completion");
+        }
+
         const previousSlug = localStorage.getItem("terra_scanToken");
         const storedSession = localStorage.getItem("terra_sessionToken");
         const storedWait = localStorage.getItem("terra_waitToken");

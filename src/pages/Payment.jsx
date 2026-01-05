@@ -21,17 +21,31 @@ export default function Payment() {
   const [accessibilityMode, setAccessibilityMode] = useState(
     localStorage.getItem("accessibilityMode") === "true"
   );
+  // Track if we've already handled payment completion to prevent re-render loops
+  const [hasHandledPayment, setHasHandledPayment] = useState(false);
 
-  const language = localStorage.getItem("language") || "en";
-  const t = (key) => translations[language]?.[key] || key;
+  // Memoize language and translation function to prevent re-renders
+  const language = useMemo(
+    () => localStorage.getItem("language") || "en",
+    []
+  );
+  const t = useCallback(
+    (key) => translations[language]?.[key] || key,
+    [language]
+  );
 
-  // Read current order ID from localStorage (service-type aware)
-  const serviceType = localStorage.getItem("terra_serviceType") || "DINE_IN";
-  const orderId =
-    serviceType === "TAKEAWAY"
+  // Memoize serviceType and orderId to prevent unnecessary re-renders
+  const serviceType = useMemo(
+    () => localStorage.getItem("terra_serviceType") || "DINE_IN",
+    []
+  );
+  const orderId = useMemo(() => {
+    const currentServiceType = localStorage.getItem("terra_serviceType") || "DINE_IN";
+    return currentServiceType === "TAKEAWAY"
       ? localStorage.getItem("terra_orderId_TAKEAWAY") ||
         localStorage.getItem("terra_orderId")
       : localStorage.getItem("terra_orderId");
+  }, []);
 
   const paymentPending = useMemo(
     () =>
@@ -94,31 +108,15 @@ export default function Payment() {
     }
   }, []);
 
-  useEffect(() => {
-    if (!orderId) {
-      alert(t("noOrderFound") || "No order found for payment.");
-      navigate("/menu");
+  const handleCompleteAndRedirect = useCallback(() => {
+    // Prevent multiple calls
+    if (hasHandledPayment) {
+      console.log("[Payment] Payment already handled, skipping");
       return;
     }
-    fetchLatestPayment();
-    fetchUploadedQR();
-  }, [orderId, fetchLatestPayment, fetchUploadedQR, navigate, t]);
-
-  useEffect(() => {
-    if (!paymentPending) return;
-    const interval = setInterval(() => {
-      fetchLatestPayment();
-    }, 10000);
-    return () => clearInterval(interval);
-  }, [paymentPending, fetchLatestPayment]);
-
-  useEffect(() => {
-    if (payment?.status === "PAID") {
-      handleCompleteAndRedirect();
-    }
-  }, [payment?.status, handleCompleteAndRedirect]);
-
-  const handleCompleteAndRedirect = useCallback(() => {
+    
+    setHasHandledPayment(true);
+    
     if (orderId) {
       // CRITICAL: Preserve orderId so Menu page can display order data
       localStorage.setItem("terra_orderId", orderId);
@@ -130,9 +128,9 @@ export default function Payment() {
       localStorage.setItem("terra_lastPaidOrderId", orderId);
 
       // Also set service-type-specific keys if needed
-      const serviceType =
+      const currentServiceType =
         localStorage.getItem("terra_serviceType") || "DINE_IN";
-      if (serviceType === "TAKEAWAY") {
+      if (currentServiceType === "TAKEAWAY") {
         localStorage.setItem("terra_orderId_TAKEAWAY", orderId);
         localStorage.setItem("terra_orderStatus_TAKEAWAY", "Paid");
         localStorage.setItem(
@@ -157,8 +155,39 @@ export default function Payment() {
     }
     // Only remove cart, keep order data
     localStorage.removeItem("terra_cart");
+    
+    // CRITICAL: Set flag to indicate payment was completed
+    // This will trigger session clearing when user scans a new table QR after refresh
+    localStorage.setItem("terra_paymentCompleted", "true");
+    console.log("[Payment] Payment completed - flag set for session clearing on next table scan");
+    
     navigate("/menu");
-  }, [orderId, navigate]);
+  }, [orderId, navigate, hasHandledPayment]);
+
+  useEffect(() => {
+    if (!orderId) {
+      alert(t("noOrderFound") || "No order found for payment.");
+      navigate("/menu");
+      return;
+    }
+    fetchLatestPayment();
+    fetchUploadedQR();
+  }, [orderId, fetchLatestPayment, fetchUploadedQR, navigate, t]);
+
+  useEffect(() => {
+    if (!paymentPending) return;
+    const interval = setInterval(() => {
+      fetchLatestPayment();
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [paymentPending, fetchLatestPayment]);
+
+  useEffect(() => {
+    // Only handle payment completion once and only if status is PAID
+    if (payment?.status === "PAID" && !hasHandledPayment) {
+      handleCompleteAndRedirect();
+    }
+  }, [payment?.status, handleCompleteAndRedirect, hasHandledPayment]);
 
   const createPaymentIntent = async (method) => {
     if (!orderId) return;

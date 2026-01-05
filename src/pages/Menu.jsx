@@ -2059,19 +2059,44 @@ export default function MenuPage() {
       // Use existing tableInfo - no complex refresh logic
       let refreshedTableInfo = tableInfo;
 
-      // Get customer info from localStorage for takeaway orders (in case state wasn't updated)
-      const storedCustomerName =
-        serviceType === "TAKEAWAY"
-          ? localStorage.getItem("terra_takeaway_customerName") || ""
-          : "";
-      const storedCustomerMobile =
-        serviceType === "TAKEAWAY"
-          ? localStorage.getItem("terra_takeaway_customerMobile") || ""
-          : "";
-      const storedCustomerEmail =
-        serviceType === "TAKEAWAY"
-          ? localStorage.getItem("terra_takeaway_customerEmail") || ""
-          : "";
+      // Get order type and location for PICKUP/DELIVERY (only for non-DINE_IN orders)
+      // CRITICAL: Only read orderType for TAKEAWAY/PICKUP/DELIVERY, not for DINE_IN
+      // This prevents leftover orderType values from previous orders affecting DINE_IN orders
+      const orderType = serviceType !== "DINE_IN" 
+        ? (localStorage.getItem("terra_orderType") || null) 
+        : null; // PICKUP or DELIVERY (only for non-DINE_IN)
+      const customerLocationStr = serviceType !== "DINE_IN"
+        ? localStorage.getItem("terra_customerLocation")
+        : null;
+      let customerLocation = null;
+      if (customerLocationStr) {
+        try {
+          customerLocation = JSON.parse(customerLocationStr);
+        } catch (e) {
+          console.warn("[Menu] Failed to parse customerLocation from localStorage:", e);
+          customerLocation = null;
+        }
+      }
+
+      // Get customer info from localStorage for takeaway/pickup/delivery orders
+      // CRITICAL: Check for both serviceType === "TAKEAWAY" AND orderType === "PICKUP"/"DELIVERY"
+      // CRITICAL: For DINE_IN orders, isTakeawayType should always be false
+      const isTakeawayType = serviceType === "TAKEAWAY" || orderType === "PICKUP" || orderType === "DELIVERY";
+      const storedCustomerName = isTakeawayType
+        ? localStorage.getItem("terra_takeaway_customerName") ||
+          localStorage.getItem("terra_customerName") ||
+          ""
+        : "";
+      const storedCustomerMobile = isTakeawayType
+        ? localStorage.getItem("terra_takeaway_customerMobile") ||
+          localStorage.getItem("terra_customerMobile") ||
+          ""
+        : "";
+      const storedCustomerEmail = isTakeawayType
+        ? localStorage.getItem("terra_takeaway_customerEmail") ||
+          localStorage.getItem("terra_customerEmail") ||
+          ""
+        : "";
 
       // Get cartId for takeaway orders:
       // 1) Prefer explicit cartId from takeaway QR (terra_takeaway_cartId)
@@ -2159,16 +2184,14 @@ export default function MenuPage() {
         }
       }
 
-      // Get order type and location for PICKUP/DELIVERY
-      const orderType = localStorage.getItem("terra_orderType") || null; // PICKUP or DELIVERY
-      const customerLocationStr = localStorage.getItem("terra_customerLocation");
-      const customerLocation = customerLocationStr ? JSON.parse(customerLocationStr) : null;
+      // Get special instructions and cartId (orderType and customerLocation already retrieved above)
       const specialInstructions = localStorage.getItem("terra_specialInstructions") || null;
       const selectedCartId = localStorage.getItem("terra_selectedCartId") || cartId;
 
       const orderPayload = buildOrderPayload(cart, {
         serviceType: orderType ? (orderType === "PICKUP" ? "PICKUP" : "DELIVERY") : serviceType,
-        orderType: orderType, // PICKUP or DELIVERY
+        // CRITICAL: Only pass orderType for non-DINE_IN orders to prevent validation issues
+        orderType: serviceType !== "DINE_IN" ? orderType : undefined, // PICKUP or DELIVERY (only for non-DINE_IN)
         tableId:
           refreshedTableInfo?.id ||
           refreshedTableInfo?._id ||
@@ -2184,15 +2207,15 @@ export default function MenuPage() {
         sessionToken: finalSessionToken,
         // Customer info - required for PICKUP/DELIVERY
         customerName:
-          (serviceType === "TAKEAWAY" || orderType) && storedCustomerName?.trim()
+          isTakeawayType && storedCustomerName?.trim()
             ? storedCustomerName.trim()
             : undefined,
         customerMobile:
-          (serviceType === "TAKEAWAY" || orderType) && storedCustomerMobile?.trim()
+          isTakeawayType && storedCustomerMobile?.trim()
             ? storedCustomerMobile.trim()
             : undefined,
         customerEmail:
-          (serviceType === "TAKEAWAY" || orderType) && storedCustomerEmail?.trim()
+          isTakeawayType && storedCustomerEmail?.trim()
             ? storedCustomerEmail.trim()
             : undefined,
         // Include cartId for takeaway/pickup/delivery orders
@@ -2257,6 +2280,32 @@ export default function MenuPage() {
             .substr(2, 9)}`;
           localStorage.setItem("terra_sessionToken", orderPayload.sessionToken);
           setSessionToken(orderPayload.sessionToken);
+        }
+      }
+
+      // VALIDATION: Check customer info for PICKUP/DELIVERY orders before placing order
+      // CRITICAL: Only validate for PICKUP/DELIVERY orders, NOT for DINE_IN orders
+      // Explicitly exclude DINE_IN to prevent false positives from leftover orderType values
+      if (
+        orderPayload.serviceType !== "DINE_IN" &&
+        (orderPayload.serviceType === "PICKUP" || 
+         orderPayload.serviceType === "DELIVERY" || 
+         orderPayload.orderType === "PICKUP" || 
+         orderPayload.orderType === "DELIVERY")
+      ) {
+        if (!orderPayload.customerName || !orderPayload.customerName.trim()) {
+          alert("❌ Customer name is required for " + (orderPayload.orderType || orderPayload.serviceType) + " orders. Please provide your name.");
+          setStepState(2, "error");
+          await wait(DUR.error);
+          setProcessOpen(false);
+          return;
+        }
+        if (!orderPayload.customerMobile || !orderPayload.customerMobile.trim()) {
+          alert("❌ Customer mobile number is required for " + (orderPayload.orderType || orderPayload.serviceType) + " orders. Please provide your mobile number.");
+          setStepState(2, "error");
+          await wait(DUR.error);
+          setProcessOpen(false);
+          return;
         }
       }
 

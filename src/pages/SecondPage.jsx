@@ -1878,12 +1878,11 @@ export default function SecondPage() {
     const hasTableInfo = localStorage.getItem("terra_selectedTable");
     const isNormalLinkCheck = !hasTakeawayQR && !hasScanToken && !hasTableInfo;
 
-    // For normal links, customer name and mobile are REQUIRED for all takeaway orders
-    if (isNormalLinkCheck) {
-      if (!cleanName || !cleanMobile) {
-        alert("Name and mobile number are required for takeaway orders.");
-        return;
-      }
+    // VALIDATION: Customer name and mobile are REQUIRED for ALL takeaway orders
+    // This applies to both normal links and QR scans (as per user request)
+    if (!cleanName || !cleanMobile) {
+      alert("Name and mobile number are required for takeaway orders.");
+      return;
     }
 
     // Save order type and location for PICKUP/DELIVERY (only for normal links)
@@ -2006,54 +2005,15 @@ export default function SecondPage() {
     navigate("/menu", { state: { serviceType: "TAKEAWAY" } });
   }, [customerName, customerMobile, customerEmail, navigate, orderType, selectedCart, customerLocation]);
 
-  // Handle skip customer info (all fields optional)
-  // Works for both regular takeaway and takeaway-only QR flows
+  // Handle skip/cancel customer info
   const handleSkipCustomerInfo = useCallback(() => {
-    // Generate unique session token for this takeaway order
-    const takeawaySessionToken = `TAKEAWAY-${Date.now()}-${Math.random()
-      .toString(36)
-      .substr(2, 9)}`;
-
-    // Clear previous takeaway order data when starting new session
-    console.log(
-      "[SecondPage] Starting new takeaway session (skip info) - clearing old order data",
-      {
-        takeawayOnly: localStorage.getItem("terra_takeaway_only"),
-        cartId: localStorage.getItem("terra_takeaway_cartId"),
-      }
-    );
-    localStorage.removeItem("terra_orderId_TAKEAWAY");
-    localStorage.removeItem("terra_cart_TAKEAWAY");
-    localStorage.removeItem("terra_orderStatus_TAKEAWAY");
-    localStorage.removeItem("terra_orderStatusUpdatedAt_TAKEAWAY");
-    localStorage.removeItem("terra_previousOrder");
-    localStorage.removeItem("terra_previousOrderDetail");
-
-    // Clear any existing customer info
-    setCustomerName("");
-    setCustomerMobile("");
-    setCustomerEmail("");
-    localStorage.removeItem("terra_takeaway_customerName");
-    localStorage.removeItem("terra_takeaway_customerMobile");
-    localStorage.removeItem("terra_takeaway_customerEmail");
-
-    // Save takeaway session token
-    localStorage.setItem("terra_takeaway_sessionToken", takeawaySessionToken);
-
-    // Ensure serviceType is set to TAKEAWAY
-    localStorage.setItem("terra_serviceType", "TAKEAWAY");
-
-    // CRITICAL: Clear waitlist state for takeaway orders
-    localStorage.removeItem("terra_waitToken");
-    setWaitlistToken(null);
-    setWaitlistInfo(null);
-    setShowWaitlistModal(false);
-    setIsTableOccupied(false);
-
-    // Close modal and navigate to menu
+    // Just close the modal - do not navigate to menu
+    // User must fill details to proceed
     setShowCustomerInfoModal(false);
-    navigate("/menu", { state: { serviceType: "TAKEAWAY" } });
-  }, [navigate]);
+    
+    // Optionally clear any partial input if needed, but keeping it might be better UX
+    // For now, just closing is sufficient to block access
+  }, []);
 
   // Open waitlist info modal when user clicks "Join Waitlist"
   const handleOpenWaitlistInfo = useCallback(() => {
@@ -2703,7 +2663,7 @@ export default function SecondPage() {
           </div>
         )}
 
-        {/* Customer Info Modal for Takeaway Orders */}
+            {/* Customer Info Modal for Takeaway Orders */}
         {showCustomerInfoModal && (
           <div
             className="customer-info-modal-overlay"
@@ -2719,11 +2679,7 @@ export default function SecondPage() {
               onClick={(e) => e.stopPropagation()}
             >
               <div className="customer-info-modal-header">
-                <h3>
-                  {isNormalLink 
-                    ? "Customer Information (Required)" 
-                    : "Customer Information (Optional)"}
-                </h3>
+                <h3>Customer Information (Required)</h3>
                 {/* Only show close button for QR scan takeaway (not normal links) */}
                 {!isNormalLink && (
                   <button
@@ -2738,16 +2694,14 @@ export default function SecondPage() {
                 <p
                   style={{
                     marginBottom: "16px",
-                    color: isNormalLink ? "#d97706" : "#666",
+                    color: "#d97706",
                     fontSize: "0.9rem",
-                    fontWeight: isNormalLink ? "600" : "400",
+                    fontWeight: "600",
                   }}
                 >
-                  {isNormalLink 
-                    ? (orderType 
+                  {isNormalLink && orderType 
                         ? `Please provide your details for the ${orderType === "PICKUP" ? "pickup" : "delivery"} order. Name and mobile number are required.`
-                        : "Please provide your details for the takeaway order. Name and mobile number are required.")
-                    : "You can provide your details for the takeaway order (optional)."}
+                        : "Please provide your details for the takeaway order. Name and mobile number are required."}
                 </p>
 
                 {/* Order Type Selector for PICKUP/DELIVERY - Only show on normal links (not QR scans) */}
@@ -2769,7 +2723,7 @@ export default function SecondPage() {
                 <div className="customer-info-form">
                   <div className="customer-info-field">
                     <label htmlFor="customerName">
-                      Name {isNormalLink ? "(required)" : "(optional)"}
+                      Name (Required)
                     </label>
                     <input
                       type="text"
@@ -2778,12 +2732,12 @@ export default function SecondPage() {
                       onChange={(e) => setCustomerName(e.target.value)}
                       placeholder="Enter your name"
                       className="customer-info-input"
-                      required={isNormalLink}
+                      required
                     />
                   </div>
                   <div className="customer-info-field">
                     <label htmlFor="customerMobile">
-                      Mobile Number {isNormalLink ? "(required)" : "(optional)"}
+                      Mobile Number (Required)
                     </label>
                     <input
                       type="tel"
@@ -2792,7 +2746,7 @@ export default function SecondPage() {
                       onChange={(e) => setCustomerMobile(e.target.value)}
                       placeholder="Enter mobile number"
                       className="customer-info-input"
-                      required={isNormalLink}
+                      required
                     />
                   </div>
                   <div className="customer-info-field">
@@ -2830,10 +2784,10 @@ export default function SecondPage() {
                   onClick={handleCustomerInfoSubmit}
                   style={{ 
                     width: "100%",
-                    opacity: isNormalLink && (!customerName?.trim() || !customerMobile?.trim()) ? 0.6 : 1,
-                    cursor: isNormalLink && (!customerName?.trim() || !customerMobile?.trim()) ? "not-allowed" : "pointer"
+                    opacity: (!customerName?.trim() || !customerMobile?.trim()) ? 0.6 : 1,
+                    cursor: (!customerName?.trim() || !customerMobile?.trim()) ? "not-allowed" : "pointer"
                   }}
-                  disabled={isNormalLink && (!customerName?.trim() || !customerMobile?.trim())}
+                  disabled={!customerName?.trim() || !customerMobile?.trim()}
                 >
                   Continue
                 </button>

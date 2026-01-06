@@ -613,12 +613,26 @@ export default function MenuPage() {
         localStorage.getItem("terra_orderId");
     }
 
-    if (orderId && orderId !== activeOrderId) {
-      setActiveOrderId(orderId);
     } else if (!orderId && activeOrderId) {
       setActiveOrderId(null);
     }
   }, [serviceType, activeOrderId]);
+
+  // Enforce customer name for Takeaway/Pickup/Delivery
+  useEffect(() => {
+    // Skip check for DINE_IN
+    if (serviceType === "DINE_IN") return;
+
+    // Check if customer name exists in localStorage
+    const storedName = localStorage.getItem("terra_takeaway_customerName");
+    
+    // If name is missing or empty, redirect to SecondPage
+    if (!storedName || !storedName.trim()) {
+      console.warn(`[Menu] Missing customer name for ${serviceType} order - redirecting to SecondPage`);
+      // Use replace to prevent back-button looping
+      navigate("/secondpage", { replace: true });
+    }
+  }, [serviceType, navigate]);
 
   // Customer info for takeaway orders (optional) - loaded from localStorage
   const [customerName] = useState(

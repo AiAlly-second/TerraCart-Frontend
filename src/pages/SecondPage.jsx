@@ -1814,9 +1814,11 @@ export default function SecondPage() {
     setIsTableOccupied(false);
     // Set service type to TAKEAWAY
     localStorage.setItem("terra_serviceType", "TAKEAWAY");
-    // Start takeaway flow
-    startServiceFlow("TAKEAWAY");
-  }, [startServiceFlow]);
+    
+    // DIRECTLY open customer modal - bypass startServiceFlow to avoid loading state issues
+    // Checks for existing takeaway session/order will be handled in handleCustomerInfoSubmit or Menu page checks
+    setShowCustomerInfoModal(true);
+  }, []);
 
   // Handle customer info modal submit for takeaway orders (fields OPTIONAL)
   // Works for both regular takeaway and takeaway-only QR flows

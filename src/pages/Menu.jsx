@@ -613,6 +613,8 @@ export default function MenuPage() {
         localStorage.getItem("terra_orderId");
     }
 
+    if (orderId && orderId !== activeOrderId) {
+      setActiveOrderId(orderId);
     } else if (!orderId && activeOrderId) {
       setActiveOrderId(null);
     }

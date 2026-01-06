@@ -1888,10 +1888,16 @@ export default function SecondPage() {
     }
 
     // Save order type and location for PICKUP/DELIVERY (only for normal links)
-    if (isNormalLinkCheck && orderType) {
-      localStorage.setItem("terra_orderType", orderType);
+    if (isNormalLinkCheck) {
+      if (orderType) {
+        localStorage.setItem("terra_orderType", orderType);
+      } else {
+        // If normal link but no specific order type selected (shouldn't happen with UI enforcement, but safe fallback)
+        localStorage.removeItem("terra_orderType");
+      }
     } else {
-      // Clear order type if not from normal link
+      // CLEAR order type for QR scans (Takeaway QR / Restaurant Counter)
+      // This ensures they are treated as standard TAKEAWAY, not PICKUP or DELIVERY
       localStorage.removeItem("terra_orderType");
     }
 

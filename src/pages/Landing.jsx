@@ -125,6 +125,7 @@ export default function Landing() {
       localStorage.removeItem("terra_serviceType"); // Clear serviceType for normal links
       localStorage.removeItem("terra_orderType"); // Clear orderType for normal links (prevents Pickup/Delivery persistence)
       console.log("[Landing] No table parameter - cleared all dine-in order data");
+      setIsLoading(false);
       return;
     }
     

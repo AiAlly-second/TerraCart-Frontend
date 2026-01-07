@@ -3751,67 +3751,108 @@ export default function MenuPage() {
   const handlePrintInvoice = useCallback(() => {
     if (!invoiceRef.current || !invoiceOrder || printingInvoice) return;
     setPrintingInvoice(true);
-    const iframe = document.createElement("iframe");
-    iframe.style.position = "fixed";
-    iframe.style.right = "0";
-    iframe.style.bottom = "0";
-    iframe.style.width = "0";
-    iframe.style.height = "0";
-    iframe.style.border = "0";
-    document.body.appendChild(iframe);
-    const doc = iframe.contentWindow?.document;
-    if (!doc) {
-      setPrintingInvoice(false);
-      document.body.removeChild(iframe);
-      alert("Print preview failed to open.");
-      return;
-    }
-
-    doc.open();
-    doc.write(`
-    <!DOCTYPE html>
-    <html>
-      <head>
-        <title>${invoiceId || "Invoice"}</title>
-        <style>
-          * { box-sizing: border-box; }
-          body {
-            font-family: 'Segoe UI', Arial, sans-serif;
-            margin: 0;
-            padding: 32px;
-            background: #ffffff;
-            color: #1f2933;
-          }
-          h1, h2, h3, h4 { margin: 0; }
-          table { border-collapse: collapse; width: 100%; }
-          th, td { padding: 8px; border-bottom: 1px solid #e5e7eb; }
-          th { text-align: left; color: #475569; font-weight: 600; }
-          .invoice-shell {
-            max-width: 720px;
-            margin: 0 auto;
-            padding: 24px;
-            border: 1px solid #d2d6dc;
-            border-radius: 12px;
-          }
-        </style>
-      </head>
-      <body>
-        <div class="invoice-shell">
-          ${invoiceRef.current.innerHTML}
-        </div>
-      </body>
-    </html>
-  `);
-    doc.close();
-
-    iframe.onload = function () {
-      setTimeout(() => {
-        iframe.contentWindow?.focus();
-        iframe.contentWindow?.print();
-        document.body.removeChild(iframe);
+    
+    try {
+      const iframe = document.createElement("iframe");
+      iframe.style.position = "fixed";
+      iframe.style.right = "0";
+      iframe.style.bottom = "0";
+      iframe.style.width = "0";
+      iframe.style.height = "0";
+      iframe.style.border = "0";
+      iframe.style.visibility = "hidden";
+      
+      // Add sandbox attribute for better security in production
+      iframe.setAttribute("sandbox", "allow-same-origin allow-scripts allow-modals");
+      
+      document.body.appendChild(iframe);
+      const doc = iframe.contentWindow?.document;
+      
+      if (!doc) {
         setPrintingInvoice(false);
-      }, 100);
-    };
+        document.body.removeChild(iframe);
+        alert("Print preview failed to open. Please check your browser settings.");
+        return;
+      }
+
+      doc.open();
+      doc.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>${invoiceId || "Invoice"}</title>
+          <style>
+            * { box-sizing: border-box; }
+            body {
+              font-family: 'Segoe UI', Arial, sans-serif;
+              margin: 0;
+              padding: 32px;
+              background: #ffffff;
+              color: #1f2933;
+            }
+            h1, h2, h3, h4 { margin: 0; }
+            table { border-collapse: collapse; width: 100%; }
+            th, td { padding: 8px; border-bottom: 1px solid #e5e7eb; }
+            th { text-align: left; color: #475569; font-weight: 600; }
+            .invoice-shell {
+              max-width: 720px;
+              margin: 0 auto;
+              padding: 24px;
+              border: 1px solid #d2d6dc;
+              border-radius: 12px;
+            }
+            @media print {
+              body { padding: 0; }
+              .invoice-shell { border: none; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="invoice-shell">
+            ${invoiceRef.current.innerHTML}
+          </div>
+        </body>
+      </html>
+    `);
+      doc.close();
+
+      // Use longer timeout for production to ensure resources load
+      iframe.onload = function () {
+        setTimeout(() => {
+          try {
+            iframe.contentWindow?.focus();
+            iframe.contentWindow?.print();
+          } catch (printError) {
+            console.error("Print failed:", printError);
+            alert("Print failed. Please try using your browser's print function (Ctrl+P).");
+          } finally {
+            // Clean up after print dialog closes or fails
+            setTimeout(() => {
+              if (document.body.contains(iframe)) {
+                document.body.removeChild(iframe);
+              }
+              setPrintingInvoice(false);
+            }, 500);
+          }
+        }, 250); // Increased timeout for production
+      };
+      
+      // Fallback timeout in case onload never fires
+      setTimeout(() => {
+        if (printingInvoice && document.body.contains(iframe)) {
+          document.body.removeChild(iframe);
+          setPrintingInvoice(false);
+          console.warn("Print timeout - iframe failed to load");
+        }
+      }, 5000);
+      
+    } catch (error) {
+      console.error("Print setup failed:", error);
+      setPrintingInvoice(false);
+      alert("Failed to initialize print. Please try again or use Ctrl+P.");
+    }
   }, [invoiceId, invoiceOrder, printingInvoice]);
 
   const handleDownloadInvoice = useCallback(async () => {

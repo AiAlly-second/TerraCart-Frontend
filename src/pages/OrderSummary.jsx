@@ -392,6 +392,25 @@ export default function OrderSummary() {
         useCORS: true,
         logging: false, // Disable verbose logging
         backgroundColor: "#ffffff",
+        // Handle unsupported color functions like oklch()
+        onclone: (clonedDoc) => {
+          // Convert any oklch() colors to fallback colors
+          const allElements = clonedDoc.querySelectorAll('*');
+          allElements.forEach((el) => {
+            const computedStyle = window.getComputedStyle(el);
+            // Check for oklch in various properties
+            ['color', 'backgroundColor', 'borderColor'].forEach((prop) => {
+              const value = computedStyle[prop];
+              if (value && value.includes('oklch')) {
+                // Set a fallback color
+                el.style[prop] = '#000000'; // Default to black for text
+                if (prop === 'backgroundColor') {
+                  el.style[prop] = 'transparent';
+                }
+              }
+            });
+          });
+        }
       });
       
       const imgData = canvas.toDataURL("image/png");

@@ -3822,6 +3822,21 @@ export default function MenuPage() {
         scale: window.devicePixelRatio || 2,
         useCORS: true,
         backgroundColor: "#ffffff",
+        onclone: (clonedDoc) => {
+          const allElements = clonedDoc.querySelectorAll('*');
+          allElements.forEach((el) => {
+            const computedStyle = window.getComputedStyle(el);
+            ['color', 'backgroundColor', 'borderColor'].forEach((prop) => {
+              const value = computedStyle[prop];
+              if (value && value.includes('oklch')) {
+                el.style[prop] = '#000000';
+                if (prop === 'backgroundColor') {
+                  el.style[prop] = 'transparent';
+                }
+              }
+            });
+          });
+        }
       });
       const imageData = canvas.toDataURL("image/png");
       const pdf = new jsPDF("p", "mm", "a4");

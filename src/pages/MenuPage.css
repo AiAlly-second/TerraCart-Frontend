@@ -257,53 +257,46 @@
 
 .action-button {
   flex: 1;
-  padding: 0.75rem 1rem;
+  padding: 0.65rem 1rem;
   border-radius: 0.5rem;
   font-weight: 600;
-  font-size: 0.95rem;
-  border: none;
+  font-size: 0.875rem;
+  border: 1.5px solid rgba(252, 128, 25, 0.3);
+  background-color: transparent;
+  color: #fc8019;
   cursor: pointer;
-  transition: all 0.2s ease-in-out;
+  transition: all 0.2s ease;
   touch-action: manipulation;
 }
 
-.call-waiter-button {
-  background-color: #ffffff;
-  color: #fc8019;
-  border: 1.5px solid #fc8019;
-}
-
-.call-waiter-button:hover {
-  background-color: #fc8019;
-  color: #ffffff;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 6px rgba(252, 128, 25, 0.3);
-}
-
+.call-waiter-button,
 .request-water-button {
-  background-color: #ffffff;
+  border-color: rgba(252, 128, 25, 0.3);
+  background-color: transparent;
   color: #fc8019;
-  border: 1.5px solid #fc8019;
 }
 
+.call-waiter-button:hover,
 .request-water-button:hover {
   background-color: #fc8019;
   color: #ffffff;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 6px rgba(252, 128, 25, 0.3);
+  border-color: #fc8019;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(252, 128, 25, 0.25);
 }
 
 .accessibility-mode .call-waiter-button,
 .accessibility-mode .request-water-button {
   background-color: transparent;
   color: #00bfff;
-  border: 1.5px solid #00bfff;
+  border-color: rgba(0, 191, 255, 0.4);
 }
 
 .accessibility-mode .call-waiter-button:hover,
 .accessibility-mode .request-water-button:hover {
   background-color: #00bfff;
   color: #000000;
+  border-color: #00bfff;
 }
 
 .service-context {
@@ -653,7 +646,7 @@
   justify-content: center;
   background-color: rgba(0, 0, 0, 0.45);
   backdrop-filter: blur(6px);
-  z-index: 120;
+  z-index: 20000; /* High z-index to stay above floating buttons (blind btn is 10001) */
   padding: 0.75rem;
   box-sizing: border-box;
   overflow-y: auto;
@@ -689,12 +682,14 @@
   .invoice-modal {
     padding: 1.25rem;
     border-radius: 1.25rem;
+    max-width: 40rem; /* Tablet width */
   }
 }
 
 @media (min-width: 1024px) {
   .invoice-modal {
-    padding: 1.5rem;
+    padding: 2rem; /* More comfortable padding on desktop */
+    max-width: 50rem; /* Wide desktop width (~800px) */
   }
 }
 
@@ -985,73 +980,86 @@
   text-align: center;
   justify-content: center;
 }
-/* View Invoice / Complete Payment / Confirm Payment Button - Orange to match website */
+/* View Invoice / Complete Payment / Confirm Payment Button - Minimal Design */
 .billing-button {
-  padding: 0.5rem 0.75rem;
-  border-radius: 0.625rem;
+  padding: 0.65rem 1rem;
+  border-radius: 0.5rem;
   font-size: 0.875rem;
   font-weight: 600;
   transition: all 0.2s ease;
-  background: linear-gradient(135deg, #fb923c 0%, #f97316 100%);
-  color: white;
-  border: none;
+  background-color: transparent;
+  color: #fc8019;
+  border: 1.5px solid rgba(252, 128, 25, 0.3);
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
-  min-height: 48px;
-  box-shadow: 0 2px 4px rgba(251, 146, 60, 0.3);
+  min-height: 46px;
+  cursor: pointer;
 }
 
 @media (max-width: 640px) {
   .billing-button {
-    min-height: 50px;
-    padding: 0.75rem 0.5rem;
-    font-size: 0.8rem;
+    min-height: 48px;
+    padding: 0.65rem 0.75rem;
+    font-size: 0.85rem;
   }
 }
 
 .billing-button:hover {
-  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
-  box-shadow: 0 4px 8px rgba(251, 146, 60, 0.4);
-  transform: translateY(-1px);
+  background-color: #fc8019;
+  color: #ffffff;
+  border-color: #fc8019;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(252, 128, 25, 0.25);
 }
 
 .billing-button:disabled,
 .billing-button.billing-button-disabled {
-  background: #fca570;
-  color: #ffffff;
+  background-color: transparent;
+  color: #999;
+  border-color: rgba(128, 128, 128, 0.3);
   cursor: not-allowed;
-  opacity: 0.6;
+  opacity: 0.5;
   box-shadow: none;
 }
 
 .billing-button:disabled:hover,
 .billing-button.billing-button-disabled:hover {
-  background: #fca570;
+  background-color: transparent;
   transform: none;
 }
 
 .accessibility-mode .billing-button {
-  background: linear-gradient(135deg, #00bfff 0%, #60a5fa 100%);
-  color: black;
+  background-color: transparent;
+  color: #00bfff;
+  border-color: rgba(0, 191, 255, 0.4);
+}
+
+.accessibility-mode .billing-button:hover {
+  background-color: #00bfff;
+  color: #000000;
+  border-color: #00bfff;
 }
 
 .accessibility-mode .billing-button.billing-button-disabled,
 .accessibility-mode .billing-button:disabled {
-  background: #4a4a4a;
-  color: #d1d5db;
+  background-color: transparent;
+  color: #666;
+  border-color: rgba(128, 128, 128, 0.3);
 }
 
-/* Status Actions Billing Button - Similar to cancel button but lighter */
+/* Status Actions Billing Button */
 .button-group.status-actions .billing-button {
-  background: linear-gradient(135deg, #fb923c 0%, #f97316 100%) !important;
-  border: none !important;
-  color: #ffffff !important;
-  box-shadow: 0 2px 4px rgba(251, 146, 60, 0.3) !important;
+  background-color: transparent !important;
+  border-color: rgba(252, 128, 25, 0.3) !important;
+  color: #fc8019 !important;
+  box-shadow: none !important;
 }
 
 .button-group.status-actions .billing-button:hover {
-  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%) !important;
-  box-shadow: 0 4px 8px rgba(251, 146, 60, 0.4) !important;
+  background-color: #fc8019 !important;
+  color: #ffffff !important;
+  border-color: #fc8019 !important;
+  box-shadow: 0 4px 12px rgba(252, 128, 25, 0.25) !important;
 }
 .confirm-button {
   padding-left: 0.75rem;
@@ -1565,7 +1573,7 @@
   display: grid;
   gap: 1rem;
   grid-template-columns: 1fr;
-  grid-auto-rows: 180px;
+  grid-auto-rows: minmax(240px, auto); /* Match category items */
   width: 100%;
   box-sizing: border-box;
   overflow: visible; /* Ensure items are visible */
@@ -1676,7 +1684,7 @@
   display: grid;
   gap: 1rem;
   grid-template-columns: repeat(2, 1fr);
-  grid-auto-rows: auto;
+  grid-auto-rows: minmax(240px, auto); /* Ensure minimum row height */
   width: 100%;
   box-sizing: border-box;
   overflow: visible;
@@ -1718,13 +1726,15 @@
   flex-direction: column;
   width: 100%;
   min-width: 0;
+  height: 100%; /* Ensure full height in grid */
+  min-height: 240px; /* Minimum height to show content */
   border-radius: 0.75rem;
-  overflow: hidden; /* Keep hidden for border-radius, but ensure footer is visible */
+  overflow: visible; /* Changed to visible to prevent cutting off */
   cursor: pointer;
   box-sizing: border-box;
   touch-action: manipulation;
   -webkit-tap-highlight-color: rgba(252, 128, 25, 0.2);
-  box-shadow: 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
   background: #000; /* Ensure background for footer visibility */
 }
 
@@ -1758,14 +1768,15 @@
 }
 
 /* =========================
-   IMAGE SECTION
+   IMAGE SECTION (TOP)
 ========================= */
 .item-image-container {
   width: 100%;
-  height: 160px; /* Increased height for better visibility */
+  height: 150px; /* Good height for food images */
   overflow: hidden;
   flex-shrink: 0;
   position: relative;
+  border-radius: 0.75rem 0.75rem 0 0; /* Round top corners only */
 }
 
 .item-image {
@@ -1792,7 +1803,7 @@
   top: 0;
   left: 0;
   right: 0;
-  height: 180px; /* Match image container height */
+  height: 150px; /* Match image container height */
   background: linear-gradient(
     to top,
     rgba(0, 0, 0, 0.4),
@@ -1804,52 +1815,74 @@
 }
 
 /* =========================
-   FOOTER (PRICE + CONTROLS)
+   INFO SECTION (NAME + PRICE) - MIDDLE
 ========================= */
-.item-footer {
+.item-info-section {
   position: relative;
   width: 100%;
-  padding: 0.75rem;
+  padding: 0.5rem 0.75rem; /* Reduced padding */
   background: rgba(18, 14, 14, 0.95);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  z-index: 20;
+  z-index: 10;
   flex-shrink: 0;
-  min-height: fit-content;
-  margin-top: auto; /* Push to bottom in flex container */
-}
-
-/* =========================
-   ITEM INFO
-========================= */
-.item-info {
   text-align: left;
 }
 
 .item-name {
   font-weight: 700;
-  font-size: 0.875rem;
+  font-size: 0.875rem; /* Slightly smaller */
   line-height: 1.2;
-  margin-bottom: 0.15rem;
+  margin-bottom: 0.25rem; /* Reduced margin */
   color: #ffffff;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 
 @media (min-width: 640px) {
   .item-name {
-    font-size: 1rem;
+    font-size: 0.95rem; /* Smaller on desktop too */
   }
 }
 
-:not(.accessibility-mode) .item-name,
-:not(.accessibility-mode) .item-price {
-  color: #ffffff;
+.item-price {
+  font-weight: 600;
+  font-size: 0.85rem; /* Smaller price */
+  color: #fc8019;
+  margin: 0;
 }
 
 .accessibility-mode .item-name,
 .accessibility-mode .item-price {
   color: #00bfff;
 }
+
+:not(.accessibility-mode) .item-name {
+  color: #ffffff;
+}
+
+:not(.accessibility-mode) .item-price {
+  color: #fc8019;
+}
+
+/* =========================
+   FOOTER (PRICE + CONTROLS)
+========================= */
+.item-footer {
+  position: relative;
+  width: 100%;
+  padding: 0.5rem 0.75rem; /* Reduced padding */
+  background: rgba(18, 14, 14, 0.95);
+  display: flex;
+  justify-content: center; /* Center the controls */
+  align-items: center;
+  gap: 0.5rem;
+  z-index: 20;
+  flex-shrink: 0;
+  min-height: 50px; /* Reduced height */
+  margin-top: auto; /* Push to bottom in flex container */
+  border-radius: 0 0 0.75rem 0.75rem; /* Round bottom corners */
+}
+
+
 
 /* =========================
    CONTROLS
@@ -1863,29 +1896,46 @@
 }
 
 /* =========================
-   QUANTITY BUTTONS
+   QUANTITY BUTTONS - PREMIUM FILLED DESIGN
 ========================= */
 .quantity-button {
-  min-width: 32px;
-  min-height: 32px;
-  padding: 0.375rem;
-  border-radius: 9999px;
+  min-width: 34px;
+  min-height: 34px;
+  padding: 0;
+  border-radius: 0.5rem; /* Rounded square */
   font-weight: 700;
-  font-size: 0.875rem;
+  font-size: 1.1rem;
   touch-action: manipulation;
-  -webkit-tap-highlight-color: rgba(252, 128, 25, 0.2);
+  -webkit-tap-highlight-color: transparent;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  border: none;
+  background-color: #fc8019;
+  color: #ffffff;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  box-shadow: 0 2px 4px rgba(252, 128, 25, 0.2);
 }
 
 @media (max-width: 640px) {
   .quantity-button {
     min-width: 32px;
     min-height: 32px;
-    font-size: 0.8rem;
+    font-size: 1rem;
   }
+}
+
+.quantity-button:hover:not(:disabled) {
+  background-color: #e16f19;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(252, 128, 25, 0.3);
+}
+
+.quantity-button:active:not(:disabled) {
+  transform: translateY(0) scale(0.95);
+  box-shadow: 0 1px 2px rgba(252, 128, 25, 0.2);
 }
 
 .quantity-button:disabled,
@@ -1893,25 +1943,26 @@
   opacity: 0.4;
   pointer-events: none;
   cursor: not-allowed;
+  background-color: #d1d5db;
+  color: #9ca3af;
+  box-shadow: none;
 }
 
 .accessibility-mode .quantity-button {
   background-color: #00bfff;
-  color: black;
+  color: #000000;
+  box-shadow: 0 2px 4px rgba(0, 191, 255, 0.2);
 }
-.accessibility-mode .quantity-button:hover {
+
+.accessibility-mode .quantity-button:hover:not(:disabled) {
   background-color: #60a5fa;
-}
-:not(.accessibility-mode) .quantity-button {
-  background-color: #fc8019;
-  color: white;
-}
-:not(.accessibility-mode) .quantity-button:hover {
-  background-color: #e16f19;
+  box-shadow: 0 4px 8px rgba(0, 191, 255, 0.3);
 }
 .item-count {
   font-weight: 600;
-  font-size: 0.875rem;
+  font-size: 0.8rem; /* Smaller count */
+  min-width: 20px; /* Compact width */
+  text-align: center;
 }
 .accessibility-mode .item-count {
   color: #00bfff;

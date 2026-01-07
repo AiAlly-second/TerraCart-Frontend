@@ -11,6 +11,7 @@ const OrderTypeSelector = ({
   onCartChange,
   nearbyCarts = [],
   loading = false,
+  texts = {},
 }) => {
   const [locationError, setLocationError] = useState(null);
   const [manualAddress, setManualAddress] = useState("");
@@ -150,49 +151,61 @@ const OrderTypeSelector = ({
   return (
     <div className="order-type-selector">
       <h3 style={{ fontSize: "1rem", fontWeight: "600", marginBottom: "1rem", color: "#333" }}>
-        Choose Order Type
+        {texts.title || "Choose Order Type"}
       </h3>
 
-      <div className="flex flex-col gap-3 mb-4">
+      <div className="grid grid-cols-2 gap-4 mb-6">
         {/* Pickup Option */}
-        <label className="order-type-option">
+        <label
+          className={`order-type-option flex flex-col items-center justify-center p-4 rounded-xl border-2 cursor-pointer transition-all duration-200 h-full ${
+            selectedType === "PICKUP"
+              ? "border-orange-500 bg-orange-50"
+              : "border-gray-200 hover:border-orange-200 hover:bg-gray-50"
+          }`}
+        >
           <input
             type="radio"
             name="orderType"
             value="PICKUP"
             checked={selectedType === "PICKUP"}
             onChange={() => onTypeChange("PICKUP")}
-            className="mr-3"
+            className="hidden"
           />
-          <div className="flex items-center gap-2">
-            <FaStore className="text-orange-500" />
-            <div>
-              <div className="font-medium">Pickup (Takeaway)</div>
-              <div className="text-sm text-gray-600">
-                Order and collect from the store
-              </div>
-            </div>
+          <FaStore
+            className={`text-3xl mb-3 ${
+              selectedType === "PICKUP" ? "text-orange-500" : "text-gray-400"
+            }`}
+          />
+          <div className="font-bold text-gray-800 text-lg mb-1">{texts.pickupOption || "Pickup"}</div>
+          <div className="text-xs text-gray-500 text-center leading-tight">
+            {texts.pickupDesc || "Order and collect from store"}
           </div>
         </label>
 
         {/* Delivery Option */}
-        <label className="order-type-option">
+        <label
+          className={`order-type-option flex flex-col items-center justify-center p-4 rounded-xl border-2 cursor-pointer transition-all duration-200 h-full ${
+            selectedType === "DELIVERY"
+              ? "border-orange-500 bg-orange-50"
+              : "border-gray-200 hover:border-orange-200 hover:bg-gray-50"
+          }`}
+        >
           <input
             type="radio"
             name="orderType"
             value="DELIVERY"
             checked={selectedType === "DELIVERY"}
             onChange={() => onTypeChange("DELIVERY")}
-            className="mr-3"
+            className="hidden"
           />
-          <div className="flex items-center gap-2">
-            <FaTruck className="text-green-500" />
-            <div>
-              <div className="font-medium">Delivery</div>
-              <div className="text-sm text-gray-600">
-                Get your order delivered to your location
-              </div>
-            </div>
+          <FaTruck
+            className={`text-3xl mb-3 ${
+              selectedType === "DELIVERY" ? "text-orange-500" : "text-gray-400"
+            }`}
+          />
+          <div className="font-bold text-gray-800 text-lg mb-1">{texts.deliveryOption || "Delivery"}</div>
+          <div className="text-xs text-gray-500 text-center leading-tight">
+            {texts.deliveryDesc || "Get your order delivered"}
           </div>
         </label>
       </div>

@@ -65,13 +65,13 @@ export default function FloatingPDFButton({
         </button>
       )}
 
-      <style jsx>{`
+      <style dangerouslySetInnerHTML={{__html: `
         @media (min-width: 640px) {
           button[style*="right: 5.5rem"] {
             right: 1.5rem !important;
           }
         }
-      `}</style>
+      `}} />
 
       {/* Modal with same structure as SignLanguageButton */}
       {showModal && (

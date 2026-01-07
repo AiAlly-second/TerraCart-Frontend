@@ -92,8 +92,9 @@ const buildInvoiceId = (order) => {
     .toISOString()
     .slice(0, 10)
     .replace(/-/g, "");
-  const tail = (order._id || "").toString().slice(-6).toUpperCase();
-  return `INV-${date}-${tail}`;
+  // Use cartId instead of order._id for invoice numbering
+  const cartIdTail = (order.cartId || order._id || "").toString().slice(-6).toUpperCase();
+  return `INV-${date}-${cartIdTail}`;
 };
 
 const formatMoney = (value) => {
@@ -227,7 +228,7 @@ export default function OrderSummary() {
     let orderSocket = null;
     try {
       orderSocket = io(nodeApi, {
-        transports: ["websocket", "polling"],
+        transports: ["polling", "websocket"], // Try polling first for better stability
         reconnection: true,
         reconnectionDelay: 1000,
         reconnectionAttempts: 5,
@@ -387,48 +388,40 @@ export default function OrderSummary() {
     setDownloading(true);
     try {
       const canvas = await html2canvas(invoiceRef.current, {
-        scale: window.devicePixelRatio || 2,
+        scale: 2, // Fixed scale for consistency
         useCORS: true,
+        logging: false, // Disable verbose logging
         backgroundColor: "#ffffff",
       });
-      const imageData = canvas.toDataURL("image/png");
+      
+      const imgData = canvas.toDataURL("image/png");
+      
+      // Calculate dimensions
+      // PDF Width = 80mm
+      const pdfWidth = 80;
+      const margin = 4;
+      const usableWidth = pdfWidth - (margin * 2);
+      
+      // Calculate corresponding height keeping aspect ratio
+      const imgWidthPx = canvas.width;
+      const imgHeightPx = canvas.height;
+      const ratio = imgHeightPx / imgWidthPx;
+      const pdfHeight = (usableWidth * ratio) + (margin * 2); // Add margins to height too
+      
+      // Initialize jsPDF with calculated height
       const pdf = new jsPDF({
         orientation: "portrait",
         unit: "mm",
-        format: [80, "auto"],
+        format: [pdfWidth, pdfHeight],
       });
-      const pdfWidth = 80;
-      const pdfHeight = pdf.internal.pageSize.getHeight();
-      const margin = 4;
-      const usableWidth = pdfWidth - margin * 2;
-      const imgProps = pdf.getImageProperties(imageData);
-      const imgRatio = imgProps.height / imgProps.width;
-      const imgHeight = usableWidth * imgRatio;
-
-      let heightLeft = imgHeight;
-      let position = margin;
-
-      pdf.addImage(imageData, "PNG", margin, position, usableWidth, imgHeight);
-      heightLeft -= pdfHeight - margin * 2;
-
-      while (heightLeft > 0) {
-        pdf.addPage();
-        position = margin - (imgHeight - heightLeft);
-        pdf.addImage(
-          imageData,
-          "PNG",
-          margin,
-          position,
-          usableWidth,
-          imgHeight
-        );
-        heightLeft -= pdfHeight - margin * 2;
-      }
-
+      
+      // Add image
+      pdf.addImage(imgData, "PNG", margin, margin, usableWidth, usableWidth * ratio);
+      
       pdf.save(`${invoiceId}.pdf`);
     } catch (err) {
-      console.error("Invoice download failed", err);
-      alert("Failed to generate PDF. Please try again.");
+      console.error("Invoice download failed (Detailed):", err);
+      alert(`Failed to generate PDF: ${err.message || "Unknown error"}`);
     } finally {
       setDownloading(false);
     }

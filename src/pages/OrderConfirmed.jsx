@@ -91,7 +91,8 @@ export default function OrderConfirmed() {
       </div>
 
       {/* Floating Buttons */}
-  {  /*  <FloatingPDFButton
+      {/* 
+      <FloatingPDFButton
         accessibilityMode={accessibilityMode}
         activeModal={activeModal}
         setActiveModal={setActiveModal}

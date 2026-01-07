@@ -5,29 +5,10 @@
   margin-bottom: 1rem;
 }
 
-.order-type-option {
-  display: flex;
-  align-items: center;
-  padding: 0.75rem;
-  border: 2px solid #e0e0e0;
-  border-radius: 0.5rem;
-  cursor: pointer;
-  transition: all 0.2s;
-  background: white;
-}
 
-.order-type-option:hover {
-  border-color: #fc8019;
-  background: #fff5f0;
-}
-
+/* Radio buttons are hidden in JSX - styles handled by Tailwind classes */
 .order-type-option input[type="radio"] {
-  margin-right: 0.75rem;
-  cursor: pointer;
-}
-
-.order-type-option input[type="radio"]:checked + div {
-  color: #fc8019;
+  display: none;
 }
 
 .location-section {

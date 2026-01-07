@@ -89,7 +89,22 @@ export default function SecondPage() {
   const [accessibilityMode, setAccessibilityMode] = useState(
     localStorage.getItem("accessibilityMode") === "true"
   );
-  const [language] = useState(localStorage.getItem("language") || "en");
+  const [language, setLanguage] = useState(localStorage.getItem("language") || "en");
+
+  // Listen for language changes
+  useEffect(() => {
+    const handleLanguageChange = () => {
+      setLanguage(localStorage.getItem("language") || "en");
+    };
+    
+    window.addEventListener("storage", handleLanguageChange);
+    window.addEventListener("language-change", handleLanguageChange);
+    
+    return () => {
+      window.removeEventListener("storage", handleLanguageChange);
+      window.removeEventListener("language-change", handleLanguageChange);
+    };
+  }, []);
   const [sessionToken, setSessionToken] = useState(() =>
     localStorage.getItem("terra_sessionToken")
   );
@@ -1853,17 +1868,48 @@ export default function SecondPage() {
     );
 
     // Save customer info to localStorage (OPTIONAL for regular takeaway, REQUIRED for PICKUP/DELIVERY)
-    const cleanName = customerName && customerName.trim();
-    const cleanMobile = customerMobile && customerMobile.trim();
-    if (cleanName) {
-      localStorage.setItem("terra_takeaway_customerName", cleanName);
-    } else {
-      localStorage.removeItem("terra_takeaway_customerName");
+    // Enforce validation for ALL takeaway/pickup/delivery orders
+    // Use state values directly (they are synced with inputs)
+    const nameVal = customerName?.trim();
+    const mobileVal = customerMobile?.trim();
+
+    if (!nameVal || !mobileVal) {
+      alert("Please enter both Name and Mobile Number to continue.");
+      return;
     }
-    if (cleanMobile) {
-      localStorage.setItem("terra_takeaway_customerMobile", cleanMobile);
+
+    // STRICT VALIDATION: Name must contain only letters and be at least 2 chars
+    const nameRegex = /^[a-zA-Z\s]{2,}$/;
+    if (!nameRegex.test(nameVal)) {
+      alert("Please enter a valid Name (letters only).");
+      return;
+    }
+
+    // STRICT VALIDATION: Mobile must be 10 digits
+    const mobileRegex = /^[0-9]{10}$/;
+    if (!mobileRegex.test(mobileVal)) {
+      alert("Please enter a valid 10-digit Mobile Number.");
+      return;
+    }
+
+    // STRICT VALIDATION: Email format (if provided)
+    if (customerEmail?.trim()) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(customerEmail.trim())) {
+        alert("Please enter a valid Email Address.");
+        return;
+      }
+    }
+
+    // Save strictly validated data
+    localStorage.setItem("terra_takeaway_customerName", nameVal);
+    localStorage.setItem("terra_takeaway_customerMobile", mobileVal);
+    
+    // Email is optional
+    if (customerEmail && customerEmail.trim()) {
+      localStorage.setItem("terra_takeaway_customerEmail", customerEmail.trim());
     } else {
-      localStorage.removeItem("terra_takeaway_customerMobile");
+      localStorage.removeItem("terra_takeaway_customerEmail");
     }
     if (customerEmail && customerEmail.trim()) {
       localStorage.setItem(
@@ -1880,12 +1926,7 @@ export default function SecondPage() {
     const hasTableInfo = localStorage.getItem("terra_selectedTable");
     const isNormalLinkCheck = !hasTakeawayQR && !hasScanToken && !hasTableInfo;
 
-    // VALIDATION: Customer name and mobile are REQUIRED for ALL takeaway orders
-    // This applies to both normal links and QR scans (as per user request)
-    if (!cleanName || !cleanMobile) {
-      alert("Name and mobile number are required for takeaway orders.");
-      return;
-    }
+
 
     // Save order type and location for PICKUP/DELIVERY (only for normal links)
     if (isNormalLinkCheck) {
@@ -2687,16 +2728,14 @@ export default function SecondPage() {
               onClick={(e) => e.stopPropagation()}
             >
               <div className="customer-info-modal-header">
-                <h3>Customer Information (Required)</h3>
+                <h3>{t("customerInfoTitle") || "Customer Information (Required)"}</h3>
                 {/* Only show close button for QR scan takeaway (not normal links) */}
-                {!isNormalLink && (
-                  <button
-                    className="customer-info-close-btn"
-                    onClick={handleSkipCustomerInfo}
-                  >
-                    ✕
-                  </button>
-                )}
+                <button
+                  className="customer-info-close-btn"
+                  onClick={handleSkipCustomerInfo}
+                >
+                  ✕
+                </button>
               </div>
               <div className="customer-info-modal-body">
                 <p
@@ -2708,13 +2747,15 @@ export default function SecondPage() {
                   }}
                 >
                   {isNormalLink && orderType 
-                        ? `Please provide your details for the ${orderType === "PICKUP" ? "pickup" : "delivery"} order. Name and mobile number are required.`
-                        : "Please provide your details for the takeaway order. Name and mobile number are required."}
+                        ? (orderType === "PICKUP" 
+                            ? (t("customerInfoDescPickup") || "Please provide your details for the pickup order. Name and mobile number are required.") 
+                            : (t("customerInfoDescDelivery") || "Please provide your details for the delivery order. Name and mobile number are required."))
+                        : (t("customerInfoDescTakeaway") || "Please provide your details for the takeaway order. Name and mobile number are required.")}
                 </p>
 
                 {/* Order Type Selector for PICKUP/DELIVERY - Only show on normal links (not QR scans) */}
                 {isNormalLink && (
-                  <div style={{ marginBottom: "20px", padding: "1rem", background: "#f9f9f9", borderRadius: "0.5rem" }}>
+                  <div className="mb-4">
                     <OrderTypeSelector
                       selectedType={orderType}
                       onTypeChange={setOrderType}
@@ -2724,6 +2765,13 @@ export default function SecondPage() {
                       onCartChange={handleCartChange}
                       nearbyCarts={nearbyCarts}
                       loading={loadingCarts}
+                      texts={{
+                        title: t("chooseOrderType"),
+                        pickupOption: t("pickupOption"),
+                        pickupDesc: t("pickupDesc"),
+                        deliveryOption: t("deliveryOption"),
+                        deliveryDesc: t("deliveryDesc")
+                      }}
                     />
                   </div>
                 )}
@@ -2731,40 +2779,40 @@ export default function SecondPage() {
                 <div className="customer-info-form">
                   <div className="customer-info-field">
                     <label htmlFor="customerName">
-                      Name (Required)
+                      {t("nameLabel") || "Name (Required)"}
                     </label>
                     <input
                       type="text"
                       id="customerName"
                       value={customerName}
                       onChange={(e) => setCustomerName(e.target.value)}
-                      placeholder="Enter your name"
+                      placeholder={t("namePlaceholder") || "Enter your name"}
                       className="customer-info-input"
                       required
                     />
                   </div>
                   <div className="customer-info-field">
                     <label htmlFor="customerMobile">
-                      Mobile Number (Required)
+                      {t("mobileLabel") || "Mobile Number (Required)"}
                     </label>
                     <input
                       type="tel"
                       id="customerMobile"
                       value={customerMobile}
                       onChange={(e) => setCustomerMobile(e.target.value)}
-                      placeholder="Enter mobile number"
+                      placeholder={t("mobilePlaceholder") || "Enter mobile number"}
                       className="customer-info-input"
                       required
                     />
                   </div>
                   <div className="customer-info-field">
-                    <label htmlFor="customerEmail">Email (Optional)</label>
+                    <label htmlFor="customerEmail">{t("emailLabel") || "Email (Optional)"}</label>
                     <input
                       type="email"
                       id="customerEmail"
                       value={customerEmail}
                       onChange={(e) => setCustomerEmail(e.target.value)}
-                      placeholder="Enter email address"
+                      placeholder={t("emailPlaceholder") || "Enter email address"}
                       className="customer-info-input"
                     />
                   </div>
@@ -2772,13 +2820,13 @@ export default function SecondPage() {
                   {isNormalLink && (orderType === "PICKUP" || orderType === "DELIVERY") && (
                     <div className="customer-info-field">
                       <label htmlFor="specialInstructions">
-                        Special Instructions (Optional)
+                        {t("specialInstructionsLabel") || "Special Instructions (Optional)"}
                       </label>
                       <textarea
                         id="specialInstructions"
                         value={specialInstructions}
                         onChange={(e) => setSpecialInstructions(e.target.value)}
-                        placeholder="e.g., No onion, Urgent pickup, Leave at door"
+                        placeholder={t("specialInstructionsPlaceholder") || "e.g., No onion, Urgent pickup, Leave at door"}
                         className="customer-info-input"
                         rows={3}
                       />
@@ -2790,14 +2838,9 @@ export default function SecondPage() {
                 <button
                   className="customer-info-submit-btn"
                   onClick={handleCustomerInfoSubmit}
-                  style={{ 
-                    width: "100%",
-                    opacity: (!customerName?.trim() || !customerMobile?.trim()) ? 0.6 : 1,
-                    cursor: (!customerName?.trim() || !customerMobile?.trim()) ? "not-allowed" : "pointer"
-                  }}
-                  disabled={!customerName?.trim() || !customerMobile?.trim()}
+                  style={{ width: "100%" }}
                 >
-                  Continue
+                  {t("continueButton") || "Continue"}
                 </button>
               </div>
             </div>

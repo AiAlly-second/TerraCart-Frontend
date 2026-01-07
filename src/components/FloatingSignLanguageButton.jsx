@@ -77,13 +77,13 @@ export default function FloatingSignLanguageButton({
           </span>
         </button>
       )}
-      <style jsx>{`
+      <style dangerouslySetInnerHTML={{__html: `
         @media (min-width: 640px) {
           button[style*="right: 1.5rem"] {
             right: 12.5rem !important;
           }
         }
-      `}</style>
+      `}} />
       {/* Modal with completely opaque background */}
       {showModal && (
         <div className="fixed inset-0 z-55">

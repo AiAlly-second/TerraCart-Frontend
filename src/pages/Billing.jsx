@@ -4,9 +4,9 @@ import { FiEye } from "react-icons/fi";
 import Header from "../components/Header";
 import restaurantBg from "../assets/images/restaurant-img.jpg";
 import translations from "../data/translations/billing.json";
-// import FloatingPDFButton from "../components/FloatingPDFButton";
-// import FloatingSignLanguageButton from "../components/FloatingSignLanguageButton";
-// import floatingButtonTranslations from "../data/translations/floatingButtons.json";
+import FloatingPDFButton from "../components/FloatingPDFButton";
+import FloatingSignLanguageButton from "../components/FloatingSignLanguageButton";
+import floatingButtonTranslations from "../data/translations/floatingButtons.json";
 import "./Billing.css";
 
 const nodeApi = (
@@ -98,8 +98,8 @@ export default function Billing() {
   // Language + translations
   const language = localStorage.getItem("language") || "en";
   const t = (key) => translations[language]?.[key] || key;
-  // const floatingButtonT =
-  //   floatingButtonTranslations[language] || floatingButtonTranslations.en;
+  const floatingButtonT =
+    floatingButtonTranslations[language] || floatingButtonTranslations.en;
 
   const toggleAccessibility = () => {
     const newMode = !accessibilityMode;
@@ -358,7 +358,8 @@ export default function Billing() {
         </div>
       </div>
 
-      {/* Floating Buttons (optional, kept commented)
+      {/* Floating Buttons */}
+      {/* 
       <FloatingPDFButton
         accessibilityMode={accessibilityMode}
         activeModal={activeModal}

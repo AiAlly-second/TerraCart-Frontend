@@ -1,6 +1,6 @@
 {
   "en": {
-    "manualEntry": "Manual Entry",
+    "manualEntry": "Menu",
     "smartServe": "Smart Serve",
     "aiOrdered": "AI Ordered:",
     "orderSummary": "Order Summary:",
@@ -12,10 +12,27 @@
     "tapToStop": "Tap to Stop",
     "tapToOrder": "Tap to Order",
     "searchPlaceholder": "Search item...",
-    "resetOrderBtn": "Reset Order"
+    "resetOrderBtn": "Reset Order",
+    "recordVoiceAria": "Record voice order",
+    "processSteps": {
+      "checkingOrder": "Checking your order",
+      "confirmingItems": "Confirming items & price",
+      "placingOrder": "Placing your order",
+      "sendingToKitchen": "Sending to kitchen",
+      "preparingDetails": "Preparing order details"
+    },
+    "dineIn": "Dine-In",
+    "table": "Table",
+    "takeaway": "Takeaway",
+    "callWaiter": "Call Waiter",
+    "requestWater": "Request Water",
+    "vegOnly": "Veg Only",
+    "popular": "Popular",
+    "spicy": "Spicy",
+    "token": "Token"
   },
   "hi": {
-    "manualEntry": "मैन्युअल प्रवेश",
+    "manualEntry": "मेनू",
     "smartServe": "स्मार्ट सर्व",
     "aiOrdered": "एआई द्वारा ऑर्डर:",
     "orderSummary": "ऑर्डर सारांश:",
@@ -27,10 +44,27 @@
     "tapToStop": "रोकने के लिए टैप करें",
     "tapToOrder": "ऑर्डर करने के लिए टैप करें",
     "searchPlaceholder": "आइटम खोजें...",
-    "resetOrderBtn": "ऑर्डर रीसेट करें"
+    "resetOrderBtn": "ऑर्डर रीसेट करें",
+    "recordVoiceAria": "आवाज़ से ऑर्डर रिकॉर्ड करें",
+    "processSteps": {
+      "checkingOrder": "आपका ऑर्डर चेक कर रहे हैं",
+      "confirmingItems": "आइटम और कीमत की पुष्टि",
+      "placingOrder": "ऑर्डर प्लेस कर रहे हैं",
+      "sendingToKitchen": "किचन को भेज रहे हैं",
+      "preparingDetails": "ऑर्डर विवरण तैयार"
+    },
+    "dineIn": "डाइन-इन",
+    "table": "टेबल",
+    "takeaway": "टेकअवे",
+    "callWaiter": "वेटर को बुलाएं",
+    "requestWater": "पानी मांगें",
+    "vegOnly": "केवल शाकाहारी",
+    "popular": "लोकप्रिय",
+    "spicy": "मसालेदार",
+    "token": "टोकन"
   },
   "mr": {
-    "manualEntry": "मॅन्युअल नोंद",
+    "manualEntry": "मेनू",
     "smartServe": "स्मार्ट सर्व",
     "aiOrdered": "एआय ने ऑर्डर केले:",
     "orderSummary": "ऑर्डर सारांश:",
@@ -42,10 +76,27 @@
     "tapToStop": "थांबवण्यासाठी टॅप करा",
     "tapToOrder": "ऑर्डर करण्यासाठी टॅप करा",
     "searchPlaceholder": "वस्तू शोधा...",
-    "resetOrderBtn": "ऑर्डर रीसेट करा"
+    "resetOrderBtn": "ऑर्डर रीसेट करा",
+    "recordVoiceAria": "आवाज रेकॉर्ड करा",
+    "processSteps": {
+      "checkingOrder": "तुमची ऑर्डर तपासत आहे",
+      "confirmingItems": "वस्तू आणि किंमत निश्चित करत आहे",
+      "placingOrder": "ऑर्डर देत आहे",
+      "sendingToKitchen": "किचनला पाठवत आहे",
+      "preparingDetails": "ऑर्डर तपशील तयार"
+    },
+    "dineIn": "डाइन-इन",
+    "table": "टेबल",
+    "takeaway": "टेकअवे",
+    "callWaiter": "वेटरला बोलवा",
+    "requestWater": "पाणी मागवा",
+    "vegOnly": "फक्त शाकाहारी",
+    "popular": "लोकप्रिय",
+    "spicy": "तिखट",
+    "token": "टोकन"
   },
   "gu": {
-    "manualEntry": "મેન્યુઅલ એન્ટ્રી",
+    "manualEntry": "મેનુ",
     "smartServe": "સ્માર્ટ સર્વ",
     "aiOrdered": "એઆઈ દ્વારા ઓર્ડર:",
     "orderSummary": "ઓર્ડર સારાંશ:",
@@ -57,6 +108,23 @@
     "tapToStop": "રોકવા માટે ટૅપ કરો",
     "tapToOrder": "ઓર્ડર કરવા માટે ટૅપ કરો",
     "searchPlaceholder": "વસ્તુ શોધો...",
-    "resetOrderBtn": "ઓર્ડર રીસેટ કરો"
+    "resetOrderBtn": "ઓર્ડર રીસેટ કરો",
+    "recordVoiceAria": "અવાજ રેકોર્ડ કરો",
+    "processSteps": {
+      "checkingOrder": "તમારો ઓર્ડર તપાસી રહ્યા છીએ",
+      "confirmingItems": "વસ્તુઓ અને કિંમતની પુષ્ટિ",
+      "placingOrder": "ઓર્ડર આપી રહ્યા છીએ",
+      "sendingToKitchen": "કિચનમાં મોકલી રહ્યા છીએ",
+      "preparingDetails": "ઓર્ડર વિગતો તૈયાર"
+    },
+    "dineIn": "ડાઇન-ઇન",
+    "table": "ટેબલ",
+    "takeaway": "ટેકઅવે",
+    "callWaiter": "વેટરને બોલાવો",
+    "requestWater": "પાણી મંગાવો",
+    "vegOnly": "માત્ર શાકાहारी",
+    "popular": "લોકપ્રિય",
+    "spicy": "મસાલેદાર",
+    "token": "ટોકન"
   }
 }

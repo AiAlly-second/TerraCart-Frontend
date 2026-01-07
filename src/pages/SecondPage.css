@@ -503,14 +503,14 @@
   }
 }
 
-/* Customer Info Modal Styles */
+/* Customer Info Modal Styles - Minimal Clean Design */
 .customer-info-modal-overlay {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
@@ -520,72 +520,57 @@
 }
 
 .customer-info-modal {
-  background-color: #ffffff;
+  background: #ffffff;
   border-radius: 12px;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1),
-    0 10px 10px -5px rgba(0, 0, 0, 0.04);
-  max-width: 500px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+  max-width: 480px;
   width: 100%;
-  max-height: 90vh;
-  overflow-y: auto;
-  animation: modalSlideIn 0.3s ease-out;
-}
-
-@keyframes modalSlideIn {
-  from {
-    opacity: 0;
-    transform: translateY(-20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  max-height: 85vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .customer-info-modal-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 1.5rem;
-  border-bottom: 1px solid #e5e7eb;
+  padding: 1.25rem 1.5rem;
+  background: #fc8019;
+  border-bottom: none;
 }
 
 .customer-info-modal-header h3 {
   margin: 0;
-  font-size: 1.25rem;
+  font-size: 1.125rem;
   font-weight: 600;
-  color: #1f2937;
+  color: #ffffff;
 }
 
 .customer-info-close-btn {
-  background: none;
+  background: rgba(255, 255, 255, 0.2);
   border: none;
-  font-size: 1.5rem;
-  color: #6b7280;
+  font-size: 1.25rem;
+  color: #ffffff;
   cursor: pointer;
   padding: 0;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 6px;
-  transition: all 0.2s;
+  border-radius: 50%;
+  transition: background 0.2s;
 }
 
 .customer-info-close-btn:hover {
-  background-color: #f3f4f6;
-  color: #1f2937;
+  background: rgba(255, 255, 255, 0.3);
 }
 
 .customer-info-modal-body {
-  padding: 1rem;
-}
-
-@media (min-width: 640px) {
-  .customer-info-modal-body {
-    padding: 1.5rem;
-  }
+  padding: 1.5rem;
+  overflow-y: auto;
+  flex: 1;
 }
 
 .customer-info-form {
@@ -597,7 +582,7 @@
 .customer-info-field {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.375rem;
 }
 
 .customer-info-field label {
@@ -607,266 +592,53 @@
 }
 
 .customer-info-input {
-  padding: 0.75rem;
+  padding: 0.625rem 0.875rem;
   border: 1px solid #d1d5db;
-  border-radius: 8px;
-  font-size: 1rem;
-  transition: all 0.2s;
-  width: 100%;
-  box-sizing: border-box;
-}
-
-.customer-info-input:focus {
-  outline: none;
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-}
-
-.customer-info-modal-footer {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  padding: 1rem;
-  border-top: 1px solid #e5e7eb;
-  justify-content: flex-end;
-  flex-shrink: 0;
-}
-
-@media (min-width: 640px) {
-  .customer-info-modal-footer {
-    flex-direction: row;
-    padding: 1.25rem;
-  }
-}
-
-@media (min-width: 1024px) {
-  .customer-info-modal-footer {
-    padding: 1.5rem;
-  }
-}
-
-.customer-info-skip-btn,
-.customer-info-submit-btn {
-  padding: 0.75rem 1.5rem;
-  border-radius: 8px;
-  font-size: 0.9rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s;
-  border: none;
-  width: 100%;
-}
-
-@media (min-width: 640px) {
-  .customer-info-skip-btn,
-  .customer-info-submit-btn {
-    width: auto;
-    font-size: 1rem;
-  }
-}
-
-.customer-info-skip-btn {
-  background-color: #f3f4f6;
-  color: #374151;
-}
-
-.customer-info-skip-btn:hover {
-  background-color: #e5e7eb;
-}
-
-.customer-info-submit-btn {
-  background-color: #3b82f6;
-  color: #ffffff;
-}
-
-.customer-info-submit-btn:hover {
-  background-color: #2563eb;
-}
-
-.customer-info-submit-btn:active {
-  transform: scale(0.98);
-}
-
-/* Customer Info Modal Styles */
-.customer-info-modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(4px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 9999;
-  padding: 1rem;
-}
-
-.customer-info-modal {
-  background-color: #ffffff;
-  border-radius: 12px;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1),
-    0 10px 10px -5px rgba(0, 0, 0, 0.04);
-  max-width: 500px;
-  width: 100%;
-  max-height: 90vh;
-  overflow-y: auto;
-  animation: modalSlideIn 0.3s ease-out;
-}
-
-@keyframes modalSlideIn {
-  from {
-    opacity: 0;
-    transform: translateY(-20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.customer-info-modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 1.5rem;
-  border-bottom: 1px solid #e5e7eb;
-}
-
-.customer-info-modal-header h3 {
-  margin: 0;
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: #1f2937;
-}
-
-.customer-info-close-btn {
-  background: none;
-  border: none;
-  font-size: 1.5rem;
-  color: #6b7280;
-  cursor: pointer;
-  padding: 0;
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   border-radius: 6px;
-  transition: all 0.2s;
-}
-
-.customer-info-close-btn:hover {
-  background-color: #f3f4f6;
-  color: #1f2937;
-}
-
-.customer-info-modal-body {
-  padding: 1rem;
-}
-
-@media (min-width: 640px) {
-  .customer-info-modal-body {
-    padding: 1.5rem;
-  }
-}
-
-.customer-info-form {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.customer-info-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.customer-info-field label {
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: #374151;
-}
-
-.customer-info-input {
-  padding: 0.75rem;
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
-  font-size: 1rem;
-  transition: all 0.2s;
+  font-size: 0.9375rem;
+  transition: border-color 0.2s;
   width: 100%;
   box-sizing: border-box;
+  background: #ffffff;
+}
+
+.customer-info-input::placeholder {
+  color: #9ca3af;
 }
 
 .customer-info-input:focus {
   outline: none;
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  border-color: #fc8019;
+  box-shadow: 0 0 0 3px rgba(252, 128, 25, 0.1);
 }
 
 .customer-info-modal-footer {
   display: flex;
-  flex-direction: column;
   gap: 0.75rem;
-  padding: 1rem;
+  padding: 1.25rem 1.5rem;
   border-top: 1px solid #e5e7eb;
   justify-content: flex-end;
   flex-shrink: 0;
 }
 
-@media (min-width: 640px) {
-  .customer-info-modal-footer {
-    flex-direction: row;
-    padding: 1.25rem;
-  }
-}
-
-@media (min-width: 1024px) {
-  .customer-info-modal-footer {
-    padding: 1.5rem;
-  }
-}
-
-.customer-info-skip-btn,
 .customer-info-submit-btn {
-  padding: 0.75rem 1.5rem;
-  border-radius: 8px;
-  font-size: 0.9rem;
+  padding: 0.625rem 1.5rem;
+  border-radius: 6px;
+  font-size: 0.9375rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background 0.2s;
   border: none;
-  width: 100%;
-}
-
-@media (min-width: 640px) {
-  .customer-info-skip-btn,
-  .customer-info-submit-btn {
-    width: auto;
-    font-size: 1rem;
-  }
-}
-
-.customer-info-skip-btn {
-  background-color: #f3f4f6;
-  color: #374151;
-}
-
-.customer-info-skip-btn:hover {
-  background-color: #e5e7eb;
-}
-
-.customer-info-submit-btn {
-  background-color: #3b82f6;
+  background: #fc8019;
   color: #ffffff;
 }
 
 .customer-info-submit-btn:hover {
-  background-color: #2563eb;
+  background: #e6721a;
 }
 
 .customer-info-submit-btn:active {
   transform: scale(0.98);
 }
+
+

@@ -3,6 +3,8 @@ import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { FiMic, FiMicOff } from "react-icons/fi";
 import { useAITranslation } from "../hooks/useAITranslation";
+import menuPageTranslations from "../data/translations/MenuPage.json";
+import menuItemsTranslations from "../data/translations/menuTranslations.json";
 import fallbackMenuItems from "../data/menuData";
 import restaurantBg from "../assets/images/restaurant-img.jpg";
 import { HiSpeakerWave } from "react-icons/hi2";
@@ -83,8 +85,9 @@ const buildInvoiceId = (order) => {
     .toISOString()
     .slice(0, 10)
     .replace(/-/g, "");
-  const tail = (order._id || "").toString().slice(-6).toUpperCase();
-  return `INV-${date}-${tail}`;
+  // Use cartId instead of order._id for invoice numbering
+  const cartIdTail = (order.cartId || order._id || "").toString().slice(-6).toUpperCase();
+  return `INV-${date}-${cartIdTail}`;
 };
 
 const getLatestKot = (order) => {
@@ -217,9 +220,24 @@ const buildCatalogFromCategories = (categories) => {
   return catalog;
 };
 
-const TranslatedItem = ({ item, onAdd, onRemove, count }) => {
+const TranslatedItem = ({ item, onAdd, onRemove, count, lang }) => {
   if (!item) return null;
-  const [translatedName] = useAITranslation(item.name || "");
+  
+  const language = lang || localStorage.getItem("language") || "en";
+  let staticTranslation = null;
+  
+  // Try to lookup in static translations first
+  if (menuItemsTranslations[language]?.items) {
+     // Normalize item name to key format (lowercase, underscores)
+     // e.g. "Veg Sandwich" -> "veg_sandwich"
+     const key = item.name?.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+     staticTranslation = menuItemsTranslations[language].items[key];
+     // Debug log
+     // console.log(`[TranslatedItem] Lang: ${language}, Item: ${item.name}, Key: ${key}, Found: ${!!staticTranslation}, Val: ${staticTranslation}`);
+  }
+
+  const [aiTranslation] = useAITranslation(item.name || "");
+  const translatedName = staticTranslation || aiTranslation;
   const isAvailable = item.isAvailable !== false;
 
   return (
@@ -229,6 +247,7 @@ const TranslatedItem = ({ item, onAdd, onRemove, count }) => {
       transition={{ duration: 0.5 }}
       className={`item-card group ${!isAvailable ? "unavailable" : ""}`}
     >
+      {/* Image at Top */}
       <div className="item-image-container">
         <img
           src={getImageUrl(item?.image)}
@@ -237,24 +256,19 @@ const TranslatedItem = ({ item, onAdd, onRemove, count }) => {
         />
       </div>
 
-      <div className="item-gradient"></div>
+      {/* Name and Price in Middle */}
+      <div className="item-info-section">
+        <h4 className="item-name">
+          {translatedName || item?.name || "Unnamed Item"}
+        </h4>
+        <p className="item-price">₹{item?.price || 0}</p>
+        {!isAvailable && (
+          <span className="item-status-badge unavailable">Not available</span>
+        )}
+      </div>
 
+      {/* Buttons at Bottom */}
       <div className="item-footer">
-        <div className="item-info">
-          <h4 className="item-name">
-            {translatedName || item?.name || "Unnamed Item"}
-          </h4>
-          {item?.description && (
-            <p className="item-description text-xs text-gray-500 mt-1">
-              {item.description}
-            </p>
-          )}
-          <p className="item-price">₹{item?.price || 0}</p>
-          {!isAvailable && (
-            <span className="item-status-badge unavailable">Not available</span>
-          )}
-        </div>
-
         <div className="item-controls">
           <button
             aria-label={`Remove one ${item?.name || "item"}`}
@@ -283,7 +297,16 @@ const TranslatedItem = ({ item, onAdd, onRemove, count }) => {
 };
 
 const TranslatedSummaryItem = ({ item, qty }) => {
-  const [translatedItem] = useAITranslation(item);
+  const language = localStorage.getItem("language") || "en";
+  let staticTranslation = null;
+  
+  if (menuItemsTranslations[language]?.items) {
+     const key = item?.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+     staticTranslation = menuItemsTranslations[language].items[key];
+  }
+
+  const [aiTranslation] = useAITranslation(item);
+  const translatedItem = staticTranslation || aiTranslation;
   return (
     <li className="summary-item">
       {qty} x {translatedItem}
@@ -294,10 +317,21 @@ const TranslatedSummaryItem = ({ item, qty }) => {
 // NEW: CategoryBlock.jsx-inlined component
 // Updated: each category controls its own open/close state.
 // Opening one category will NOT auto-close others; user controls each independently.
-const CategoryBlock = ({ category, items, cart, onAdd, onRemove }) => {
+const CategoryBlock = ({ category, items, cart, onAdd, onRemove, lang, defaultOpen = false }) => {
   if (!category) return null;
-  const [translatedCategory] = useAITranslation(category || "");
-  const [isOpen, setIsOpen] = useState(false);
+  
+  const language = lang || localStorage.getItem("language") || "en";
+  let staticTranslation = null;
+  
+  if (menuItemsTranslations[language]?.categories) {
+     const key = category?.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+     staticTranslation = menuItemsTranslations[language].categories[key];
+     // console.log(`[CategoryBlock] Lang: ${language}, Cat: ${category}, Key: ${key}, Found: ${!!staticTranslation}`);
+  }
+
+  const [aiTranslation] = useAITranslation(category || "");
+  const translatedCategory = staticTranslation || aiTranslation;
+  const [isOpen, setIsOpen] = useState(defaultOpen);
 
   const safeItems = Array.isArray(items) ? items : [];
 
@@ -319,6 +353,7 @@ const CategoryBlock = ({ category, items, cart, onAdd, onRemove }) => {
               onAdd={onAdd}
               onRemove={onRemove}
               count={cart[item?.name] || 0}
+              lang={language}
             />
           ))}
         </div>
@@ -329,13 +364,38 @@ const CategoryBlock = ({ category, items, cart, onAdd, onRemove }) => {
 
 export default function MenuPage() {
   const location = useLocation();
+  const [lang, setLang] = useState(localStorage.getItem("language") || "en");
+
+  // Listen for storage changes to update language
+  useEffect(() => {
+    const handleStorageChange = () => {
+      setLang(localStorage.getItem("language") || "en");
+    };
+    window.addEventListener("storage", handleStorageChange);
+    // Custom event listener for same-tab updates if dispatching manual events
+    window.addEventListener("language-change", handleStorageChange);
+    return () => {
+      window.removeEventListener("storage", handleStorageChange);
+      window.removeEventListener("language-change", handleStorageChange);
+    };
+  }, []);
+
+  const t = (key, fallback) => {
+    if (!key) return fallback;
+    const keys = key.split(".");
+    let value = menuPageTranslations[lang];
+    for (const k of keys) {
+      value = value?.[k];
+    }
+    return value || fallback;
+  };
 
   const initialProcessSteps = [
-    { label: "Checking your order", state: "pending" }, // was: "Validating cart"
-    { label: "Confirming items & price", state: "pending" }, // was: "Order processing"
-    { label: "Placing your order", state: "pending" }, // was: "Sending to backend"
-    { label: "Sending to kitchen", state: "pending" }, // was: "Routing to kitchen"
-    { label: "Preparing order details", state: "pending" }, // was: "Loading order summary"
+    { label: t("processSteps.checkingOrder", "Checking your order"), state: "pending" },
+    { label: t("processSteps.confirmingItems", "Confirming items & price"), state: "pending" },
+    { label: t("processSteps.placingOrder", "Placing your order"), state: "pending" },
+    { label: t("processSteps.sendingToKitchen", "Sending to kitchen"), state: "pending" },
+    { label: t("processSteps.preparingDetails", "Preparing order details"), state: "pending" },
   ];
 
   const [processOpen, setProcessOpen] = useState(false);
@@ -796,19 +856,21 @@ export default function MenuPage() {
     [previousOrderDetail]
   );
 
-  const [menuHeading] = useAITranslation("Menu");
-  const [smartServe] = useAITranslation("Smart Serve");
-  const [aiOrdered] = useAITranslation("AI Ordered:");
-  const [orderSummary] = useAITranslation("Order Summary:");
-  const [confirmBtn] = useAITranslation("Confirm");
-  const [speakBtn] = useAITranslation("Speak Order");
-  const [processingText] = useAITranslation("Processing your voice...");
-  const [cartEmptyText] = useAITranslation("Cart is empty");
-  const [resetBtn] = useAITranslation("Reset Order");
-  const [tapToOrder] = useAITranslation("Tap to Order");
-  const [tapToStop] = useAITranslation("Tap to Stop");
-  const [searchPlaceholder] = useAITranslation("Search item...");
-  const [recordVoiceAria] = useAITranslation("Record voice order");
+
+
+  const menuHeading = t("manualEntry", "Menu");
+  const smartServe = t("smartServe", "Smart Serve");
+  const aiOrdered = t("aiOrdered", "AI Ordered:");
+  const orderSummary = t("orderSummary", "Order Summary:");
+  const confirmBtn = t("confirm", "Confirm");
+  const speakBtn = t("speakOrder", "Speak Order");
+  const processingText = t("processingVoice", "Processing your voice...");
+  const cartEmptyText = t("cartEmpty", "Cart is empty");
+  const resetBtn = t("resetOrderBtn", "Reset Order");
+  const tapToOrder = t("tapToOrder", "Tap to Order");
+  const tapToStop = t("tapToStop", "Tap to Stop");
+  const searchPlaceholder = t("searchPlaceholder", "Search item...");
+  const recordVoiceAria = t("recordVoiceAria", "Record voice order");
 
   useEffect(() => {
     if (orderStatus) {
@@ -2053,7 +2115,18 @@ export default function MenuPage() {
 
     // Reset & open overlay
     setProcessSteps(
-      initialProcessSteps.map((s) => ({ ...s, state: "pending" }))
+      initialProcessSteps.map((s, index) => {
+          // Re-translate using latest state
+          let label = s.label;
+          switch(index) {
+             case 0: label = t("processSteps.checkingOrder", "Checking your order"); break;
+             case 1: label = t("processSteps.confirmingItems", "Confirming items & price"); break;
+             case 2: label = t("processSteps.placingOrder", "Placing your order"); break;
+             case 3: label = t("processSteps.sendingToKitchen", "Sending to kitchen"); break;
+             case 4: label = t("processSteps.preparingDetails", "Preparing order details"); break;
+          }
+          return { ...s, label, state: "pending" };
+      })
     );
     setProcessOpen(true);
 
@@ -4503,18 +4576,18 @@ export default function MenuPage() {
                         <span className="order-header-icon">📍</span>
                         <span>
                           {tableInfo?.number
-                            ? `Dine-In - Table ${tableInfo.number}`
-                            : "Dine-In"}
+                            ? `${t("dineIn", "Dine-In")} - ${t("table", "Table")} ${tableInfo.number}`
+                            : t("dineIn", "Dine-In")}
                         </span>
                       </>
                     ) : (
-                      <span>Takeaway</span>
+                      <span>{t("takeaway", "Takeaway")}</span>
                     )}
                   </div>
                   {serviceType === "DINE_IN" && (
                     <div className="guest-count-badge">
                       <span className="guest-icon">👥</span>
-                      <span>2</span>
+                      <span>{tableInfo?.seats || tableInfo?.capacity || 2}</span>
                     </div>
                   )}
                 </div>
@@ -4522,7 +4595,7 @@ export default function MenuPage() {
                 {serviceType === "TAKEAWAY" &&
                   previousOrderDetail?.takeawayToken && (
                     <span className="token-badge">
-                      Token:{" "}
+                      {t("token", "Token")}:{" "}
                       <strong>{previousOrderDetail.takeawayToken}</strong>
                     </span>
                   )}
@@ -4585,7 +4658,7 @@ export default function MenuPage() {
                     }}
                     className="action-button call-waiter-button"
                   >
-                    Call Waiter
+                    {t("callWaiter", "Call Waiter")}
                   </button>
                   <button
                     onClick={async () => {
@@ -4623,7 +4696,7 @@ export default function MenuPage() {
                     }}
                     className="action-button request-water-button"
                   >
-                    💧 Request Water
+                    💧 {t("requestWater", "Request Water")}
                   </button>
                 </div>
               )}
@@ -4801,30 +4874,11 @@ export default function MenuPage() {
                           <button
                             className="billing-button"
                             onClick={() => {
-                              if (
-                                ["Preparing", "Ready", "Served"].includes(
-                                  orderStatus
-                                )
-                              ) {
-                                // For these statuses, Complete Payment shows invoice
-                                handleViewInvoice();
-                              } else {
-                                // For Confirmed and other statuses, navigate to billing
-                                navigate("/billing");
-                              }
+                              // Always navigate to billing page for payment flow
+                              navigate("/billing");
                             }}
-                            disabled={
-                              ["Preparing", "Ready", "Served"].includes(
-                                orderStatus
-                              ) && invoiceLoading
-                            }
                           >
-                            {invoiceLoading &&
-                            ["Preparing", "Ready", "Served"].includes(
-                              orderStatus
-                            )
-                              ? "Opening..."
-                              : "Complete Payment"}
+                            Complete Payment
                           </button>
                         );
                       }
@@ -4976,21 +5030,22 @@ export default function MenuPage() {
               />
 
               {/* Filter Pills */}
-              <div className="filter-pills-container">
+              {/* Filter Pills - Commented out as per request */}
+              {/* <div className="filter-pills-container">
                 <button className="filter-pill veg-filter">
                   <span className="filter-icon">🌿</span>
-                  <span>Veg Only</span>
+                  <span>{t("vegOnly", "Veg Only")}</span>
                 </button>
                 <button className="filter-pill popular-filter">
                   <span className="filter-icon">⭐</span>
-                  <span>Popular</span>
+                  <span>{t("popular", "Popular")}</span>
 
                 </button>
                 <button className="filter-pill spicy-filter">
                   <span className="filter-icon">🌶️</span>
-                  <span>Spicy</span>
+                  <span>{t("spicy", "Spicy")}</span>
                 </button>
-              </div>
+              </div> */}
 
               {menuError && !menuLoading && (
                 <div className="menu-warning">{menuError}</div>
@@ -5010,6 +5065,7 @@ export default function MenuPage() {
                         onAdd={handleAdd}
                         onRemove={handleRemove}
                         count={cart[item.name] || 0}
+                        lang={lang}
                       />
                     ))}
                   </div>
@@ -5030,9 +5086,10 @@ export default function MenuPage() {
                       {(Array.isArray(menuCategories)
                         ? menuCategories
                         : []
-                      ).map((category) => (
+                      ).map((category, index) => (
                         <CategoryBlock
                           key={category?._id || category?.name || Math.random()}
+                          defaultOpen={index === 0}
                           category={category?.name || "Unnamed Category"}
                           items={
                             Array.isArray(category?.items) ? category.items : []
@@ -5040,6 +5097,7 @@ export default function MenuPage() {
                           cart={cart}
                           onAdd={handleAdd}
                           onRemove={handleRemove}
+                          lang={lang}
                         />
                       ))}
                     </>

@@ -11,6 +11,7 @@ import AccessibilityTools from "./components/AccessibilityTools";
 import Footer from "./components/Footer";
 import Loader from "./components/Loader";
 import AppLoader from "./components/AppLoader";
+import { useTablePersistence } from "./hooks/useTablePersistence";
 
 // Lazy load heavy components for better performance
 const Menu = lazy(() => import("./pages/Menu"));
@@ -26,6 +27,9 @@ const SignName = lazy(() => import("./pages/SignName"));
 export default function App() {
   const [activeModal, setActiveModal] = useState(null); // "pdf" | "sign" | null
   const [isAppReady, setIsAppReady] = useState(false);
+  
+  // Maintain table parameter across navigation
+  useTablePersistence();
 
   // Show loader until app is ready with proper synchronization
   useEffect(() => {

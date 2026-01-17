@@ -4716,44 +4716,86 @@ export default function MenuPage() {
                   >
                     {t("callWaiter", "Call Waiter")}
                   </button>
-                  <button
-                    onClick={async () => {
-                      try {
-                        const tableDataStr = localStorage.getItem('terra_selectedTable');
-                        if (!tableDataStr) {
-                          alert("Please select a table first");
-                          return;
+                  
+                  {!activeOrderId ? (
+                    <button
+                      onClick={async () => {
+                        try {
+                          const tableDataStr = localStorage.getItem('terra_selectedTable');
+                          if (!tableDataStr) {
+                            alert("Please select a table first");
+                            return;
+                          }
+                          const tableData = JSON.parse(tableDataStr);
+                          const tableId = tableData.id || tableData._id;
+                          const orderId = localStorage.getItem('terra_orderId') || null;
+                          const nodeApi = (import.meta.env.VITE_NODE_API_URL || "http://localhost:5001").replace(/\/$/, "");
+                          
+                          const response = await fetch(`${nodeApi}/api/customer-requests`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              tableId: tableId,
+                              requestType: "water",
+                              customerNotes: "Request Water",
+                              ...(orderId && { orderId: orderId }),
+                            }),
+                          });
+                          
+                          if (response.ok) {
+                            alert("✅ Water requested! Someone will bring it shortly.");
+                          } else {
+                            throw new Error("Failed to send request");
+                          }
+                        } catch (error) {
+                          console.error("Error requesting water:", error);
+                          alert("❌ Failed to request water. Please try again.");
                         }
-                        const tableData = JSON.parse(tableDataStr);
-                        const tableId = tableData.id || tableData._id;
-                        const orderId = localStorage.getItem('terra_orderId') || null;
-                        const nodeApi = (import.meta.env.VITE_NODE_API_URL || "http://localhost:5001").replace(/\/$/, "");
-                        
-                        const response = await fetch(`${nodeApi}/api/customer-requests`, {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({
-                            tableId: tableId,
-                            requestType: "water",
-                            customerNotes: "Request Water",
-                            ...(orderId && { orderId: orderId }),
-                          }),
-                        });
-                        
-                        if (response.ok) {
-                          alert("✅ Water requested! Someone will bring it shortly.");
-                        } else {
-                          throw new Error("Failed to send request");
+                      }}
+                      className="action-button request-water-button"
+                    >
+                      💧 {t("requestWater", "Request Water")}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={async () => {
+                        try {
+                          const tableDataStr = localStorage.getItem('terra_selectedTable');
+                          if (!tableDataStr) {
+                            alert("Please select a table first");
+                            return;
+                          }
+                          const tableData = JSON.parse(tableDataStr);
+                          const tableId = tableData.id || tableData._id;
+                          const orderId = localStorage.getItem('terra_orderId') || null;
+                          const nodeApi = (import.meta.env.VITE_NODE_API_URL || "http://localhost:5001").replace(/\/$/, "");
+                          
+                          const response = await fetch(`${nodeApi}/api/customer-requests`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              tableId: tableId,
+                              requestType: "bill",
+                              customerNotes: "Request Bill",
+                              ...(orderId && { orderId: orderId }),
+                            }),
+                          });
+                          
+                          if (response.ok) {
+                            alert("✅ Bill requested! Someone will bring it shortly.");
+                          } else {
+                            throw new Error("Failed to send request");
+                          }
+                        } catch (error) {
+                          console.error("Error requesting bill:", error);
+                          alert("❌ Failed to request bill. Please try again.");
                         }
-                      } catch (error) {
-                        console.error("Error requesting water:", error);
-                        alert("❌ Failed to request water. Please try again.");
-                      }
-                    }}
-                    className="action-button request-water-button"
-                  >
-                    💧 {t("requestWater", "Request Water")}
-                  </button>
+                      }}
+                      className="action-button request-bill-button"
+                    >
+                      🧾 {t("requestBill", "Request Bill")}
+                    </button>
+                  )}
                 </div>
               )}
 

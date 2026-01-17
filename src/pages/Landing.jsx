@@ -106,9 +106,22 @@ export default function Landing() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const slug = params.get("table");
+    let slug = params.get("table");
+    
+    // CRITICAL: Check sessionStorage for persisted table parameter
+    // This handles the case where useTablePersistence is maintaining the table across pages
+    if (!slug) {
+      const persistedTable = sessionStorage.getItem('terra_table_param');
+      if (persistedTable) {
+        console.log('[Landing] Using persisted table parameter from sessionStorage:', persistedTable);
+        slug = persistedTable;
+        // Update URL to include table parameter for consistency
+        const newUrl = `${window.location.pathname}?table=${persistedTable}`;
+        window.history.replaceState({}, '', newUrl);
+      }
+    }
 
-    // CRITICAL: If no table parameter in URL, clear all dine-in order data
+    // CRITICAL: If no table parameter in URL or sessionStorage, clear all dine-in order data
     // This ensures users opening normal links don't see old table/dine order data
     if (!slug || slug.trim().length < 5) {
       // Also clear if slug is too short (likely invalid)

@@ -731,6 +731,12 @@ export default function MenuPage() {
   const [invoiceLoading, setInvoiceLoading] = useState(false);
   const [printingInvoice, setPrintingInvoice] = useState(false);
   const [downloadingInvoice, setDownloadingInvoice] = useState(false);
+  
+  // Reason Modal State
+  const [showReasonModal, setShowReasonModal] = useState(false);
+  const [reasonAction, setReasonAction] = useState(null); // "Cancel" or "Return"
+  const [reasonText, setReasonText] = useState("");
+  const [submittingReason, setSubmittingReason] = useState(false);
 
   const persistPreviousOrder = useCallback((data) => {
     if (data) {
@@ -3372,7 +3378,7 @@ export default function MenuPage() {
     }
   };
 
-  const handleCancelOrder = async () => {
+  const handleCancelOrder = () => {
     // Get order ID - check service-type-specific first, then general
     const orderId =
       serviceType === "TAKEAWAY"
@@ -3385,254 +3391,254 @@ export default function MenuPage() {
       alert("No active order found.");
       return;
     }
-    if (
-      !(await window.confirm("Are you sure you want to cancel this order?"))
-    ) {
-      return;
-    }
-
-    setCancelling(true);
-    try {
-      // Get appropriate session token based on service type
-      // CRITICAL: For takeaway orders, try multiple sources to find the sessionToken
-      let sessionToken = null;
-      if (serviceType === "TAKEAWAY") {
-        // Try takeaway-specific token first, then fallback to generic
-        sessionToken =
-          localStorage.getItem("terra_takeaway_sessionToken") ||
-          localStorage.getItem("terra_sessionToken");
-
-        // If still no token, try to get it from the order itself (for backward compatibility)
-        if (!sessionToken) {
-          try {
-            const orderRes = await fetch(`${nodeApi}/api/orders/${orderId}`);
-            if (orderRes.ok) {
-              const orderData = await orderRes.json();
-              if (orderData?.sessionToken) {
-                sessionToken = orderData.sessionToken;
-                // Store it for future use
-                localStorage.setItem(
-                  "terra_takeaway_sessionToken",
-                  sessionToken
-                );
-                console.log(
-                  "[Menu] Retrieved sessionToken from order for cancellation:",
-                  sessionToken
-                );
-              }
-            }
-          } catch (err) {
-            console.warn(
-              "[Menu] Failed to fetch order to get sessionToken:",
-              err
-            );
-          }
-        }
-      } else {
-        sessionToken = localStorage.getItem("terra_sessionToken");
-      }
-
-      const res = await fetch(
-        `${nodeApi}/api/orders/${orderId}/customer-status`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            status: "Cancelled",
-            sessionToken: sessionToken || undefined,
-          }),
-        }
-      );
-
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data?.message || "Failed to cancel order");
-      }
-
-      const updatedOrder = data?._id ? data : null;
-      const updatedAt = updatedOrder?.updatedAt || new Date().toISOString();
-
-      capturePreviousOrder({
-        orderId: updatedOrder?._id,
-        status: "Cancelled",
-        updatedAt,
-        tableNumber:
-          updatedOrder?.tableNumber ??
-          tableInfo?.number ??
-          tableInfo?.tableNumber ??
-          null,
-        tableSlug:
-          updatedOrder?.table?.qrSlug ??
-          tableInfo?.qrSlug ??
-          localStorage.getItem("terra_scanToken") ??
-          null,
-        tableInfo: updatedOrder?.table || tableInfo,
-      });
-
-      if (updatedOrder) {
-        persistPreviousOrderDetail(updatedOrder);
-      }
-
-      setOrderStatus(null);
-      setOrderStatusUpdatedAt(null);
-      setActiveOrderId(null);
-
-      // Clear order data based on service type
-      if (serviceType === "TAKEAWAY") {
-        localStorage.removeItem("terra_orderId_TAKEAWAY");
-        localStorage.removeItem("terra_orderStatus_TAKEAWAY");
-        localStorage.removeItem("terra_orderStatusUpdatedAt_TAKEAWAY");
-        localStorage.removeItem("terra_cart_TAKEAWAY");
-
-        // CRITICAL: Clear takeaway customer data when order is cancelled
-        // This ensures new customers don't see previous customer's data
-        localStorage.removeItem("terra_takeaway_customerName");
-        localStorage.removeItem("terra_takeaway_customerMobile");
-        localStorage.removeItem("terra_takeaway_customerEmail");
-        console.log(
-          "[Menu] Cleared takeaway customer data after order cancellation"
-        );
-      } else {
-        localStorage.removeItem("terra_orderId");
-        localStorage.removeItem("terra_orderStatus");
-        localStorage.removeItem("terra_orderStatusUpdatedAt");
-        localStorage.removeItem("terra_cart");
-      }
-
-      // Also clear general order data
-      localStorage.removeItem("terra_orderId");
-      localStorage.removeItem("terra_orderStatus");
-      localStorage.removeItem("terra_orderStatusUpdatedAt");
-      localStorage.removeItem("terra_cart");
-
-      // CRITICAL: If this is a takeaway order, clear waitlist state
-      // Takeaway orders should never trigger waitlist
-      if (serviceType === "TAKEAWAY") {
-        localStorage.removeItem("terra_waitToken");
-        console.log(
-          "[Menu] Cleared waitlist state for cancelled takeaway order"
-        );
-      }
-
-      setCart({});
-      setIsOrderingMore(false);
-      alert("Your order has been cancelled.");
-    } catch (err) {
-      console.error("handleCancelOrder error", err);
-      alert(err.message || "Unable to cancel order. Please contact staff.");
-    } finally {
-      setCancelling(false);
-    }
+    
+    setReasonAction("Cancel");
+    setReasonText("");
+    setShowReasonModal(true);
   };
 
-  const handleReturnOrder = async () => {
+  const handleReturnOrder = () => {
     if (!activeOrderId) {
       alert("No active order found.");
       return;
     }
-    if (
-      !(await window.confirm("Are you sure you want to return this order?"))
-    ) {
+    setReasonAction("Return");
+    setReasonText("");
+    setShowReasonModal(true);
+  };
+
+  const submitReasonAction = async () => {
+    if (!reasonText.trim()) {
+      alert("Please enter a reason.");
       return;
     }
 
-    setReturning(true);
+    setSubmittingReason(true);
+
     try {
-      const sessionToken = localStorage.getItem("terra_sessionToken");
-      const res = await fetch(
-        `${nodeApi}/api/orders/${activeOrderId}/customer-status`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            status: "Returned",
-            sessionToken:
-              serviceType === "DINE_IN" ? sessionToken || undefined : undefined,
-          }),
+      if (reasonAction === "Cancel") {
+        setCancelling(true);
+        // Get order ID
+        const orderId =
+          serviceType === "TAKEAWAY"
+            ? activeOrderId ||
+              localStorage.getItem("terra_orderId_TAKEAWAY") ||
+              localStorage.getItem("terra_orderId")
+            : activeOrderId || localStorage.getItem("terra_orderId");
+
+        // Get appropriate session token based on service type
+        let sessionToken = null;
+        if (serviceType === "TAKEAWAY") {
+          // Try takeaway-specific token first, then fallback to generic
+          sessionToken =
+            localStorage.getItem("terra_takeaway_sessionToken") ||
+            localStorage.getItem("terra_sessionToken");
+
+          // If still no token, try to get it from the order itself (for backward compatibility)
+          if (!sessionToken) {
+            try {
+              const orderRes = await fetch(`${nodeApi}/api/orders/${orderId}`);
+              if (orderRes.ok) {
+                const orderData = await orderRes.json();
+                if (orderData?.sessionToken) {
+                  sessionToken = orderData.sessionToken;
+                  // Store it for future use
+                  localStorage.setItem(
+                    "terra_takeaway_sessionToken",
+                    sessionToken
+                  );
+                }
+              }
+            } catch (err) {
+              console.warn(
+                "[Menu] Failed to fetch order to get sessionToken:",
+                err
+              );
+            }
+          }
+        } else {
+          sessionToken = localStorage.getItem("terra_sessionToken");
         }
-      );
 
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data?.message || "Failed to return order");
-      }
+        const res = await fetch(
+          `${nodeApi}/api/orders/${orderId}/customer-status`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              status: "Cancelled",
+              sessionToken: sessionToken || undefined,
+              reason: reasonText,
+            }),
+          }
+        );
 
-      const updatedOrder = data?._id ? data : null;
-      const updatedAt = updatedOrder?.updatedAt || new Date().toISOString();
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data?.message || "Failed to cancel order");
+        }
 
-      capturePreviousOrder({
-        orderId: updatedOrder?._id,
-        status: "Returned",
-        updatedAt,
-        tableNumber:
-          updatedOrder?.tableNumber ??
-          tableInfo?.number ??
-          tableInfo?.tableNumber ??
-          null,
-        tableSlug:
-          updatedOrder?.table?.qrSlug ??
-          tableInfo?.qrSlug ??
-          localStorage.getItem("terra_scanToken") ??
-          null,
-        tableInfo: updatedOrder?.table || tableInfo,
-      });
+        const updatedOrder = data?._id ? data : null;
+        const updatedAt = updatedOrder?.updatedAt || new Date().toISOString();
 
-      if (updatedOrder) {
-        persistPreviousOrderDetail(updatedOrder);
-      }
+        capturePreviousOrder({
+          orderId: updatedOrder?._id,
+          status: "Cancelled",
+          updatedAt,
+          tableNumber:
+            updatedOrder?.tableNumber ??
+            tableInfo?.number ??
+            tableInfo?.tableNumber ??
+            null,
+          tableSlug:
+            updatedOrder?.table?.qrSlug ??
+            tableInfo?.qrSlug ??
+            localStorage.getItem("terra_scanToken") ??
+            null,
+          tableInfo: updatedOrder?.table || tableInfo,
+        });
 
-      setOrderStatus("Returned");
-      setOrderStatusUpdatedAt(updatedAt);
-      setActiveOrderId(null);
+        if (updatedOrder) {
+          persistPreviousOrderDetail(updatedOrder);
+        }
 
-      // Clear order IDs based on service type
-      if (serviceType === "TAKEAWAY") {
-        localStorage.removeItem("terra_orderId_TAKEAWAY");
-        localStorage.removeItem("terra_orderStatus_TAKEAWAY");
-        localStorage.removeItem("terra_orderStatusUpdatedAt_TAKEAWAY");
-      } else {
+        setOrderStatus(null);
+        setOrderStatusUpdatedAt(null);
+        setActiveOrderId(null);
+
+        // Clear order data based on service type
+        if (serviceType === "TAKEAWAY") {
+          localStorage.removeItem("terra_orderId_TAKEAWAY");
+          localStorage.removeItem("terra_orderStatus_TAKEAWAY");
+          localStorage.removeItem("terra_orderStatusUpdatedAt_TAKEAWAY");
+          localStorage.removeItem("terra_cart_TAKEAWAY");
+
+          // CRITICAL: Clear takeaway customer data when order is cancelled
+          localStorage.removeItem("terra_takeaway_customerName");
+          localStorage.removeItem("terra_takeaway_customerMobile");
+          localStorage.removeItem("terra_takeaway_customerEmail");
+          console.log(
+            "[Menu] Cleared takeaway customer data after order cancellation"
+          );
+        } else {
+          localStorage.removeItem("terra_orderId");
+          localStorage.removeItem("terra_orderStatus");
+          localStorage.removeItem("terra_orderStatusUpdatedAt");
+          localStorage.removeItem("terra_cart");
+        }
+
+        // Also clear general order data
         localStorage.removeItem("terra_orderId");
-        localStorage.removeItem("terra_orderId_DINE_IN");
         localStorage.removeItem("terra_orderStatus");
-        localStorage.removeItem("terra_orderStatus_DINE_IN");
         localStorage.removeItem("terra_orderStatusUpdatedAt");
-        localStorage.removeItem("terra_orderStatusUpdatedAt_DINE_IN");
-      }
+        localStorage.removeItem("terra_cart");
 
-      localStorage.removeItem("terra_cart");
-      setCart({});
-      setIsOrderingMore(false);
-
-      // CRITICAL: If this is a takeaway order, clear waitlist state
-      // Takeaway orders should never trigger waitlist
-      if (serviceType === "TAKEAWAY") {
-        localStorage.removeItem("terra_waitToken");
-        if (import.meta.env.DEV) {
+        // CRITICAL: If this is a takeaway order, clear waitlist state
+        if (serviceType === "TAKEAWAY") {
+          localStorage.removeItem("terra_waitToken");
           console.log(
-            "[Menu] Cleared waitlist state for returned takeaway order"
+            "[Menu] Cleared waitlist state for cancelled takeaway order"
           );
         }
 
-        // CRITICAL: Clear takeaway customer data when order is returned
-        // This ensures new customers don't see previous customer's data
-        localStorage.removeItem("terra_takeaway_customerName");
-        localStorage.removeItem("terra_takeaway_customerMobile");
-        localStorage.removeItem("terra_takeaway_customerEmail");
-        if (import.meta.env.DEV) {
-          console.log(
-            "[Menu] Cleared takeaway customer data after order return"
-          );
-        }
-      }
+        setCart({});
+        setIsOrderingMore(false);
+        alert("Your order has been cancelled.");
+        setCancelling(false);
+        
+      } else if (reasonAction === "Return") {
+        setReturning(true);
+        const sessionToken = localStorage.getItem("terra_sessionToken");
+        const res = await fetch(
+          `${nodeApi}/api/orders/${activeOrderId}/customer-status`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              status: "Returned",
+              sessionToken:
+                serviceType === "DINE_IN" ? sessionToken || undefined : undefined,
+              reason: reasonText,
+            }),
+          }
+        );
 
-      alert("Your order has been marked as returned.");
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data?.message || "Failed to return order");
+        }
+
+        const updatedOrder = data?._id ? data : null;
+        const updatedAt = updatedOrder?.updatedAt || new Date().toISOString();
+
+        capturePreviousOrder({
+          orderId: updatedOrder?._id,
+          status: "Returned",
+          updatedAt,
+          tableNumber:
+            updatedOrder?.tableNumber ??
+            tableInfo?.number ??
+            tableInfo?.tableNumber ??
+            null,
+          tableSlug:
+            updatedOrder?.table?.qrSlug ??
+            tableInfo?.qrSlug ??
+            localStorage.getItem("terra_scanToken") ??
+            null,
+          tableInfo: updatedOrder?.table || tableInfo,
+        });
+
+        if (updatedOrder) {
+          persistPreviousOrderDetail(updatedOrder);
+        }
+
+        setOrderStatus("Returned");
+        setOrderStatusUpdatedAt(updatedAt);
+        setActiveOrderId(null);
+
+        // Clear order IDs based on service type
+        if (serviceType === "TAKEAWAY") {
+          localStorage.removeItem("terra_orderId_TAKEAWAY");
+          localStorage.removeItem("terra_orderStatus_TAKEAWAY");
+          localStorage.removeItem("terra_orderStatusUpdatedAt_TAKEAWAY");
+        } else {
+          localStorage.removeItem("terra_orderId");
+          localStorage.removeItem("terra_orderId_DINE_IN");
+          localStorage.removeItem("terra_orderStatus");
+          localStorage.removeItem("terra_orderStatus_DINE_IN");
+          localStorage.removeItem("terra_orderStatusUpdatedAt");
+          localStorage.removeItem("terra_orderStatusUpdatedAt_DINE_IN");
+        }
+
+        localStorage.removeItem("terra_cart");
+        setCart({});
+        setIsOrderingMore(false);
+
+        // CRITICAL: If this is a takeaway order, clear waitlist state
+        if (serviceType === "TAKEAWAY") {
+          localStorage.removeItem("terra_waitToken");
+          
+          // CRITICAL: Clear takeaway customer data when order is returned
+          localStorage.removeItem("terra_takeaway_customerName");
+          localStorage.removeItem("terra_takeaway_customerMobile");
+          localStorage.removeItem("terra_takeaway_customerEmail");
+        }
+
+        alert("Your order has been marked as returned.");
+        setReturning(false);
+      }
+      
+      setShowReasonModal(false);
     } catch (err) {
       if (import.meta.env.DEV) {
-        console.error("handleReturnOrder error", err);
+        console.error(`${reasonAction} error`, err);
       }
-      alert(err.message || "Unable to return order. Please contact staff.");
+      alert(err.message || `Unable to ${reasonAction.toLowerCase()} order.`);
+      // Reset loading states on error
+      if (reasonAction === "Cancel") setCancelling(false);
+      if (reasonAction === "Return") setReturning(false);
     } finally {
-      setReturning(false);
+      setSubmittingReason(false);
     }
   };
 
@@ -4970,7 +4976,7 @@ export default function MenuPage() {
                       ) {
                         return (
                           <button
-                            className="billing-button"
+                            className="complete-payment-button"
                             onClick={() => {
                               // Always navigate to billing page for payment flow
                               navigate("/billing");
@@ -5397,6 +5403,82 @@ export default function MenuPage() {
 
               <div className="invoice-footer">
                 Thank you for dining with Terra Cart. We hope to see you again!
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showReasonModal && (
+        <div className="invoice-modal-overlay" onClick={() => setShowReasonModal(false)}>
+          <div
+            className="invoice-modal"
+            style={{ maxWidth: "24rem", maxHeight: "auto", height: "auto" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="invoice-modal-header">
+              <div>
+                <h3>
+                  {reasonAction === "Cancel" ? "Cancel Order" : "Return Order"}
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowReasonModal(false)}
+                className="invoice-close-btn"
+              >
+                ✕
+              </button>
+            </div>
+            <div>
+              <p
+                style={{
+                  marginBottom: "0.5rem",
+                  fontSize: "0.9rem",
+                  color: "#666",
+                }}
+              >
+                Please provide a reason:
+              </p>
+              <textarea
+                style={{
+                  width: "100%",
+                  padding: "0.75rem",
+                  border: "1px solid #ddd",
+                  borderRadius: "0.5rem",
+                  minHeight: "100px",
+                  fontSize: "0.9rem",
+                  marginBottom: "1rem",
+                  fontFamily: "inherit",
+                  resize: "vertical",
+                  boxSizing: "border-box",
+                }}
+                placeholder="e.g. Changed my mind, Taking too long..."
+                value={reasonText}
+                onChange={(e) => setReasonText(e.target.value)}
+              />
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  gap: "0.5rem",
+                }}
+              >
+                <button
+                  className="reset-button"
+                  style={{ width: "auto", flex: "1" }}
+                  onClick={() => setShowReasonModal(false)}
+                  disabled={submittingReason}
+                >
+                  Close
+                </button>
+                <button
+                  className="confirm-button"
+                  style={{ width: "auto", flex: "1" }}
+                  onClick={submitReasonAction}
+                  disabled={submittingReason}
+                >
+                  {submittingReason ? "Processing..." : "Confirm"}
+                </button>
               </div>
             </div>
           </div>

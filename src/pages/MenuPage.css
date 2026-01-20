@@ -2201,3 +2201,52 @@
 .customer-info-submit-btn:active {
   transform: scale(0.98);
 }
+
+/* Complete Payment Button - Green to emphasize importance/money */
+.complete-payment-button {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
+  border: none;
+  box-shadow: 0 2px 4px rgba(16, 185, 129, 0.3);
+  padding: 0.75rem 1rem;
+  border-radius: 0.625rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  width: 100%;
+  transition: all 0.2s ease;
+  min-height: 48px;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.complete-payment-button:hover {
+  background: linear-gradient(135deg, #059669 0%, #047857 100%);
+  box-shadow: 0 4px 8px rgba(16, 185, 129, 0.4);
+  transform: translateY(-1px);
+}
+
+.complete-payment-button:disabled {
+  background: #a7f3d0;
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.accessibility-mode .complete-payment-button {
+  background: linear-gradient(135deg, #00bfff 0%, #60a5fa 100%);
+  color: #000000;
+  box-shadow: none;
+}
+
+.accessibility-mode .complete-payment-button:hover {
+  background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
+}
+
+@media (max-width: 640px) {
+  .complete-payment-button {
+    padding: 0.75rem 0.5rem;
+    font-size: 0.85rem;
+  }
+}
+

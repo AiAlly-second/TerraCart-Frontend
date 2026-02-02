@@ -20,9 +20,11 @@ const OrderConfirmed = lazy(() => import("./pages/OrderConfirmed"));
 const Billing = lazy(() => import("./pages/Billing"));
 const Payment = lazy(() => import("./pages/Payment"));
 const Takeaway = lazy(() => import("./pages/Takeaway"));
+const CartPage = lazy(() => import("./pages/CartPage"));
 const FeedbackPage = lazy(() => import("./pages/FeedbackPage"));
 const SignLanguage = lazy(() => import("./pages/SignLanguage"));
 const SignName = lazy(() => import("./pages/SignName"));
+const BlindAssistantPage = lazy(() => import("./pages/BlindAssistantPage"));
 
 export default function App() {
   const [activeModal, setActiveModal] = useState(null); // "pdf" | "sign" | null
@@ -120,6 +122,14 @@ export default function App() {
                 }
               />
               <Route
+                path="/cart"
+                element={
+                  <Suspense fallback={<Loader />}>
+                    <CartPage />
+                  </Suspense>
+                }
+              />
+              <Route
                 path="/order-summary"
                 element={
                   <Suspense fallback={<Loader />}>
@@ -180,6 +190,14 @@ export default function App() {
                 element={
                   <Suspense fallback={<Loader />}>
                     <SignLanguage />
+                  </Suspense>
+                }
+              />
+              <Route
+                path="/blind-assistant"
+                element={
+                  <Suspense fallback={<Loader />}>
+                    <BlindAssistantPage />
                   </Suspense>
                 }
               />

@@ -1,7 +1,14 @@
+import { useLocation } from "react-router-dom";
 import aiAllyLogo from "../assets/images/AiAlly_logo.png";
 
-
 export default function Footer() {
+  const location = useLocation();
+  const hideOnRoutes = ["/menu", "/cart"];
+  
+  if (hideOnRoutes.includes(location.pathname)) {
+    return null;
+  }
+
   return (
     <footer className="fixed bottom-0 left-0 w-full bg-white border-t border-gray-200 text-center py-2 px-2 sm:px-3 z-40">
       <div className="flex items-center justify-center gap-1 sm:gap-2 flex-wrap">

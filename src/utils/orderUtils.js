@@ -20,7 +20,27 @@ export function buildOrderPayload(cart, options = {}) {
       return name && name.trim() !== "" && Number.isFinite(qty) && qty > 0;
     })
     .map(([name, quantity]) => {
-      const meta = menuCatalog[name];
+      // Try exact match first, then case-insensitive with careful trimming
+      const safeName = (name || "").toString().trim().toLowerCase();
+      const meta = menuCatalog[name] || 
+                   Object.values(menuCatalog).find(item => {
+                      if (!item?.name) return false;
+                      const itemName = item.name.toString().trim().toLowerCase();
+                      return itemName === safeName;
+                   });
+      
+      // DEBUG LOG
+      if (!meta) {
+        console.warn(`[OrderUtils] Item not found in catalog: "${name}" (safe: "${safeName}")`, { 
+          catalogKeys: Object.keys(menuCatalog).slice(0, 10), 
+          catalogSize: Object.keys(menuCatalog).length 
+        });
+      } else if (!meta.price) {
+        console.warn(`[OrderUtils] Item found but has NO price: "${name}"`, meta);
+      } else {
+        console.log(`[OrderUtils] Item found: "${name}", Price: ${meta.price}`);
+      }
+
       const price = meta?.price ?? 0;
       const qty = Number(quantity);
 
@@ -41,7 +61,7 @@ export function buildOrderPayload(cart, options = {}) {
       const itemPayload = {
         name: name.trim(),
         quantity: qty,
-        price: Number(price),
+        price: Number(price), // Backend handles conversion to Paise
       };
       if (meta?._id) {
         itemPayload.itemId = meta._id;
@@ -57,8 +77,8 @@ export function buildOrderPayload(cart, options = {}) {
   }
 
   const subtotal = items.reduce((s, it) => s + it.price * it.quantity, 0);
-  const gst = +(subtotal * 0.05).toFixed(2);
-  const totalAmount = +(subtotal + gst).toFixed(2);
+  const gst = 0; // No GST applied
+  const totalAmount = subtotal; // Total equals subtotal
   const payload = {
     serviceType,
     items,

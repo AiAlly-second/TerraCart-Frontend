@@ -18,8 +18,41 @@ export default function TableServicePopup({ showCard, setShowCard, currentTable,
     return currentTable || localStorage.getItem('selectedTable') || '';
   });
 
-    const [selectedService, setSelectedService] = useState(null);
+  const [selectedService, setSelectedService] = useState(null);
   const [showTableSelect, setShowTableSelect] = useState(!currentTable);
+  const [availableTables, setAvailableTables] = useState([]);
+  const [loadingTables, setLoadingTables] = useState(false);
+
+  // Fetch tables if we don't have currentTable with ID
+  React.useEffect(() => {
+    const fetchTables = async () => {
+      try {
+        setLoadingTables(true);
+        const nodeApi = (import.meta.env.VITE_NODE_API_URL || "http://localhost:5001").replace(/\/$/, "");
+        // We need a cartId to fetch tables. Try to get it from various places.
+        const storedTable = localStorage.getItem('terra_selectedTable');
+        let cartId = null;
+        if (storedTable) {
+          cartId = JSON.parse(storedTable).cartId;
+        }
+        
+        const url = cartId ? `${nodeApi}/api/tables/public?cartId=${cartId}` : `${nodeApi}/api/tables/public`;
+        const response = await fetch(url);
+        const data = await response.json();
+        if (Array.isArray(data)) {
+          setAvailableTables(data);
+        }
+      } catch (err) {
+        console.error("Failed to fetch tables:", err);
+      } finally {
+        setLoadingTables(false);
+      }
+    };
+
+    if (showCard) {
+      fetchTables();
+    }
+  }, [showCard]);
 
   // Available table numbers (customize as needed)
   const tables = Array.from({ length: 20 }, (_, i) => String(i + 1));
@@ -73,17 +106,20 @@ export default function TableServicePopup({ showCard, setShowCard, currentTable,
       
       // Get table info from localStorage
       const tableDataStr = localStorage.getItem('terra_selectedTable');
-      if (!tableDataStr) {
-        alert(t.alerts.selectTable || "Please select a table first");
-        return;
+      const tableData = tableDataStr ? JSON.parse(tableDataStr) : {};
+      let tableId = tableData.id || tableData._id;
+      let tableNumber = tableData.number || tableData.tableNumber || currentTable || selectedTable;
+
+      // If missing tableId (e.g. manual selection), try to find it in availableTables
+      if (!tableId && tableNumber) {
+        const found = availableTables.find(t => String(t.number) === String(tableNumber));
+        if (found) {
+          tableId = found._id;
+        }
       }
 
-      const tableData = JSON.parse(tableDataStr);
-      const tableId = tableData.id || tableData._id;
-      const tableNumber = tableData.number || tableData.tableNumber || currentTable;
-
       if (!tableId) {
-        alert("Table information is incomplete. Please scan the QR code again.");
+        alert(t.alerts.selectTable || "Please select a valid table first so we know where to send the waiter.");
         return;
       }
 
@@ -140,17 +176,20 @@ export default function TableServicePopup({ showCard, setShowCard, currentTable,
       
       // Get table info from localStorage
       const tableDataStr = localStorage.getItem('terra_selectedTable');
-      if (!tableDataStr) {
-        alert(t.alerts.selectTable || "Please select a table first");
-        return;
+      const tableData = tableDataStr ? JSON.parse(tableDataStr) : {};
+      let tableId = tableData.id || tableData._id;
+      let tableNumber = tableData.number || tableData.tableNumber || currentTable || selectedTable;
+
+      // If missing tableId (e.g. manual selection), try to find it in availableTables
+      if (!tableId && tableNumber) {
+        const found = availableTables.find(t => String(t.number) === String(tableNumber));
+        if (found) {
+          tableId = found._id;
+        }
       }
 
-      const tableData = JSON.parse(tableDataStr);
-      const tableId = tableData.id || tableData._id;
-      const tableNumber = tableData.number || tableData.tableNumber || currentTable;
-
       if (!tableId) {
-        alert("Table information is incomplete. Please scan the QR code again.");
+        alert(t.alerts.selectTable || "Please select a valid table first so we know where to send the waiter.");
         return;
       }
 
@@ -203,17 +242,20 @@ export default function TableServicePopup({ showCard, setShowCard, currentTable,
       
       // Get table info from localStorage
       const tableDataStr = localStorage.getItem('terra_selectedTable');
-      if (!tableDataStr) {
-        alert(t.alerts.selectTable || "Please select a table first");
-        return;
+      const tableData = tableDataStr ? JSON.parse(tableDataStr) : {};
+      let tableId = tableData.id || tableData._id;
+      let tableNumber = tableData.number || tableData.tableNumber || currentTable || selectedTable;
+
+      // If missing tableId (e.g. manual selection), try to find it in availableTables
+      if (!tableId && tableNumber) {
+        const found = availableTables.find(t => String(t.number) === String(tableNumber));
+        if (found) {
+          tableId = found._id;
+        }
       }
 
-      const tableData = JSON.parse(tableDataStr);
-      const tableId = tableData.id || tableData._id;
-      const tableNumber = tableData.number || tableData.tableNumber || currentTable;
-
       if (!tableId) {
-        alert("Table information is incomplete. Please scan the QR code again.");
+        alert(t.alerts.selectTable || "Please select a valid table first so we know where to send the waiter.");
         return;
       }
 
@@ -378,14 +420,16 @@ export default function TableServicePopup({ showCard, setShowCard, currentTable,
       style={{
         position: "fixed",
         inset: 0,
-        width: "100vw",
+        width: "100%",
+        maxWidth: "100vw",
         height: "100vh",
-        backgroundColor: "rgba(0,0,0,0.8)",
-        zIndex: 999999,
+        backgroundColor: "rgba(0,0,0,0.75)",
+        zIndex: 1000000, // Ensuring it's above everything
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        padding: 20
+        padding: "10px",
+        boxSizing: "border-box"
       }}
       onClick={() => {
         stopRecordingCleanup();
@@ -398,11 +442,12 @@ export default function TableServicePopup({ showCard, setShowCard, currentTable,
           borderRadius: 16,
           boxShadow: "0 25px 50px -12px rgba(0,0,0,0.5)",
           width: "100%",
-          maxWidth: 400,
-          maxHeight: "85vh",
+          maxWidth: 420,
+          maxHeight: "90vh",
           overflow: "hidden",
           display: "flex",
-          flexDirection: "column"
+          flexDirection: "column",
+          position: "relative"
         }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -497,7 +542,7 @@ export default function TableServicePopup({ showCard, setShowCard, currentTable,
         </div>
 
         {/* Scrollable content */}
-        <div style={{ padding: 16, overflowY: "auto" }}>
+        <div style={{ padding: 16, overflowY: "auto", flex: 1 }}>
           <p
             style={{
               fontSize: 14,

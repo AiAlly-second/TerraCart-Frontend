@@ -65,11 +65,11 @@ const calculateTotalsFromItems = (mergedItems) => {
   // Convert to rupees and round to 2 decimal places
   const subtotal = Number((subtotalInPaise / 100).toFixed(2));
 
-  // Calculate GST (5%)
-  const gst = Number((subtotal * 0.05).toFixed(2));
+  // No GST calculation
+  const gst = 0;
 
-  // Calculate total amount
-  const totalAmount = Number((subtotal + gst).toFixed(2));
+  // Total amount equals subtotal (no GST added)
+  const totalAmount = subtotal;
 
   return {
     subtotal,
@@ -612,10 +612,7 @@ export default function OrderSummary() {
                 <span>{t("subtotal")}</span>
                 <span>₹{totals.subtotal.toFixed(2)}</span>
               </div>
-              <div className="total-row">
-                <span>{t("gst")}</span>
-                <span>₹{totals.gst.toFixed(2)}</span>
-              </div>
+
               <div className="total-row total-bold">
                 <span>{t("total")}</span>
                 <span>₹{totals.totalAmount.toFixed(2)}</span>
@@ -802,10 +799,7 @@ export default function OrderSummary() {
                   <span>{t("subtotal")}</span>
                   <span>₹{formatMoney(totals.subtotal)}</span>
                 </div>
-                <div className="meta-line">
-                  <span>{t("gst")}</span>
-                  <span>₹{formatMoney(totals.gst)}</span>
-                </div>
+
                 <div className="meta-line total">
                   <span>{t("total")}</span>
                   <span>₹{formatMoney(totals.totalAmount)}</span>

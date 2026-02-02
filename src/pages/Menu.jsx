@@ -1,6 +1,6 @@
 import Header from "../components/Header";
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { FiMic, FiMicOff } from "react-icons/fi";
 import { useAITranslation } from "../hooks/useAITranslation";
 import menuPageTranslations from "../data/translations/MenuPage.json";
@@ -11,12 +11,13 @@ import { HiSpeakerWave } from "react-icons/hi2";
 import { motion } from "framer-motion";
 import "./MenuPage.css";
 import { buildOrderPayload } from "../utils/orderUtils";
+import { addOnList } from "../data/addons";
 import ProcessOverlay from "../components/ProcessOverlay";
 import OrderStatus from "../components/OrderStatus";
 import { io } from "socket.io-client";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
-import blindEyeIcon from "../assets/images/blind-eye-sign.png";
+
 import { postWithRetry } from "../utils/fetchWithTimeout";
 // import AccessibilityFooter from "../components/AccessibilityFooter";
 const nodeApi = (
@@ -157,11 +158,11 @@ const computeOrderTotals = (order, aggregatedItems) => {
   // Round subtotal to 2 decimal places
   const subtotalRounded = Number(subtotal.toFixed(2));
 
-  // Calculate GST (5%)
-  const gst = Number((subtotalRounded * 0.05).toFixed(2));
+  // No GST calculation
+  const gst = 0;
 
-  // Calculate total amount
-  const totalAmount = Number((subtotalRounded + gst).toFixed(2));
+  // Total amount equals subtotal (no GST added)
+  const totalAmount = subtotalRounded;
 
   return {
     subtotal: subtotalRounded,
@@ -363,7 +364,9 @@ const CategoryBlock = ({ category, items, cart, onAdd, onRemove, lang, defaultOp
 };
 
 export default function MenuPage() {
+  const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [lang, setLang] = useState(localStorage.getItem("language") || "en");
 
   // Listen for storage changes to update language
@@ -416,9 +419,7 @@ export default function MenuPage() {
     localStorage.setItem("accessibilityMode", newMode.toString());
   };
 
-  const handleVoiceAssistant = () => {
-    // Modal removed - button kept for visual consistency
-  };
+
 
   const [cart, setCart] = useState(() => {
     const saved = localStorage.getItem("terra_cart");
@@ -438,6 +439,7 @@ export default function MenuPage() {
   const [confirmingPayment, setConfirmingPayment] = useState(false);
   const [isOrderingMore, setIsOrderingMore] = useState(false);
   const [openCategory, setOpenCategory] = useState(null);
+  const [showCart, setShowCart] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [menuCategories, setMenuCategories] = useState([]);
   const [menuCatalog, setMenuCatalog] = useState({});
@@ -456,6 +458,20 @@ export default function MenuPage() {
       );
     });
   }, [menuCategories]);
+
+  const { cartTotal, cartItemCount } = useMemo(() => {
+    let total = 0;
+    let count = 0;
+    Object.entries(cart).forEach(([itemName, qty]) => {
+      count += qty;
+      const item = flatMenuItems.find(i => i.name === itemName);
+      if (item) {
+        total += (item.price || 0) * qty;
+      }
+    });
+    return { cartTotal: total, cartItemCount: count };
+  }, [cart, flatMenuItems]);
+
   const filteredItems = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     if (!query) return [];
@@ -471,7 +487,7 @@ export default function MenuPage() {
       );
     });
   }, [flatMenuItems, searchQuery]);
-  const navigate = useNavigate();
+
   const recognitionRef = useRef(null);
   const invoiceRef = useRef(null);
   const [activeOrderId, setActiveOrderId] = useState(() => {
@@ -2322,6 +2338,31 @@ export default function MenuPage() {
         specialInstructions: specialInstructions,
       });
 
+      // Add selected addons to the payload as line items
+      try {
+        const savedAddOns = JSON.parse(localStorage.getItem("terra_cart_addons") || "[]");
+        if (savedAddOns.length > 0) {
+          savedAddOns.forEach(addOnId => {
+            const addOnMeta = addOnList.find(a => a.id === addOnId);
+            if (addOnMeta) {
+              orderPayload.items.push({
+                name: `(+) ${addOnMeta.name}`,
+                quantity: 1,
+                price: addOnMeta.price,
+                isAddOn: true
+              });
+              // Update totals
+              orderPayload.subtotal += addOnMeta.price;
+              const gst = 0;
+              orderPayload.gst = gst;
+              orderPayload.totalAmount = orderPayload.subtotal;
+            }
+          });
+        }
+      } catch (e) {
+        console.error("[Menu] Error adding addons to payload:", e);
+      }
+
       // CRITICAL: Validate order payload before sending
       if (
         !orderPayload.items ||
@@ -2748,11 +2789,12 @@ export default function MenuPage() {
 
       // Step 4: Loading order summary
       setStepState(4, "active");
-      await wait(DUR.summary);
+      // await wait(DUR.summary);
       setStepState(4, "done");
 
       // Navigate when all steps done
-      navigate("/order-summary");
+      // navigate("/order-summary");
+      setProcessOpen(false); // Close overlay and stay on Menu page
     } catch (err) {
       // Network or unexpected error → mark backend step as error
       setStepState(2, "error");
@@ -4610,6 +4652,33 @@ export default function MenuPage() {
     }
   }, []); // Only run once on mount
 
+  useEffect(() => {
+    // CRITICAL: Wait for menu to fully load before processing confirm action
+    // This prevents creating orders with 0 prices due to empty menuCatalog
+    if (searchParams.get("action") === "confirm" && !menuLoading) {
+      // Safety check: ensure we actually have prices before confirming
+      if (menuError || Object.keys(menuCatalog).length === 0) {
+        console.error("[Menu] Auto-confirm aborted: Menu data missing or error", { menuCatalogSize: Object.keys(menuCatalog).length, menuError });
+        // Clean URL to prevent loop, user will see the menu (or error state)
+        const newParams = new URLSearchParams(searchParams);
+        newParams.delete("action");
+        setSearchParams(newParams);
+        
+        if (menuError) {
+          alert("Cannot place order automatically: " + menuError);
+        } else {
+          alert("Cannot place order automatically: Menu prices not loaded. Please try again manually.");
+        }
+        return;
+      }
+
+      const newParams = new URLSearchParams(searchParams);
+      newParams.delete("action");
+      setSearchParams(newParams);
+      handleContinue();
+    }
+  }, [searchParams, menuLoading, menuCatalog, menuError]);
+
   return (
     <div
       className={`menu-root ${accessibilityMode ? "accessibility-mode" : ""}`}
@@ -4622,8 +4691,9 @@ export default function MenuPage() {
 
       <div className="overlay"></div>
 
+      <Header accessibilityMode={accessibilityMode} onClickCart={() => navigate("/cart")} cartCount={cartItemCount} />
+
       <div className="content-wrapper">
-        <Header accessibilityMode={accessibilityMode} />
 
         <div className="main-container">
           <div className="panels-container">
@@ -4812,38 +4882,9 @@ export default function MenuPage() {
                 </p>
               )}
 
-              {Object.keys(cart).length > 0 && (
-                <div className="order-summary-section">
-                  <h4 className="order-summary-title">{orderSummary}</h4>
-                  <ul className="summary-list">
-                    {Object.entries(cart).map(([item, qty], idx) => (
-                      <TranslatedSummaryItem key={idx} item={item} qty={qty} />
-                    ))}
-                  </ul>
 
-                  <div className="button-group">
-                    <button onClick={handleContinue} className="confirm-button">
-                      {confirmBtn}
-                    </button>
 
-                    <button
-                      onClick={speakOrderSummary}
-                      className="speak-button"
-                      aria-label={speakBtn}
-                    >
-                      <HiSpeakerWave
-                        className="speaker-icon"
-                        aria-hidden="true"
-                      />
-                      <span>{speakBtn}</span>
-                    </button>
-
-                    <button onClick={handleResetCart} className="reset-button">
-                      {resetBtn}
-                    </button>
-                  </div>
-                </div>
-              )}
+              {/* Cart Overlay Removed - using /cart page */}
 
               {orderStatus && (
                 <div className="order-status-card">
@@ -4982,7 +5023,7 @@ export default function MenuPage() {
                               navigate("/billing");
                             }}
                           >
-                            Complete Payment
+                            Payment
                           </button>
                         );
                       }
@@ -5006,10 +5047,7 @@ export default function MenuPage() {
                       return null;
                     })()}
                   </div>
-                  <p className="status-hint">
-                    Status updates automatically. Please wait while the staff
-                    prepares your order.
-                  </p>
+
                 </div>
               )}
 
@@ -5391,10 +5429,7 @@ export default function MenuPage() {
                   <span>Subtotal</span>
                   <span>₹{formatMoney(invoiceTotals.subtotal)}</span>
                 </div>
-                <div className="meta-line">
-                  <span>GST</span>
-                  <span>₹{formatMoney(invoiceTotals.gst)}</span>
-                </div>
+
                 <div className="meta-line total">
                   <span>Total</span>
                   <span>₹{formatMoney(invoiceTotals.totalAmount)}</span>
@@ -5485,51 +5520,40 @@ export default function MenuPage() {
         </div>
       )}
 
+      {/* Floating Cart Button (Moved to prevent overlap) */}
+      {Object.keys(cart).length > 0 && !showCart && (
+        <div style={{
+          position: 'fixed', bottom: 0, left: 0, right: 0,
+          backgroundColor: 'white', borderTop: '1px solid #eee',
+          padding: '16px 16px 16px 80px', zIndex: 9999,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          boxShadow: '0 -4px 10px rgba(0,0,0,0.1)'
+        }}>
+          <div style={{display:'flex', flexDirection:'column'}}>
+            <span style={{fontWeight:'bold', fontSize:'1.1rem', color:'#333'}}>{cartItemCount} Items</span>
+            <span style={{color:'#666', fontSize:'0.9rem'}}>Total: ₹{cartTotal.toFixed(2)}</span>
+          </div>
+          <button 
+            onClick={() => navigate("/cart")}
+            style={{
+              backgroundColor: '#ff6b35', color: 'white',
+              padding: '12px 24px', borderRadius: '50px',
+              fontWeight: 'bold', fontSize: '1rem', border: 'none',
+              cursor: 'pointer', boxShadow: '0 4px 6px rgba(255, 107, 53, 0.3)'
+            }}
+          >
+            View Cart &rarr;
+          </button>
+        </div>
+      )}
+
       <ProcessOverlay
         open={processOpen}
         steps={processSteps}
         title="Processing your order"
       />
 
-      {/* Blind Support (Voice Assistant) - only for non-takeaway flows */}
-      {serviceType !== "TAKEAWAY" && (
-        <>
-          <motion.button
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-            onClick={handleVoiceAssistant}
-            className="fixed rounded-full shadow-lg bg-orange-500 text-white hover:bg-orange-600 focus:outline-none blind-eye-btn"
-            style={{
-              position: "fixed",
-              bottom: "20px", // Same lower position as accessibility button
-              right: "20px", // Right side instead of left
-              width: "56px",
-              height: "56px",
-              display: "grid",
-              placeItems: "center",
-              border: "none",
-              cursor: "pointer",
-              boxShadow: "0 6px 18px rgba(0,0,0,0.25)",
-              transition:
-                "transform .2s ease, box-shadow .2s ease, background .2s ease",
-              zIndex: 10001, // Higher than footer (z-40) to ensure it's on top
-              pointerEvents: "auto",
-            }}
-            aria-label="Blind Support - Voice Assistant"
-          >
-            <img
-              src={blindEyeIcon}
-              alt="Blind Support"
-              width="24"
-              height="24"
-              style={{
-                objectFit: "contain",
-                filter: "brightness(0) invert(1)",
-              }}
-            />
-          </motion.button>
-        </>
-      )}
+
     </div>
   );
 }

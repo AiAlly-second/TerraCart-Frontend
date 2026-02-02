@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import io from "socket.io-client";
@@ -236,6 +236,20 @@ export default function SecondPage() {
       setWaitlistToken(null);
     }
   }, [isNormalLink]);
+
+  // Track if user manually closed the modal
+  const hasUserClosedModal = useRef(false);
+
+  // Auto-show customer info modal for normal links (Pickup/Delivery selection)
+  // This ensures users see Pickup/Delivery options immediately when accessing via normal link
+  // BUT only if they haven't manually closed it
+  useEffect(() => {
+    if (isNormalLink && !showCustomerInfoModal && !hasUserClosedModal.current) {
+      console.log("[SecondPage] Normal link detected - auto-showing customer info modal");
+      setShowCustomerInfoModal(true);
+    }
+  }, [isNormalLink, showCustomerInfoModal]);
+
 
   // Fetch carts when order type and location are available
   useEffect(() => {
@@ -2056,6 +2070,9 @@ export default function SecondPage() {
 
   // Handle skip/cancel customer info
   const handleSkipCustomerInfo = useCallback(() => {
+    // Mark that user manually closed the modal to prevent auto-reopen
+    hasUserClosedModal.current = true;
+    
     // Just close the modal - do not navigate to menu
     // User must fill details to proceed
     setShowCustomerInfoModal(false);
@@ -2239,10 +2256,6 @@ export default function SecondPage() {
   }, [waitlistToken]);
 
   const handleVoiceAssistant = () => {
-    // Modal removed - button kept for visual consistency
-  };
-
-  const handleVoiceAssistantOld = () => {
     const dineInText = t("dineIn");
     const takeAwayText = t("takeAway");
 
@@ -2452,14 +2465,25 @@ export default function SecondPage() {
               </button>
             )}
 
-            <button
-              onClick={startTakeawayFlow}
-              className={`nav-btn ${
-                accessibilityMode ? "nav-btn-accessibility" : "nav-btn-normal"
-              }`}
-            >
-              {t("takeAway")}
-            </button>
+            {/* Takeaway button: Only show for QR scans (not for normal links) */}
+            {/* For normal links, users will see Pickup/Delivery options in the customer info modal */}
+            {(() => {
+              const hasTakeawayQR = localStorage.getItem("terra_takeaway_only") === "true";
+              const hasScanToken = localStorage.getItem("terra_scanToken");
+              const hasTableInfo = localStorage.getItem("terra_selectedTable") || tableInfo;
+              const isNormal = !hasTakeawayQR && !hasScanToken && !hasTableInfo;
+              // Only show Takeaway button for QR scans (table QR or takeaway QR)
+              return !isNormal;
+            })() && (
+              <button
+                onClick={startTakeawayFlow}
+                className={`nav-btn ${
+                  accessibilityMode ? "nav-btn-accessibility" : "nav-btn-normal"
+                }`}
+              >
+                {t("takeAway")}
+              </button>
+            )}
           </div>
 
           {/* Waitlist Status Card - only for dine-in (not for takeaway-only QR or TAKEAWAY service) */}
@@ -2852,7 +2876,7 @@ export default function SecondPage() {
       <motion.button
         whileHover={{ scale: 1.1 }}
         whileTap={{ scale: 0.9 }}
-        onClick={handleVoiceAssistant}
+        onClick={() => navigate("/blind-assistant")}
         className="fixed rounded-full shadow-lg bg-orange-500 text-white hover:bg-orange-600 focus:outline-none blind-eye-btn"
         style={{
           position: "fixed",
@@ -2867,7 +2891,7 @@ export default function SecondPage() {
           boxShadow: "0 6px 18px rgba(0,0,0,0.25)",
           transition:
             "transform .2s ease, box-shadow .2s ease, background .2s ease",
-          zIndex: 10001, // Higher than footer (z-40) to ensure it's on top
+          zIndex: 9000, // Below modals (10000) but above content
           pointerEvents: "auto",
         }}
         aria-label="Blind Support - Voice Assistant"

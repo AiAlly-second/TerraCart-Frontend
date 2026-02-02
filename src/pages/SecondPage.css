@@ -499,7 +499,7 @@
   .blind-eye-btn {
     bottom: 20px !important; /* Same lower position as accessibility button */
     right: 10px !important;
-    z-index: 10001 !important; /* Higher than footer (z-40) to ensure it's on top */
+    z-index: 9000 !important; /* Below modals (10000) but above content */
   }
 }
 
@@ -510,13 +510,14 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 9999;
+  z-index: 100020; /* Above header (100010) */
   padding: 1rem;
+  overflow-y: auto;
 }
 
 .customer-info-modal {
@@ -525,10 +526,24 @@
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
   max-width: 480px;
   width: 100%;
-  max-height: 85vh;
+  max-height: 90vh;
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  position: relative;
+  margin: auto;
+}
+
+@media (max-width: 640px) {
+  .customer-info-modal-overlay {
+    padding: 0.5rem;
+  }
+  
+  .customer-info-modal {
+    max-width: 100%;
+    max-height: 95vh;
+    border-radius: 8px;
+  }
 }
 
 .customer-info-modal-header {

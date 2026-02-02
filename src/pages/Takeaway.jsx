@@ -2,7 +2,7 @@ import React from "react";
 import { motion } from "framer-motion";
 import Header from "../components/Header";
 import bgImage from "../assets/images/restaurant-img.jpg";
-import blindEyeIcon from "../assets/images/blind-eye-sign.png";
+
 import translations from "../data/translations/Takeaway.json";
 
 const Takeaway = () => {
@@ -32,37 +32,7 @@ const Takeaway = () => {
       </div>
 
       {/* Blind Support Button */}
-      <motion.button
-        whileHover={{ scale: 1.1 }}
-        whileTap={{ scale: 0.9 }}
-        onClick={() => {}}
-        className="fixed rounded-full shadow-lg bg-orange-500 text-white hover:bg-orange-600 focus:outline-none blind-eye-btn"
-        style={{
-          position: "fixed",
-          bottom: "20px",
-          right: "20px",
-          width: "56px",
-          height: "56px",
-          display: "grid",
-          placeItems: "center",
-          border: "none",
-          cursor: "pointer",
-          boxShadow: "0 6px 18px rgba(0,0,0,0.25)",
-          transition:
-            "transform .2s ease, box-shadow .2s ease, background .2s ease",
-          zIndex: 10001,
-          pointerEvents: "auto",
-        }}
-        aria-label="Blind Support - Voice Assistant"
-      >
-        <img
-          src={blindEyeIcon}
-          alt="Blind Support"
-          width="24"
-          height="24"
-          style={{ objectFit: "contain", filter: "brightness(0) invert(1)" }}
-        />
-      </motion.button>
+
     </div>
   );
 };

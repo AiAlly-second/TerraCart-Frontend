@@ -97,7 +97,7 @@
   padding-left: 1rem;
   padding-right: 1rem;
   padding-top: 1rem;
-  padding-bottom: 2rem;
+  padding-bottom: 120px; /* Increased to clear the floating cart bar */
   margin-top: 5rem;
   position: relative;
   z-index: 1;
@@ -315,18 +315,24 @@
   color: #fc8019;
 }
 .order-status-card {
-  margin-top: 1rem;
-  padding: 1rem;
-  background: rgba(252, 128, 25, 0.08);
-  border: 1px solid rgba(252, 128, 25, 0.2);
-  border-radius: 0.85rem;
+  margin-top: 1.5rem;
+  padding: 1.5rem;
+  background: #ffffff;
+  border-radius: 16px;
   position: relative;
   z-index: 1;
   overflow: visible;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  gap: 1.25rem;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); /* Modern soft shadow */
+  border: 1px solid #f1f5f9; /* Slate 100 */
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.order-status-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
 }
 
 .accessibility-mode .order-status-card {
@@ -581,13 +587,13 @@
 }
 .button-group.status-actions {
   justify-content: center;
-  margin-top: 0;
+  margin-top: 0.5rem;
   position: relative;
   z-index: 2;
   overflow: visible;
-  display: grid;
-  grid-template-columns: repeat(2, 1fr); /* Always 2 columns - 2x2 grid */
-  gap: 0.75rem;
+  display: flex; 
+  flex-wrap: wrap; /* Use flex wrap for better handling of odd number of buttons */
+  gap: 12px;
   width: 100%;
   padding-top: 0.25rem;
 }
@@ -596,17 +602,23 @@
 .button-group.status-actions .reset-button,
 .button-group.status-actions .billing-button,
 .button-group.status-actions .feedback-button {
-  min-width: 0;
-  width: 100%;
-  padding: 0.75rem 0.5rem !important;
-  font-size: 0.85rem !important;
+  flex: 1 1 calc(50% - 12px); /* Allow buttons to grow and fill space evenly, minus gap */
+  min-width: 140px; /* Ensure buttons don't get too squished */
+  width: auto;
+  padding: 0.875rem 1rem !important;
+  font-size: 0.95rem !important;
   font-weight: 600 !important;
-  border-radius: 0.625rem !important;
-  transition: all 0.2s ease !important;
-  min-height: 48px;
+  border-radius: 12px !important;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  min-height: 52px;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  border: 1px solid transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
 }
 
 .button-group.status-actions .confirm-button:hover,
@@ -2250,3 +2262,8 @@
   }
 }
 
+
+@keyframes slideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}

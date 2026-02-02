@@ -76,6 +76,28 @@ export default function Landing() {
     navigate("/secondpage");
   };
 
+  // Auto-navigate ONLY for QR code scans (skip language selection for QR)
+  // For normal links, show the language selection
+  useEffect(() => {
+    // Check if this is a QR scan
+    const params = new URLSearchParams(window.location.search);
+    const tableParam = params.get("table");
+    const takeawayParam = params.get("takeaway");
+    
+    // If there's a table or takeaway parameter, auto-set language and continue
+    if (tableParam || takeawayParam) {
+      if (!localStorage.getItem("language")) {
+        localStorage.setItem("language", "en");
+      }
+      console.log("[Landing] QR scan detected, auto-setting default language");
+      // Don't redirect - let the table lookup logic handle it
+      return;
+    }
+    
+    // For normal links, do nothing - show language selection
+    console.log("[Landing] Normal link - showing language selection");
+  }, [navigate]);
+
   const [isLoading, setIsLoading] = useState(true);
 
   // ✅ Ensure voices are loaded

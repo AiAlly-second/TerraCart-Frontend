@@ -116,9 +116,13 @@ export default function OrderSummary() {
 
   const statusMessages = {
     Pending: "📝 Order is being processed...",
+    Accepted: "✅ Your order has been accepted! A staff member is assisting you.",
     Confirmed: "👨‍🍳 Order confirmed! Kitchen is getting ready.",
     Preparing: "🔥 Your food is being prepared",
+    "Being Prepared": "🔥 Your food is being prepared",
+    BeingPrepared: "🔥 Your food is being prepared",
     Ready: "✨ Your food is ready to be served",
+    Completed: "📦 Your order is ready for pickup!",
     Served: "🍽️ Enjoy your meal!",
     Finalized: "📋 Order completed, preparing bill",
     Paid: "✅ Thank you for dining with us!",
@@ -163,15 +167,14 @@ export default function OrderSummary() {
           if (res.status === 404) {
             alert(translations[language]?.noOrderFound || "No order found");
             navigate("/menu");
-            return;
+            return null;
           }
           throw new Error(`Failed to fetch order: ${res.status}`);
         }
         const data = await res.json();
         if (!data) {
           alert(translations[language]?.noOrderFound || "No order found");
-          navigate("/menu");
-          return;
+          return null;
         }
         setOrder(data);
 
@@ -189,14 +192,15 @@ export default function OrderSummary() {
               : translations[language]?.orderCancelled || "Order cancelled"
           );
           navigate("/menu");
+          return null;
         }
+        return data;
       } catch (err) {
         console.error("Error fetching order:", err);
         alert(translations[language]?.noOrderFound || "No order found");
+        return null;
       }
     };
-
-    fetchOrder();
 
     // Define event handler
     const handleOrderUpdated = (updatedOrder) => {
@@ -240,6 +244,16 @@ export default function OrderSummary() {
 
       orderSocket.on("connect", () => {
         console.log("[OrderSummary] Socket connected");
+      });
+
+      // Fetch order and join cart room for real-time updates
+      fetchOrder().then((orderData) => {
+        if (orderData?.cartId && orderSocket) {
+          orderSocket.emit("join:cart", orderData.cartId.toString());
+          if (import.meta.env.DEV) {
+            console.log("[OrderSummary] Joined cart room:", orderData.cartId);
+          }
+        }
       });
 
       orderSocket.on("connect_error", (error) => {
@@ -572,10 +586,22 @@ export default function OrderSummary() {
 
             {/* Order Status */}
             <div className="mb-6">
-              <OrderStatus status={order.status} className="mb-2" />
+              <OrderStatus status={order.status} serviceType={order.serviceType} className="mb-2" />
               <p className="text-lg text-center font-medium text-gray-700">
-                {statusMessages[order.status]}
+                {statusMessages[order.status] || statusMessages.Pending}
               </p>
+              {order.acceptedBy?.employeeName && (
+                <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg text-center">
+                  <p className="text-green-800 font-medium">
+                    Your order has been accepted by {order.acceptedBy.employeeName}
+                  </p>
+                  {order.acceptedBy.disability?.hasDisability && order.acceptedBy.disability?.type && (
+                    <p className="text-sm text-gray-600 mt-1">
+                      Your server has indicated: {order.acceptedBy.disability.type}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="items-list">

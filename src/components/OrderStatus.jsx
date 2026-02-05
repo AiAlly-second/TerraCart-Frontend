@@ -1,6 +1,6 @@
 import React from 'react';
 
-const steps = {
+const dineInSteps = {
   Pending: { icon: '⏳', color: 'bg-orange-500', index: 0 },
   Confirmed: { icon: '👨‍🍳', color: 'bg-yellow-500', index: 1 },
   Preparing: { icon: '🔥', color: 'bg-blue-500', index: 2 },
@@ -12,7 +12,19 @@ const steps = {
   Returned: { icon: '↩️', color: 'bg-rose-500', index: -2 },
 };
 
-export default function OrderStatus({ status = 'Pending', className = '', updatedAt }) {
+const takeawaySteps = {
+  Pending: { icon: '⏳', color: 'bg-orange-500', index: 0 },
+  Accepted: { icon: '✅', color: 'bg-yellow-500', index: 1 },
+  'Being Prepared': { icon: '🔥', color: 'bg-blue-500', index: 2 },
+  BeingPrepared: { icon: '🔥', color: 'bg-blue-500', index: 2 },
+  Completed: { icon: '📦', color: 'bg-purple-500', index: 3 },
+  Paid: { icon: '✅', color: 'bg-green-500', index: 4 },
+  Cancelled: { icon: '❌', color: 'bg-red-500', index: -1 },
+  Returned: { icon: '↩️', color: 'bg-rose-500', index: -2 },
+};
+
+export default function OrderStatus({ status = 'Pending', className = '', updatedAt, serviceType = 'DINE_IN' }) {
+  const steps = serviceType === 'TAKEAWAY' ? takeawaySteps : dineInSteps;
   const currentStep = steps[status] || steps.Pending;
   const updatedLabel = updatedAt
     ? new Date(updatedAt).toLocaleTimeString()

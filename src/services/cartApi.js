@@ -1,3 +1,4 @@
+// Backend must be running (e.g. cd backend && npm run dev). ERR_CONNECTION_REFUSED = server not running.
 const nodeApi = (import.meta.env.VITE_NODE_API_URL || "http://localhost:5001").replace(/\/$/, "");
 
 /**
@@ -28,7 +29,13 @@ export const getNearbyCarts = async (latitude, longitude, orderType, pinCode = n
     const data = await response.json();
     return data.success ? data.data : [];
   } catch (error) {
-    console.error("[CartAPI] Error fetching nearby carts:", error);
+    // net::ERR_CONNECTION_REFUSED = backend not running at VITE_NODE_API_URL (default localhost:5001)
+    const isConnectionRefused = error?.message === "Failed to fetch" || error?.name === "TypeError";
+    if (isConnectionRefused) {
+      console.warn("[CartAPI] Cannot reach backend at", nodeApi, "- is the server running?");
+    } else {
+      console.error("[CartAPI] Error fetching nearby carts:", error);
+    }
     return [];
   }
 };

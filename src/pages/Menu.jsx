@@ -134,6 +134,30 @@ const aggregateOrderItems = (order) => {
       }
     });
   });
+
+  // Process Add-ons
+  const addons = order.selectedAddons || [];
+  addons.forEach((addon) => {
+    const name = `(+) ${addon.name}`;
+    const quantity = 1;
+    const unitPrice = Number(addon.price) || 0; // Addons are in Rupees
+    
+    if (!map.has(name)) {
+      map.set(name, {
+        name,
+        unitPrice,
+        activeQuantity: 0,
+        returnedQuantity: 0,
+        totalQuantity: 0,
+        amount: 0,
+        returned: false,
+      });
+    }
+    const entry = map.get(name);
+    entry.totalQuantity += quantity;
+    entry.activeQuantity += quantity;
+    entry.amount += unitPrice * quantity;
+  });
   return Array.from(map.values()).map((entry) => ({
     ...entry,
     quantity: entry.activeQuantity,
@@ -696,18 +720,20 @@ export default function MenuPage() {
     }
   }, [serviceType, activeOrderId]);
 
-  // Enforce customer name for Takeaway/Pickup/Delivery
+  // Enforce customer name for Takeaway/Pickup/Delivery (except table takeaway – we skip the form for that)
   useEffect(() => {
-    // Skip check for DINE_IN
     if (serviceType === "DINE_IN") return;
 
-    // Check if customer name exists in localStorage
+    // Table takeaway: user came from table QR and skipped customer form – do not require name or redirect
+    const hasTableContext = !!localStorage.getItem("terra_scanToken") || !!localStorage.getItem("terra_selectedTable");
+    const hasTableInUrl = !!(typeof window !== "undefined" && new URLSearchParams(window.location.search).get("table"));
+    const isTakeawayOnlyQR = localStorage.getItem("terra_takeaway_only") === "true";
+    const isTableTakeaway = (hasTableContext || hasTableInUrl) && !isTakeawayOnlyQR;
+    if (serviceType === "TAKEAWAY" && isTableTakeaway) return;
+
     const storedName = localStorage.getItem("terra_takeaway_customerName");
-    
-    // If name is missing or empty, redirect to SecondPage
     if (!storedName || !storedName.trim()) {
       console.warn(`[Menu] Missing customer name for ${serviceType} order - redirecting to SecondPage`);
-      // Use replace to prevent back-button looping
       navigate("/secondpage", { replace: true });
     }
   }, [serviceType, navigate]);
@@ -2299,6 +2325,20 @@ export default function MenuPage() {
       const specialInstructions = localStorage.getItem("terra_specialInstructions") || null;
       const selectedCartId = localStorage.getItem("terra_selectedCartId") || cartId;
 
+      // Prepare Add-ons
+      const savedAddOnsIDs = JSON.parse(localStorage.getItem("terra_cart_addons") || "[]");
+      const globalAddons = JSON.parse(localStorage.getItem("terra_global_addons") || "[]");
+      const addonLookupList = Array.isArray(globalAddons) && globalAddons.length > 0 ? globalAddons : addOnList;
+      
+      const resolvedAddons = savedAddOnsIDs.map(id => {
+          const meta = addonLookupList.find(a => a.id === id);
+          return meta ? { 
+              addonId: id, 
+              name: meta.name, 
+              price: meta.price 
+          } : null;
+      }).filter(Boolean);
+
       const orderPayload = buildOrderPayload(cart, {
         serviceType: orderType ? (orderType === "PICKUP" ? "PICKUP" : "DELIVERY") : serviceType,
         // CRITICAL: Only pass orderType if it's actually PICKUP or DELIVERY
@@ -2336,32 +2376,11 @@ export default function MenuPage() {
         customerLocation: customerLocation,
         // Include special instructions
         specialInstructions: specialInstructions,
+        selectedAddons: resolvedAddons,
       });
 
-      // Add selected addons to the payload as line items
-      try {
-        const savedAddOns = JSON.parse(localStorage.getItem("terra_cart_addons") || "[]");
-        if (savedAddOns.length > 0) {
-          savedAddOns.forEach(addOnId => {
-            const addOnMeta = addOnList.find(a => a.id === addOnId);
-            if (addOnMeta) {
-              orderPayload.items.push({
-                name: `(+) ${addOnMeta.name}`,
-                quantity: 1,
-                price: addOnMeta.price,
-                isAddOn: true
-              });
-              // Update totals
-              orderPayload.subtotal += addOnMeta.price;
-              const gst = 0;
-              orderPayload.gst = gst;
-              orderPayload.totalAmount = orderPayload.subtotal;
-            }
-          });
-        }
-      } catch (e) {
-        console.error("[Menu] Error adding addons to payload:", e);
-      }
+      // Addons handled by buildOrderPayload logic now
+
 
       // CRITICAL: Validate order payload before sending
       if (
@@ -5376,6 +5395,14 @@ export default function MenuPage() {
                       )}
                     </>
                   )}
+
+                
+                {invoiceOrder?.specialInstructions && (
+                  <div className="meta-line" style={{ marginTop: '8px', borderTop: '1px dashed #e5e7eb', paddingTop: '4px' }}>
+                    <span style={{ color: '#d97706', fontWeight: 'bold' }}>Note:</span>
+                    <span style={{ fontStyle: 'italic' }}>{invoiceOrder.specialInstructions}</span>
+                  </div>
+                )}
               </div>
 
               <table className="invoice-table">

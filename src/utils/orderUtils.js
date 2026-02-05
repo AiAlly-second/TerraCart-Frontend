@@ -12,6 +12,7 @@ export function buildOrderPayload(cart, options = {}) {
     cartId,
     customerLocation, // { latitude, longitude, address }
     specialInstructions, // Special notes from customer
+    selectedAddons = [], // Array of { name, price, addonId }
   } = options;
   const items = Object.entries(cart)
     .filter(([name, quantity]) => {
@@ -76,12 +77,28 @@ export function buildOrderPayload(cart, options = {}) {
     throw new Error("Cart is empty or contains only invalid items");
   }
 
+  // Calculate Add-ons total
+  let addonsTotal = 0;
+  let validAddons = [];
+  
+  if (Array.isArray(selectedAddons) && selectedAddons.length > 0) {
+      validAddons = selectedAddons.map(addon => ({
+          addonId: addon.addonId || addon._id || addon.id,
+          name: addon.name,
+          price: Number(addon.price) || 0
+      })).filter(a => a.name);
+      
+      addonsTotal = validAddons.reduce((sum, a) => sum + a.price, 0);
+  }
+
   const subtotal = items.reduce((s, it) => s + it.price * it.quantity, 0);
   const gst = 0; // No GST applied
-  const totalAmount = subtotal; // Total equals subtotal
+  const totalAmount = subtotal + addonsTotal; // Total includes addons
+
   const payload = {
     serviceType,
     items,
+    selectedAddons: validAddons,
     subtotal,
     gst,
     totalAmount,

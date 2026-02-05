@@ -191,14 +191,15 @@ export default function SecondPage() {
     return !hasTakeawayQR && !hasScanToken && !hasTableInfo;
   });
 
-  // Update isNormalLink when localStorage values or tableInfo state change (e.g., after QR scan)
+  // Update isNormalLink when localStorage values, tableInfo state, or URL change (e.g., after QR scan)
+  // CRITICAL: URL with ?table= means table takeaway context – not normal link (don't auto-show form)
   useEffect(() => {
     const checkNormalLink = () => {
       const hasTakeawayQR = localStorage.getItem("terra_takeaway_only") === "true";
       const hasScanToken = localStorage.getItem("terra_scanToken");
       const hasTableInfo = localStorage.getItem("terra_selectedTable") || tableInfo;
-      
-      const isNormal = !hasTakeawayQR && !hasScanToken && !hasTableInfo;
+      const hasTableInUrl = !!(typeof window !== "undefined" && new URLSearchParams(window.location.search).get("table"));
+      const isNormal = !hasTakeawayQR && !hasScanToken && !hasTableInfo && !hasTableInUrl;
       setIsNormalLink(isNormal);
     };
 
@@ -356,7 +357,8 @@ export default function SecondPage() {
           }
         })
         .catch((error) => {
-          console.error("[SecondPage] Error fetching nearby carts:", error);
+          console.warn("[SecondPage] Error fetching nearby carts:", error.message || error);
+          setNearbyCarts([]);
           setLoadingCarts(false);
         });
     } else {
@@ -374,7 +376,8 @@ export default function SecondPage() {
             }
           })
           .catch((error) => {
-            console.error("[SecondPage] Error fetching available carts:", error);
+            console.warn("[SecondPage] Error fetching available carts:", error.message || error);
+            setNearbyCarts([]);
             setLoadingCarts(false);
           });
       } else {
@@ -1324,11 +1327,11 @@ export default function SecondPage() {
       console.warn("[SecondPage] Failed to create table status socket:", err);
     }
 
-    // Cleanup on unmount
+    // Cleanup on unmount – only disconnect if already connected to avoid "closed before established" warning
     return () => {
       if (tableStatusSocket) {
         tableStatusSocket.off("table:status:updated", handleTableStatusUpdated);
-        tableStatusSocket.disconnect();
+        if (tableStatusSocket.connected) tableStatusSocket.disconnect();
       }
     };
   }, [tableInfo]);
@@ -1834,20 +1837,39 @@ export default function SecondPage() {
     [startServiceFlow]
   );
   const startTakeawayFlow = useCallback(() => {
-    // CRITICAL: For takeaway, clear all waitlist state immediately
-    // Takeaway orders never need waitlist - they have full access
+    // Clear waitlist state for takeaway
     localStorage.removeItem("terra_waitToken");
     setWaitlistToken(null);
     setWaitlistInfo(null);
     setShowWaitlistModal(false);
     setIsTableOccupied(false);
-    // Set service type to TAKEAWAY
     localStorage.setItem("terra_serviceType", "TAKEAWAY");
-    
-    // DIRECTLY open customer modal - bypass startServiceFlow to avoid loading state issues
-    // Checks for existing takeaway session/order will be handled in handleCustomerInfoSubmit or Menu page checks
+
+    // Table takeaway: skip Customer Information form and go straight to menu
+    // Detect table context from localStorage/state OR from URL (?table=) so it works when secondpage?table=xxx
+    const hasTableInStorageOrState =
+      !!localStorage.getItem("terra_scanToken") ||
+      !!localStorage.getItem("terra_selectedTable") ||
+      !!tableInfo;
+    const hasTableInUrl = !!(typeof window !== "undefined" && new URLSearchParams(window.location.search).get("table"));
+    const isTakeawayOnlyQR = localStorage.getItem("terra_takeaway_only") === "true";
+    const isTableTakeaway = (hasTableInStorageOrState || hasTableInUrl) && !isTakeawayOnlyQR;
+
+    if (isTableTakeaway) {
+      const takeawaySessionToken = `TAKEAWAY-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      localStorage.setItem("terra_takeaway_sessionToken", takeawaySessionToken);
+      localStorage.removeItem("terra_orderId_TAKEAWAY");
+      localStorage.removeItem("terra_cart_TAKEAWAY");
+      localStorage.removeItem("terra_orderStatus_TAKEAWAY");
+      localStorage.removeItem("terra_orderStatusUpdatedAt_TAKEAWAY");
+      localStorage.removeItem("terra_orderType");
+      navigate("/menu", { state: { serviceType: "TAKEAWAY" } });
+      return;
+    }
+
+    // Normal link (pickup/delivery) or takeaway-only QR: show Customer Information modal – do not touch
     setShowCustomerInfoModal(true);
-  }, []);
+  }, [navigate, tableInfo]);
 
   // Handle customer info modal submit for takeaway orders (fields OPTIONAL)
   // Works for both regular takeaway and takeaway-only QR flows
@@ -2378,13 +2400,13 @@ export default function SecondPage() {
 
         <div className="content-wrapper">
           <div className="buttons-container">
-            {/* Dine-in button: Only show for QR scans (not normal links) and not takeaway-only */}
-            {/* CRITICAL: Check localStorage directly at render time to handle deployment timing issues */}
+            {/* Dine-in button: Show for table QR (?table= or stored), not for normal links or takeaway-only */}
             {(() => {
               const hasTakeawayQR = localStorage.getItem("terra_takeaway_only") === "true";
               const hasScanToken = localStorage.getItem("terra_scanToken");
               const hasTableInfo = localStorage.getItem("terra_selectedTable") || tableInfo;
-              const isNormal = !hasTakeawayQR && !hasScanToken && !hasTableInfo;
+              const hasTableInUrl = !!(typeof window !== "undefined" && new URLSearchParams(window.location.search).get("table"));
+              const isNormal = !hasTakeawayQR && !hasScanToken && !hasTableInfo && !hasTableInUrl;
               return !takeawayOnly && !isNormal;
             })() && (
               <button
@@ -2465,14 +2487,13 @@ export default function SecondPage() {
               </button>
             )}
 
-            {/* Takeaway button: Only show for QR scans (not for normal links) */}
-            {/* For normal links, users will see Pickup/Delivery options in the customer info modal */}
+            {/* Takeaway button: Show for table QR (?table=), takeaway QR, or when terra_scanToken/terra_selectedTable set */}
             {(() => {
               const hasTakeawayQR = localStorage.getItem("terra_takeaway_only") === "true";
               const hasScanToken = localStorage.getItem("terra_scanToken");
               const hasTableInfo = localStorage.getItem("terra_selectedTable") || tableInfo;
-              const isNormal = !hasTakeawayQR && !hasScanToken && !hasTableInfo;
-              // Only show Takeaway button for QR scans (table QR or takeaway QR)
+              const hasTableInUrl = !!(typeof window !== "undefined" && new URLSearchParams(window.location.search).get("table"));
+              const isNormal = !hasTakeawayQR && !hasScanToken && !hasTableInfo && !hasTableInUrl;
               return !isNormal;
             })() && (
               <button

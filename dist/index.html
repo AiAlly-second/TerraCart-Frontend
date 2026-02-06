@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="shortcut icon" type="image/png" href="/favicon.png" />
+    <link rel="apple-touch-icon" href="/favicon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Google Fonts - Space Grotesk -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <title>TerraCart</title>
+    <script type="module" crossorigin src="/assets/index-BVcGIVXV.js"></script>
+    <link rel="modulepreload" crossorigin href="/assets/vendor-CB8mghnX.js">
+    <link rel="modulepreload" crossorigin href="/assets/vendor-react-D1Ov3a92.js">
+    <link rel="modulepreload" crossorigin href="/assets/vendor-pdf-KWoZMcRy.js">
+    <link rel="modulepreload" crossorigin href="/assets/vendor-motion-DMcOTFRV.js">
+    <link rel="modulepreload" crossorigin href="/assets/page-Billing.jsx-A-1Xpv46.js">
+    <link rel="modulepreload" crossorigin href="/assets/vendor-socket-DJ_CsPWr.js">
+    <link rel="modulepreload" crossorigin href="/assets/page-CartPage.jsx-B3iSWPr5.js">
+    <link rel="modulepreload" crossorigin href="/assets/page-Landing.jsx-Bn5qM_d8.js">
+    <link rel="modulepreload" crossorigin href="/assets/page-SecondPage.jsx--RZGuZFw.js">
+    <link rel="stylesheet" crossorigin href="/assets/page-Billing-CXlY0rRx.css">
+    <link rel="stylesheet" crossorigin href="/assets/page-CartPage-CkllTjni.css">
+    <link rel="stylesheet" crossorigin href="/assets/page-CartPage-CKosEQRm.css">
+    <link rel="stylesheet" crossorigin href="/assets/page-SecondPage-E3gWZ8Ep.css">
+    <link rel="stylesheet" crossorigin href="/assets/page-SecondPage-BtEAImza.css">
+    <link rel="stylesheet" crossorigin href="/assets/index-D9n29fZw.css">
+  </head>
+  <body>
+    <div id="root"></div>
+
+    <script>
+      const mainColor = "#E5E4E2"; // Changed to light beige
+      const buttonColor = "#FFFFFF"; // White for buttons
+
+      function applyStylesToMenuBtn(button) {
+        if (!button) return;
+        button.style.setProperty(
+          "outline",
+          "5px solid " + mainColor,
+          "important"
+        );
+        button.style.setProperty("background", mainColor, "important");
+        button.style.setProperty(
+          "background",
+          "linear-gradient(96deg, " + mainColor + " 0, " + mainColor + " 100%)",
+          "important"
+        );
+        button.style.setProperty("right", "20px", "important");
+        button.style.setProperty("left", "auto", "important");
+        button.style.setProperty("bottom", "20px", "important");
+      }
+
+      function applyStylesToMenuHeader(header) {
+        if (!header) return;
+        header.style.setProperty("background-color", mainColor, "important");
+      }
+
+      function checkAndStyleElements() {
+        const menuBtn = document.querySelector(".asw-menu-btn");
+        const menuHeader = document.querySelector(".asw-menu-header");
+        const menu = document.querySelector(".asw-menu");
+
+        if (menuBtn) applyStylesToMenuBtn(menuBtn);
+        if (menuHeader) applyStylesToMenuHeader(menuHeader);
+        if (menu) addCloseButton();
+
+        if (menuBtn && menuHeader) {
+          observer.disconnect();
+        }
+      }
+
+      const observer = new MutationObserver(checkAndStyleElements);
+      observer.observe(document.body, {
+        childList: true,
+        subtree: true,
+      });
+
+      document.addEventListener("DOMContentLoaded", checkAndStyleElements);
+    </script>
+
+    <style>
+      :root {
+        --main-color: #e5e4e2; /* Light beige background */
+        --button-color: #ffffff; /* White buttons */
+        --button-text: #000000; /* Black text */
+      }
+
+      .asw-menu-btn svg {
+        display: none !important;
+      }
+
+      .asw-menu-btn {
+        width: 80px !important;
+        height: 80px !important;
+        right: 20px !important;
+        left: auto !important;
+        bottom: 20px !important;
+        background: var(--main-color) !important;
+      }
+
+      .asw-menu-btn::before {
+        content: "♿" !important;
+        font-size: 40px !important;
+        color: #333333 !important; /* Changed to dark color for better contrast */
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 100% !important;
+        height: 100% !important;
+      }
+
+      /* Menu header with light beige background */
+      .asw-menu-header {
+        background-color: var(--main-color) !important;
+      }
+
+      /* Menu content with light beige background */
+      .asw-menu {
+        background-color: var(--main-color) !important;
+      }
+
+      .asw-footer {
+        display: none !important;
+      }
+
+      .asw-menu-content {
+        max-height: 100% !important;
+        padding-bottom: 40px !important;
+        background-color: var(--main-color) !important;
+      }
+
+      .asw-menu-header svg,
+      .asw-menu-header svg path {
+        fill: #333333 !important; /* Changed to dark color for better contrast */
+      }
+
+      /* White buttons with black text */
+      .asw-menu .asw-footer button,
+      .asw-menu button[type="button"],
+      .asw-menu .asw-reset-btn,
+      .asw-menu button,
+      button[style*="background-color: rgb(0, 123, 255)"] {
+        background-color: var(--button-color) !important;
+        background: var(--button-color) !important;
+        border-color: var(--button-color) !important;
+        color: var(--button-text) !important;
+        border: 1px solid #e5e7eb !important;
+      }
+
+      /* Hover effect for buttons */
+      .asw-menu button:hover {
+        background-color: #f3f4f6 !important;
+        background: #f3f4f6 !important;
+      }
+
+      .asw-menu-footer button,
+      .asw-footer button {
+        background-color: var(--button-color) !important;
+        background: var(--button-color) !important;
+        border: 1px solid #e5e7eb !important;
+        color: var(--button-text) !important;
+      }
+
+      /* Close button styles */
+
+      /* Additional styling for menu text to ensure readability */
+      .asw-menu * {
+        color: #333333 !important; /* Changed to dark color for better readability */
+      }
+
+      /* Override button text color specifically */
+      .asw-menu button * {
+        color: var(--button-text) !important;
+      }
+
+      /* Specific styling for menu title - NEW ADDITION */
+      .asw-menu-title.asw-translate {
+        color: #000000 !important; /* Black color for menu title */
+      }
+    </style>
+  </body>
+</html>

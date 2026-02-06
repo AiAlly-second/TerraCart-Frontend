@@ -24,7 +24,7 @@ const shouldSkipTranslation = () => {
         return true;
       }
     }
-  } catch (e) {
+  } catch {
     // If sessionStorage is not available, continue with translation attempt
   }
   return false;
@@ -35,7 +35,7 @@ const markServiceUnavailable = () => {
   try {
     sessionStorage.setItem(STORAGE_KEY, "true");
     sessionStorage.setItem(STORAGE_TIMESTAMP_KEY, Date.now().toString());
-  } catch (e) {
+  } catch {
     // If sessionStorage is not available, continue silently
   }
 };
@@ -45,7 +45,7 @@ const markServiceAvailable = () => {
   try {
     sessionStorage.removeItem(STORAGE_KEY);
     sessionStorage.removeItem(STORAGE_TIMESTAMP_KEY);
-  } catch (e) {
+  } catch {
     // If sessionStorage is not available, continue silently
   }
 };

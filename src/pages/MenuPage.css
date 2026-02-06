@@ -585,15 +585,16 @@
     width: auto;
   }
 }
+/* Status actions: 2x2 grid of tiles on customer menu page */
 .button-group.status-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
   justify-content: center;
   margin-top: 0.5rem;
   position: relative;
   z-index: 2;
   overflow: visible;
-  display: flex; 
-  flex-wrap: wrap; /* Use flex wrap for better handling of odd number of buttons */
-  gap: 12px;
   width: 100%;
   padding-top: 0.25rem;
 }
@@ -601,10 +602,10 @@
 .button-group.status-actions .confirm-button,
 .button-group.status-actions .reset-button,
 .button-group.status-actions .billing-button,
-.button-group.status-actions .feedback-button {
-  flex: 1 1 calc(50% - 12px); /* Allow buttons to grow and fill space evenly, minus gap */
-  min-width: 140px; /* Ensure buttons don't get too squished */
-  width: auto;
+.button-group.status-actions .feedback-button,
+.button-group.status-actions .complete-payment-button {
+  min-width: 0; /* Allow grid to size cells */
+  width: 100%;
   padding: 0.875rem 1rem !important;
   font-size: 0.95rem !important;
   font-weight: 600 !important;
@@ -624,26 +625,64 @@
 .button-group.status-actions .confirm-button:hover,
 .button-group.status-actions .reset-button:hover,
 .button-group.status-actions .billing-button:hover,
-.button-group.status-actions .feedback-button:hover {
+.button-group.status-actions .feedback-button:hover,
+.button-group.status-actions .complete-payment-button:hover {
   transform: translateY(-1px);
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15);
 }
 
 @media (max-width: 640px) {
   .button-group.status-actions {
-    grid-template-columns: repeat(2, 1fr); /* Keep 2 columns on mobile */
+    grid-template-columns: 1fr 1fr;
     gap: 0.625rem;
   }
 
   .button-group.status-actions .confirm-button,
   .button-group.status-actions .reset-button,
   .button-group.status-actions .billing-button,
-  .button-group.status-actions .feedback-button {
+  .button-group.status-actions .feedback-button,
+  .button-group.status-actions .complete-payment-button {
     min-height: 50px;
     padding: 0.75rem 0.375rem !important;
     font-size: 0.8rem !important;
   }
 }
+/* Menu page floating cart footer: centered content so items aren't stretched apart */
+.menu-cart-footer {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px 16px 16px 76px; /* 60px (accessibility btn) + 16px gap */
+  background-color: #fff;
+  border-top: 1px solid #eee;
+  box-shadow: 0 -4px 10px rgba(0, 0, 0, 0.1);
+  z-index: 9999;
+}
+.menu-cart-footer-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+  max-width: 420px;
+  margin: 0 auto;
+}
+
+/* Desktop: keep items text close to accessibility button (left-aligned, not centered) */
+@media (min-width: 1024px) {
+  .menu-cart-footer {
+    justify-content: flex-start;
+  }
+  .menu-cart-footer-inner {
+    margin: 0;
+    max-width: none;
+  }
+}
+
 .order-status-card.previous-order-card {
   border-style: dashed;
   border-color: rgba(252, 128, 25, 0.4);
@@ -1626,12 +1665,12 @@
 }
 @media (min-width: 1024px) {
   .search-results {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(2, 1fr);
   }
 }
 @media (min-width: 1280px) {
   .search-results {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(2, 1fr);
   }
 }
 .category-container {
@@ -1719,13 +1758,13 @@
 }
 @media (min-width: 1024px) {
   .category-items {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(2, 1fr);
     gap: 1.5rem;
   }
 }
 @media (min-width: 1280px) {
   .category-items {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(2, 1fr);
     gap: 1.5rem;
   }
 }

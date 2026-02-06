@@ -2067,11 +2067,15 @@ export default function MenuPage() {
 
   // REPLACE the whole handleContinue with this
   const handleContinue = async () => {
-    if (Object.keys(cart).length === 0) return alert(cartEmptyText);
+    if (Object.keys(cart).length === 0) {
+      setProcessOpen(false); // Ensure overlay is closed if validation fails
+      return alert(cartEmptyText);
+    }
 
     const existingId = activeOrderId;
 
     if (serviceType === "DINE_IN" && !existingId && !tableInfo) {
+      setProcessOpen(false); // Ensure overlay is closed if validation fails
       alert(
         "We couldn't detect your table. Please scan the table QR again or contact staff before placing an order."
       );
@@ -4694,9 +4698,14 @@ export default function MenuPage() {
       const newParams = new URLSearchParams(searchParams);
       newParams.delete("action");
       setSearchParams(newParams);
+      
+      // Open overlay immediately to prevent flash/gap
+      setProcessOpen(true);
       handleContinue();
     }
   }, [searchParams, menuLoading, menuCatalog, menuError]);
+
+
 
   return (
     <div
@@ -4927,6 +4936,8 @@ export default function MenuPage() {
                     <OrderStatus
                       status={orderStatus}
                       updatedAt={orderStatusUpdatedAt}
+                      serviceType={serviceType}
+                      tableLabel={serviceType === "DINE_IN" && tableInfo?.number ? `Dine-In | Table ${tableInfo.number}` : null}
                     />
                   </div>
                   <div className="button-group status-actions">
@@ -5547,30 +5558,26 @@ export default function MenuPage() {
         </div>
       )}
 
-      {/* Floating Cart Button (Moved to prevent overlap) */}
+      {/* Floating Cart Footer - content centered so not stretched apart */}
       {Object.keys(cart).length > 0 && !showCart && (
-        <div style={{
-          position: 'fixed', bottom: 0, left: 0, right: 0,
-          backgroundColor: 'white', borderTop: '1px solid #eee',
-          padding: '16px 16px 16px 80px', zIndex: 9999,
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          boxShadow: '0 -4px 10px rgba(0,0,0,0.1)'
-        }}>
-          <div style={{display:'flex', flexDirection:'column'}}>
-            <span style={{fontWeight:'bold', fontSize:'1.1rem', color:'#333'}}>{cartItemCount} Items</span>
-            <span style={{color:'#666', fontSize:'0.9rem'}}>Total: ₹{cartTotal.toFixed(2)}</span>
+        <div className="menu-cart-footer">
+          <div className="menu-cart-footer-inner">
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              <span style={{ fontWeight: 'bold', fontSize: '1.1rem', color: '#333' }}>{cartItemCount} Items</span>
+              <span style={{ color: '#666', fontSize: '0.9rem' }}>Total: ₹{cartTotal.toFixed(2)}</span>
+            </div>
+            <button
+              onClick={() => navigate("/cart")}
+              style={{
+                backgroundColor: '#ff6b35', color: 'white',
+                padding: '12px 24px', borderRadius: '50px',
+                fontWeight: 'bold', fontSize: '1rem', border: 'none',
+                cursor: 'pointer', boxShadow: '0 4px 6px rgba(255, 107, 53, 0.3)'
+              }}
+            >
+              View Cart &rarr;
+            </button>
           </div>
-          <button 
-            onClick={() => navigate("/cart")}
-            style={{
-              backgroundColor: '#ff6b35', color: 'white',
-              padding: '12px 24px', borderRadius: '50px',
-              fontWeight: 'bold', fontSize: '1rem', border: 'none',
-              cursor: 'pointer', boxShadow: '0 4px 6px rgba(255, 107, 53, 0.3)'
-            }}
-          >
-            View Cart &rarr;
-          </button>
         </div>
       )}
 

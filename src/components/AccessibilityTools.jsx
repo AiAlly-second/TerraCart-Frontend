@@ -146,24 +146,24 @@ const AccessibilityTools = () => {
     };
   }, [isOpen]);
 
-  /* ---------- INLINE STYLES (bottom-left placement) ---------- */
+  /* ---------- INLINE STYLES: match footer bar (same height, orange, shadow as View Cart) ---------- */
   const fabWrapStyle = {
     position: 'fixed',
-    bottom: '20px',
-    left: '20px',
+    bottom: '16px',
+    left: '16px',
     zIndex: 10000,
   };
 
   const fabBtnStyle = {
-    height: 56,
-    width: 56,
-    borderRadius: '9999px',
+    height: 44,
+    width: 44,
+    borderRadius: '12px',
     border: 'none',
-    background: '#EA580C',
+    background: '#ff6b35',
     color: 'white',
-    fontSize: 24,
+    fontSize: 20,
     cursor: 'pointer',
-    boxShadow: '0 6px 18px rgba(0,0,0,0.25)',
+    boxShadow: '0 4px 6px rgba(255, 107, 53, 0.3)',
     display: 'grid',
     placeItems: 'center',
     transition: 'transform .2s ease, box-shadow .2s ease, background .2s ease',
@@ -171,7 +171,7 @@ const AccessibilityTools = () => {
 
   const panelStyle = {
     position: 'absolute',
-    bottom: 70,
+    bottom: 56,
     left: 0,
     background: 'rgba(255,255,255,0.98)',
     borderRadius: 12,
@@ -249,10 +249,10 @@ const AccessibilityTools = () => {
     ...fabBtnStyle,
     transform: isOpen ? 'rotate(15deg) scale(1.02)' : 'none'
   }}
-  onMouseOver={(e) => e.currentTarget.style.boxShadow = '0 10px 24px rgba(0,0,0,0.28)'}
-  onMouseOut={(e) => e.currentTarget.style.boxShadow = '0 6px 18px rgba(0,0,0,0.25)'}
+  onMouseOver={(e) => e.currentTarget.style.boxShadow = '0 6px 10px rgba(255, 107, 53, 0.4)'}
+  onMouseOut={(e) => e.currentTarget.style.boxShadow = '0 4px 6px rgba(255, 107, 53, 0.3)'}
 >
-  <FaWheelchair size={24} color="white" />
+  <FaWheelchair size={20} color="white" />
 </button>
 
 

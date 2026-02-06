@@ -11,7 +11,7 @@ const HEALTH_CHECK_TIMEOUT = 2000;
 
 // Current active backend
 let activeBackend = PRIMARY_API_URL;
-let lastHealthCheck = null;
+// let lastHealthCheck = null;
 let healthCheckInterval = null;
 
 /**

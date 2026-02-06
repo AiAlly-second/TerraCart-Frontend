@@ -5,6 +5,12 @@ import { FiArrowLeft, FiMinus, FiPlus, FiTrash2 } from "react-icons/fi";
 import fallbackMenuItems from "../data/menuData";
 import { addOnList as staticAddOnList } from "../data/addons";
 import "./CartPage.css";
+import { buildOrderPayload } from "../utils/orderUtils";
+import { postWithRetry } from "../utils/fetchWithTimeout";
+import ProcessOverlay from "../components/ProcessOverlay";
+import restaurantBg from "../assets/images/restaurant-img.jpg"; // reuse if needed or use transparent
+import { io } from "socket.io-client"; // Actually, we probably don't need socket here if we just POST
+// But let's keep imports minimal
 
 const nodeApi = (import.meta.env.VITE_NODE_API_URL || "http://localhost:5001").replace(/\/$/, "");
 
@@ -85,6 +91,25 @@ export default function CartPage() {
   const [addonsLoading, setAddonsLoading] = useState(true);
   const [specialInstructions, setSpecialInstructions] = useState("");
 
+  // Process Overlay State
+  const initialProcessSteps = [
+    { label: "Checking your order", state: "pending" },
+    { label: "Confirming items & price", state: "pending" },
+    { label: "Placing your order", state: "pending" },
+    { label: "Sending to kitchen", state: "pending" },
+    { label: "Preparing order details", state: "pending" },
+  ];
+  const [processOpen, setProcessOpen] = useState(false);
+  const [processSteps, setProcessSteps] = useState(initialProcessSteps);
+  
+  const setStepState = (index, state) =>
+    setProcessSteps((steps) =>
+      steps.map((s, i) => (i === index ? { ...s, state } : s))
+    );
+
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const DUR = { validate: 1500, order: 1500, beforeSend: 1000, kitchen: 1500, error: 2000 };
+
   useEffect(() => {
     // Load Cart
     try {
@@ -92,7 +117,7 @@ export default function CartPage() {
       setCart(savedCart);
       const savedAddOns = JSON.parse(localStorage.getItem("terra_cart_addons") || "[]");
       setSelectedAddOns(savedAddOns);
-      setSpecialInstructions(localStorage.getItem("terra_specialInstructions") || "");
+      // setSpecialInstructions(localStorage.getItem("terra_specialInstructions") || ""); // Removed persistence
     } catch (e) {
       console.error("Error loading cart", e);
     }
@@ -231,12 +256,164 @@ export default function CartPage() {
     }
   };
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     if (Object.keys(cart).length === 0) return alert("Cart is empty");
-    // Save addons before navigating
+
+    // Save addons
     localStorage.setItem("terra_cart_addons", JSON.stringify(selectedAddOns));
-    // Navigate to Menu with confirm action
-    navigate("/menu?action=confirm");
+
+    // Reset Steps
+    setProcessSteps(initialProcessSteps.map(s => ({ ...s, state: "pending" })));
+    setProcessOpen(true);
+
+    try {
+      // Step 0: Validating
+      setStepState(0, "active");
+      await wait(DUR.validate);
+      setStepState(0, "done");
+
+      // Step 1: Processing
+      setStepState(1, "active");
+      await wait(DUR.order);
+      setStepState(1, "done");
+
+      // Step 2: Sending
+      setStepState(2, "active");
+      await wait(DUR.beforeSend);
+
+      // --- AGGREGATE ORDER CONTEXT ---
+      const serviceType = localStorage.getItem("terra_serviceType") || "DINE_IN";
+      const tableInfo = JSON.parse(localStorage.getItem("terra_selectedTable") || "{}");
+      const activeOrderId = (serviceType === "TAKEAWAY") 
+          ? localStorage.getItem("terra_orderId_TAKEAWAY") 
+          : (localStorage.getItem("terra_orderId_DINE_IN") || localStorage.getItem("terra_orderId"));
+      
+      let sessionToken = "";
+      if (serviceType === "TAKEAWAY") {
+         sessionToken = localStorage.getItem("terra_takeaway_sessionToken");
+         if (!sessionToken) {
+             sessionToken = `TAKEAWAY-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+             localStorage.setItem("terra_takeaway_sessionToken", sessionToken);
+         }
+      } else {
+         sessionToken = localStorage.getItem("terra_sessionToken");
+         if (!sessionToken) {
+             // Try to recover from table info
+             if (tableInfo && tableInfo.sessionToken) {
+                 sessionToken = tableInfo.sessionToken;
+                 localStorage.setItem("terra_sessionToken", sessionToken);
+             } else {
+                 sessionToken = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                 localStorage.setItem("terra_sessionToken", sessionToken);
+             }
+         }
+      }
+
+      // Prepare Add-ons
+      const globalAddons = JSON.parse(localStorage.getItem("terra_global_addons") || "[]");
+      const addonLookupList = Array.isArray(globalAddons) && globalAddons.length > 0 ? globalAddons : staticAddOnList;
+      const resolvedAddons = selectedAddOns.map(id => {
+          const meta = addonLookupList.find(a => a.id === id);
+          return meta ? { addonId: id, name: meta.name, price: meta.price } : null;
+      }).filter(Boolean);
+
+      // CartId
+      const cartId = await getCartId(searchParams);
+
+      const orderPayload = buildOrderPayload(cart, {
+        serviceType: serviceType,
+        tableId: tableInfo.id || tableInfo._id,
+        tableNumber: tableInfo.number || tableInfo.tableNumber,
+        menuCatalog,
+        sessionToken: sessionToken,
+        // Optional fields for Takeaway/Pickup (limited support on CartPage simple flow)
+        customerName: localStorage.getItem("terra_takeaway_customerName") || localStorage.getItem("terra_customerName"),
+        customerMobile: localStorage.getItem("terra_takeaway_customerMobile") || localStorage.getItem("terra_customerMobile"),
+        cartId: cartId,
+        specialInstructions: specialInstructions,
+        selectedAddons: resolvedAddons,
+      });
+
+      // Simple Validation
+      if (!orderPayload.items || orderPayload.items.length === 0) {
+        throw new Error("Cart is empty or invalid items.");
+      }
+
+      // Check if existing order is finalized/paid - if so, start new order
+      const activeOrderStatus = (serviceType === "TAKEAWAY")
+          ? localStorage.getItem("terra_orderStatus_TAKEAWAY")
+          : (localStorage.getItem("terra_orderStatus_DINE_IN") || localStorage.getItem("terra_orderStatus"));
+      
+      const blockedStatuses = ["Paid", "Cancelled", "Returned", "Completed", "Finalized"];
+      let finalActiveOrderId = activeOrderId;
+      
+      if (activeOrderId && blockedStatuses.includes(activeOrderStatus)) {
+          console.log("[CartPage] Previous order status is", activeOrderStatus, "- starting new order");
+          finalActiveOrderId = null;
+      }
+
+      // API Call
+      const url = finalActiveOrderId
+        ? `${nodeApi}/api/orders/${finalActiveOrderId}/kot`
+        : `${nodeApi}/api/orders`;
+
+      const res = await postWithRetry(
+        url,
+        orderPayload,
+        { headers: { "Content-Type": "application/json" } },
+        { maxRetries: 2, timeout: 30000 }
+      );
+
+      let data;
+      try {
+        const text = await res.text();
+        data = text ? JSON.parse(text) : {};
+      } catch (e) {
+        data = {};
+      }
+
+      if (!res.ok) {
+        const msg = data.message || data.error || "Failed to create order";
+        throw new Error(msg);
+      }
+
+      // Success!
+      setStepState(2, "done");
+      
+      // Step 3: Kitchen
+      setStepState(3, "active");
+      await wait(DUR.kitchen);
+      setStepState(3, "done");
+
+      // Update LocalStorage to reflect new order state for Menu.jsx
+      if (data._id) {
+          if (serviceType === "TAKEAWAY") {
+              localStorage.setItem("terra_orderId_TAKEAWAY", data._id);
+              localStorage.setItem("terra_orderStatus_TAKEAWAY", data.status || "Confirmed");
+              localStorage.setItem("terra_orderStatusUpdatedAt_TAKEAWAY", new Date().toISOString());
+          } else {
+              localStorage.setItem("terra_orderId", data._id);
+              localStorage.setItem("terra_orderId_DINE_IN", data._id);
+              localStorage.setItem("terra_orderStatus", data.status || "Confirmed");
+              localStorage.setItem("terra_orderStatus_DINE_IN", data.status || "Confirmed");
+              localStorage.setItem("terra_orderStatusUpdatedAt", new Date().toISOString());
+              localStorage.setItem("terra_orderStatusUpdatedAt_DINE_IN", new Date().toISOString());
+          }
+          localStorage.removeItem("terra_cart");
+          setCart({});
+      }
+
+      // DONE - Navigate
+      // Navigate to Menu directly (no confirm action)
+      navigate("/menu");
+
+    } catch (err) {
+      console.error("Order processing failed:", err);
+      setStepState(2, "error");
+      await wait(DUR.error);
+      alert(`❌ ${err.message}`);
+      setProcessOpen(false);
+    }
   };
 
   const toggleAddOn = (id) => {
@@ -375,7 +552,7 @@ export default function CartPage() {
               value={specialInstructions}
               onChange={(e) => {
                 setSpecialInstructions(e.target.value);
-                localStorage.setItem("terra_specialInstructions", e.target.value);
+                // localStorage.setItem("terra_specialInstructions", e.target.value); // Removed persistence
               }}
               style={{
                 width: '100%',
@@ -392,6 +569,11 @@ export default function CartPage() {
           </>
         )}
       </div>
+      <ProcessOverlay
+        open={processOpen}
+        steps={processSteps}
+        title="Processing your order"
+      />
     </div>
   );
 }

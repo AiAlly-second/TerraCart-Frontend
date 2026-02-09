@@ -23,12 +23,6 @@ import { postWithRetry } from "../utils/fetchWithTimeout";
 const nodeApi = (
   import.meta.env.VITE_NODE_API_URL || "http://localhost:5001"
 ).replace(/\/$/, "");
-// CRITICAL: Flask API URL - default to 5050, but allow override via env
-const flaskApi = (
-  import.meta.env.VITE_FLASK_API_URL || "http://localhost:5050"
-).replace(/\/$/, "");
-// Flask API URL configured
-
 // Helper function to normalize image URLs
 // If image URL is relative (starts with /), prepend API base URL
 // If it's already absolute (http:// or https://), use as-is
@@ -87,7 +81,10 @@ const buildInvoiceId = (order) => {
     .slice(0, 10)
     .replace(/-/g, "");
   // Use cartId instead of order._id for invoice numbering
-  const cartIdTail = (order.cartId || order._id || "").toString().slice(-6).toUpperCase();
+  const cartIdTail = (order.cartId || order._id || "")
+    .toString()
+    .slice(-6)
+    .toUpperCase();
   return `INV-${date}-${cartIdTail}`;
 };
 
@@ -141,7 +138,7 @@ const aggregateOrderItems = (order) => {
     const name = `(+) ${addon.name}`;
     const quantity = 1;
     const unitPrice = Number(addon.price) || 0; // Addons are in Rupees
-    
+
     if (!map.has(name)) {
       map.set(name, {
         name,
@@ -247,18 +244,21 @@ const buildCatalogFromCategories = (categories) => {
 
 const TranslatedItem = ({ item, onAdd, onRemove, count, lang }) => {
   if (!item) return null;
-  
+
   const language = lang || localStorage.getItem("language") || "en";
   let staticTranslation = null;
-  
+
   // Try to lookup in static translations first
   if (menuItemsTranslations[language]?.items) {
-     // Normalize item name to key format (lowercase, underscores)
-     // e.g. "Veg Sandwich" -> "veg_sandwich"
-     const key = item.name?.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-     staticTranslation = menuItemsTranslations[language].items[key];
-     // Debug log
-     // console.log(`[TranslatedItem] Lang: ${language}, Item: ${item.name}, Key: ${key}, Found: ${!!staticTranslation}, Val: ${staticTranslation}`);
+    // Normalize item name to key format (lowercase, underscores)
+    // e.g. "Veg Sandwich" -> "veg_sandwich"
+    const key = item.name
+      ?.toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    staticTranslation = menuItemsTranslations[language].items[key];
+    // Debug log
+    // console.log(`[TranslatedItem] Lang: ${language}, Item: ${item.name}, Key: ${key}, Found: ${!!staticTranslation}, Val: ${staticTranslation}`);
   }
 
   const [aiTranslation] = useAITranslation(item.name || "");
@@ -324,10 +324,13 @@ const TranslatedItem = ({ item, onAdd, onRemove, count, lang }) => {
 const TranslatedSummaryItem = ({ item, qty }) => {
   const language = localStorage.getItem("language") || "en";
   let staticTranslation = null;
-  
+
   if (menuItemsTranslations[language]?.items) {
-     const key = item?.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-     staticTranslation = menuItemsTranslations[language].items[key];
+    const key = item
+      ?.toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    staticTranslation = menuItemsTranslations[language].items[key];
   }
 
   const [aiTranslation] = useAITranslation(item);
@@ -342,16 +345,27 @@ const TranslatedSummaryItem = ({ item, qty }) => {
 // NEW: CategoryBlock.jsx-inlined component
 // Updated: each category controls its own open/close state.
 // Opening one category will NOT auto-close others; user controls each independently.
-const CategoryBlock = ({ category, items, cart, onAdd, onRemove, lang, defaultOpen = false }) => {
+const CategoryBlock = ({
+  category,
+  items,
+  cart,
+  onAdd,
+  onRemove,
+  lang,
+  defaultOpen = false,
+}) => {
   if (!category) return null;
-  
+
   const language = lang || localStorage.getItem("language") || "en";
   let staticTranslation = null;
-  
+
   if (menuItemsTranslations[language]?.categories) {
-     const key = category?.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-     staticTranslation = menuItemsTranslations[language].categories[key];
-     // console.log(`[CategoryBlock] Lang: ${language}, Cat: ${category}, Key: ${key}, Found: ${!!staticTranslation}`);
+    const key = category
+      ?.toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    staticTranslation = menuItemsTranslations[language].categories[key];
+    // console.log(`[CategoryBlock] Lang: ${language}, Cat: ${category}, Key: ${key}, Found: ${!!staticTranslation}`);
   }
 
   const [aiTranslation] = useAITranslation(category || "");
@@ -418,11 +432,26 @@ export default function MenuPage() {
   };
 
   const initialProcessSteps = [
-    { label: t("processSteps.checkingOrder", "Checking your order"), state: "pending" },
-    { label: t("processSteps.confirmingItems", "Confirming items & price"), state: "pending" },
-    { label: t("processSteps.placingOrder", "Placing your order"), state: "pending" },
-    { label: t("processSteps.sendingToKitchen", "Sending to kitchen"), state: "pending" },
-    { label: t("processSteps.preparingDetails", "Preparing order details"), state: "pending" },
+    {
+      label: t("processSteps.checkingOrder", "Checking your order"),
+      state: "pending",
+    },
+    {
+      label: t("processSteps.confirmingItems", "Confirming items & price"),
+      state: "pending",
+    },
+    {
+      label: t("processSteps.placingOrder", "Placing your order"),
+      state: "pending",
+    },
+    {
+      label: t("processSteps.sendingToKitchen", "Sending to kitchen"),
+      state: "pending",
+    },
+    {
+      label: t("processSteps.preparingDetails", "Preparing order details"),
+      state: "pending",
+    },
   ];
 
   const [processOpen, setProcessOpen] = useState(false);
@@ -430,11 +459,11 @@ export default function MenuPage() {
 
   const setStepState = (index, state) =>
     setProcessSteps((prev) =>
-      prev.map((s, i) => (i === index ? { ...s, state } : s))
+      prev.map((s, i) => (i === index ? { ...s, state } : s)),
     );
 
   const [accessibilityMode, setAccessibilityMode] = useState(
-    localStorage.getItem("accessibilityMode") === "true"
+    localStorage.getItem("accessibilityMode") === "true",
   );
 
   const toggleAccessibility = () => {
@@ -442,8 +471,6 @@ export default function MenuPage() {
     setAccessibilityMode(newMode);
     localStorage.setItem("accessibilityMode", newMode.toString());
   };
-
-
 
   const [cart, setCart] = useState(() => {
     const saved = localStorage.getItem("terra_cart");
@@ -478,7 +505,7 @@ export default function MenuPage() {
         (item) => ({
           ...item,
           categoryName: category?.name || "Menu",
-        })
+        }),
       );
     });
   }, [menuCategories]);
@@ -488,7 +515,7 @@ export default function MenuPage() {
     let count = 0;
     Object.entries(cart).forEach(([itemName, qty]) => {
       count += qty;
-      const item = flatMenuItems.find(i => i.name === itemName);
+      const item = flatMenuItems.find((i) => i.name === itemName);
       if (item) {
         total += (item.price || 0) * qty;
       }
@@ -506,7 +533,7 @@ export default function MenuPage() {
         item.name.toLowerCase().includes(query) ||
         (item.description || "").toLowerCase().includes(query) ||
         (item.tags || []).some(
-          (tag) => tag && tag.toLowerCase().includes(query)
+          (tag) => tag && tag.toLowerCase().includes(query),
         )
       );
     });
@@ -568,7 +595,7 @@ export default function MenuPage() {
     }
   });
   const [sessionToken, setSessionToken] = useState(() =>
-    localStorage.getItem("terra_sessionToken")
+    localStorage.getItem("terra_sessionToken"),
   );
 
   // Effect to verify active order belongs to current session on mount
@@ -597,7 +624,7 @@ export default function MenuPage() {
           // Only clear if order truly doesn't exist (404), not on other errors
           if (res.status === 404) {
             console.log(
-              "[Menu] Active order not found (404), clearing order data"
+              "[Menu] Active order not found (404), clearing order data",
             );
             localStorage.removeItem("terra_orderId");
             localStorage.removeItem("terra_orderStatus");
@@ -609,7 +636,7 @@ export default function MenuPage() {
             // For other errors, keep existing order status
             console.warn(
               "[Menu] Error verifying order (non-404), keeping existing status:",
-              res.status
+              res.status,
             );
           }
           return;
@@ -621,7 +648,7 @@ export default function MenuPage() {
         } catch (jsonError) {
           console.error(
             "[Menu] Failed to parse order response as JSON:",
-            jsonError
+            jsonError,
           );
           // If JSON parsing fails, treat as if order doesn't exist
           return;
@@ -632,7 +659,7 @@ export default function MenuPage() {
         // If order exists but sessionToken doesn't match, clear it (belongs to old session)
         if (order.sessionToken && order.sessionToken !== currentSessionToken) {
           console.log(
-            "[Menu] Clearing stale dine-in order data for old session"
+            "[Menu] Clearing stale dine-in order data for old session",
           );
           localStorage.removeItem("terra_orderId");
           localStorage.removeItem("terra_orderStatus");
@@ -649,7 +676,7 @@ export default function MenuPage() {
       } catch (err) {
         console.warn(
           "[Menu] Error verifying active order session (network error), keeping existing status:",
-          err
+          err,
         );
         // Don't clear order data on network errors - keep existing status from localStorage
         // The order status will be verified again when the fetchStatus runs
@@ -675,7 +702,7 @@ export default function MenuPage() {
       // Only clear dine-in order data, not takeaway
       if (currentServiceType !== "TAKEAWAY") {
         console.log(
-          "[Menu] SessionToken changed - clearing old dine-in order data"
+          "[Menu] SessionToken changed - clearing old dine-in order data",
         );
         localStorage.removeItem("terra_orderId");
         localStorage.removeItem("terra_orderStatus");
@@ -720,33 +747,21 @@ export default function MenuPage() {
     }
   }, [serviceType, activeOrderId]);
 
-  // Enforce customer name for Takeaway/Pickup/Delivery (except table takeaway – we skip the form for that)
+  // Customer name form removed for all takeaway flows (global takeaway, normal link, table takeaway) – no redirect
   useEffect(() => {
     if (serviceType === "DINE_IN") return;
-
-    // Table takeaway: user came from table QR and skipped customer form – do not require name or redirect
-    const hasTableContext = !!localStorage.getItem("terra_scanToken") || !!localStorage.getItem("terra_selectedTable");
-    const hasTableInUrl = !!(typeof window !== "undefined" && new URLSearchParams(window.location.search).get("table"));
-    const isTakeawayOnlyQR = localStorage.getItem("terra_takeaway_only") === "true";
-    const isTableTakeaway = (hasTableContext || hasTableInUrl) && !isTakeawayOnlyQR;
-    if (serviceType === "TAKEAWAY" && isTableTakeaway) return;
-
-    const storedName = localStorage.getItem("terra_takeaway_customerName");
-    if (!storedName || !storedName.trim()) {
-      console.warn(`[Menu] Missing customer name for ${serviceType} order - redirecting to SecondPage`);
-      navigate("/secondpage", { replace: true });
-    }
+    return;
   }, [serviceType, navigate]);
 
   // Customer info for takeaway orders (optional) - loaded from localStorage
   const [customerName] = useState(
-    () => localStorage.getItem("terra_takeaway_customerName") || ""
+    () => localStorage.getItem("terra_takeaway_customerName") || "",
   );
   const [customerMobile] = useState(
-    () => localStorage.getItem("terra_takeaway_customerMobile") || ""
+    () => localStorage.getItem("terra_takeaway_customerMobile") || "",
   );
   const [customerEmail] = useState(
-    () => localStorage.getItem("terra_takeaway_customerEmail") || ""
+    () => localStorage.getItem("terra_takeaway_customerEmail") || "",
   );
   const [previousOrder, setPreviousOrder] = useState(() => {
     try {
@@ -773,7 +788,7 @@ export default function MenuPage() {
   const [invoiceLoading, setInvoiceLoading] = useState(false);
   const [printingInvoice, setPrintingInvoice] = useState(false);
   const [downloadingInvoice, setDownloadingInvoice] = useState(false);
-  
+
   // Reason Modal State
   const [showReasonModal, setShowReasonModal] = useState(false);
   const [reasonAction, setReasonAction] = useState(null); // "Cancel" or "Return"
@@ -847,17 +862,17 @@ export default function MenuPage() {
       orderStatusUpdatedAt,
       tableInfo,
       persistPreviousOrder,
-    ]
+    ],
   );
 
   const invoiceId = useMemo(
     () => (invoiceOrder ? buildInvoiceId(invoiceOrder) : null),
-    [invoiceOrder]
+    [invoiceOrder],
   );
 
   const invoiceItems = useMemo(
     () => aggregateOrderItems(invoiceOrder),
-    [invoiceOrder]
+    [invoiceOrder],
   );
 
   const invoiceTotals = useMemo(
@@ -865,7 +880,7 @@ export default function MenuPage() {
       invoiceOrder
         ? computeOrderTotals(invoiceOrder, invoiceItems)
         : { subtotal: 0, gst: 0, totalAmount: 0, totalItems: 0 },
-    [invoiceOrder, invoiceItems]
+    [invoiceOrder, invoiceItems],
   );
 
   const invoiceServiceLabel = useMemo(() => {
@@ -878,12 +893,12 @@ export default function MenuPage() {
   const invoiceTableName = invoiceOrder?.table?.name ?? null;
   const invoiceTimestamp = useMemo(
     () => resolveOrderTimestamp(invoiceOrder),
-    [invoiceOrder]
+    [invoiceOrder],
   );
 
   const previousDetailItems = useMemo(
     () => aggregateOrderItems(previousOrderDetail),
-    [previousOrderDetail]
+    [previousOrderDetail],
   );
 
   const previousDetailTotals = useMemo(
@@ -891,20 +906,18 @@ export default function MenuPage() {
       previousOrderDetail
         ? computeOrderTotals(previousOrderDetail, previousDetailItems)
         : { subtotal: 0, gst: 0, totalAmount: 0, totalItems: 0 },
-    [previousOrderDetail, previousDetailItems]
+    [previousOrderDetail, previousDetailItems],
   );
 
   const previousDetailTimestamp = useMemo(
     () => resolveOrderTimestamp(previousOrderDetail),
-    [previousOrderDetail]
+    [previousOrderDetail],
   );
 
   const previousDetailInvoiceId = useMemo(
     () => (previousOrderDetail ? buildInvoiceId(previousOrderDetail) : null),
-    [previousOrderDetail]
+    [previousOrderDetail],
   );
-
-
 
   const menuHeading = t("manualEntry", "Menu");
   const smartServe = t("smartServe", "Smart Serve");
@@ -987,7 +1000,7 @@ export default function MenuPage() {
       storedServiceType !== "TAKEAWAY"
     ) {
       console.log(
-        "[Menu] Detected takeaway order or takeaway-only mode on refresh, setting serviceType to TAKEAWAY"
+        "[Menu] Detected takeaway order or takeaway-only mode on refresh, setting serviceType to TAKEAWAY",
       );
       setServiceType("TAKEAWAY");
       localStorage.setItem(SERVICE_TYPE_KEY, "TAKEAWAY");
@@ -1004,7 +1017,7 @@ export default function MenuPage() {
       // If no serviceType in state or localStorage, check if this is a takeaway-only QR flow
       if (takeawayOnly) {
         console.log(
-          "[Menu] Detected takeaway-only QR flow, setting serviceType to TAKEAWAY"
+          "[Menu] Detected takeaway-only QR flow, setting serviceType to TAKEAWAY",
         );
         setServiceType("TAKEAWAY");
         localStorage.setItem(SERVICE_TYPE_KEY, "TAKEAWAY");
@@ -1015,7 +1028,7 @@ export default function MenuPage() {
       setTableInfo(location.state.table);
       localStorage.setItem(
         TABLE_SELECTION_KEY,
-        JSON.stringify(location.state.table)
+        JSON.stringify(location.state.table),
       );
     }
   }, [location.state, setServiceType]);
@@ -1047,14 +1060,14 @@ export default function MenuPage() {
         existingOrderId &&
         existingOrderStatus &&
         !["Paid", "Cancelled", "Returned", "Completed"].includes(
-          existingOrderStatus
+          existingOrderStatus,
         );
 
       // If we have an order in storage, verify it exists on backend
       if (hasActiveOrderInStorage && existingOrderId) {
         try {
           const orderRes = await fetch(
-            `${nodeApi}/api/orders/${existingOrderId}`
+            `${nodeApi}/api/orders/${existingOrderId}`,
           );
           if (orderRes.ok) {
             const orderData = await orderRes.json();
@@ -1062,11 +1075,11 @@ export default function MenuPage() {
             if (
               orderData.status &&
               !["Paid", "Cancelled", "Returned", "Completed"].includes(
-                orderData.status
+                orderData.status,
               )
             ) {
               console.log(
-                "[Menu] User has verified active order - allowing access, skipping waitlist check"
+                "[Menu] User has verified active order - allowing access, skipping waitlist check",
               );
               return true; // User has verified active order, allow access
             }
@@ -1077,7 +1090,7 @@ export default function MenuPage() {
           // (don't block on network errors)
           if (hasActiveOrderInStorage) {
             console.log(
-              "[Menu] Order verification failed but order exists in storage - allowing access"
+              "[Menu] Order verification failed but order exists in storage - allowing access",
             );
             return true;
           }
@@ -1094,7 +1107,7 @@ export default function MenuPage() {
           // Check if sessionToken matches OR if table has an active order for this session
           if (tableData.sessionToken === sessionToken) {
             console.log(
-              "[Menu] User has matching sessionToken - allowing access, skipping waitlist check"
+              "[Menu] User has matching sessionToken - allowing access, skipping waitlist check",
             );
             return true; // User owns the table session, allow access
           }
@@ -1105,7 +1118,7 @@ export default function MenuPage() {
           if (slug) {
             try {
               const tableRes = await fetch(
-                `${nodeApi}/api/tables/lookup/${slug}?sessionToken=${sessionToken}`
+                `${nodeApi}/api/tables/lookup/${slug}?sessionToken=${sessionToken}`,
               );
               if (tableRes.ok) {
                 const tablePayload = await tableRes.json();
@@ -1116,7 +1129,7 @@ export default function MenuPage() {
                   tablePayload?.table?.activeOrder
                 ) {
                   console.log(
-                    "[Menu] Backend confirms user owns table session - allowing access"
+                    "[Menu] Backend confirms user owns table session - allowing access",
                   );
                   return true;
                 }
@@ -1124,7 +1137,7 @@ export default function MenuPage() {
             } catch (tableErr) {
               console.warn(
                 "[Menu] Failed to verify table session on backend:",
-                tableErr
+                tableErr,
               );
               // If verification fails but sessionToken matches locally, still allow
               if (tableData.sessionToken === sessionToken) {
@@ -1142,7 +1155,7 @@ export default function MenuPage() {
       const waitlistToken = localStorage.getItem("terra_waitToken");
       if (hasActiveOrderInStorage && waitlistToken) {
         console.log(
-          "[Menu] User has active order but also has waitlist token - clearing waitlist token"
+          "[Menu] User has active order but also has waitlist token - clearing waitlist token",
         );
         localStorage.removeItem("terra_waitToken");
         return true; // User has active order, allow access
@@ -1154,7 +1167,7 @@ export default function MenuPage() {
 
       try {
         const res = await fetch(
-          `${nodeApi}/api/waitlist/status?token=${waitlistToken}`
+          `${nodeApi}/api/waitlist/status?token=${waitlistToken}`,
         );
         if (res.ok) {
           const waitlistData = await res.json();
@@ -1162,10 +1175,10 @@ export default function MenuPage() {
           // Block access if status is WAITING
           if (waitlistData.status === "WAITING") {
             console.log(
-              "[Menu] User is in WAITING status - blocking menu access"
+              "[Menu] User is in WAITING status - blocking menu access",
             );
             alert(
-              "You are currently in the waitlist. Please wait for your turn. You will be notified when the table is ready."
+              "You are currently in the waitlist. Please wait for your turn. You will be notified when the table is ready.",
             );
             navigate("/secondpage");
             return false;
@@ -1226,12 +1239,12 @@ export default function MenuPage() {
             const refreshRes = await fetch(
               `${nodeApi}/api/tables/lookup/${slug}${
                 sessionToken ? `?sessionToken=${sessionToken}` : ""
-              }`
+              }`,
             ).catch((fetchErr) => {
               // Only log actual network errors, not 423 status codes
               console.warn(
                 "[Menu] Network error during table lookup:",
-                fetchErr
+                fetchErr,
               );
               throw fetchErr; // Re-throw to be handled by outer catch
             });
@@ -1247,12 +1260,12 @@ export default function MenuPage() {
                 // Silently handle parse errors for 423 - it's expected behavior
                 console.warn(
                   "[Menu] Failed to parse 423 response (expected for occupied tables):",
-                  parseErr
+                  parseErr,
                 );
               }
               // Log that we're handling 423 (this is expected, not an error)
               console.log(
-                "[Menu] Table lookup returned 423 (Locked - expected for occupied tables) - handling gracefully"
+                "[Menu] Table lookup returned 423 (Locked - expected for occupied tables) - handling gracefully",
               );
 
               // Check if we have an active order for this table
@@ -1263,7 +1276,7 @@ export default function MenuPage() {
               if (existingOrderId) {
                 try {
                   const orderRes = await fetch(
-                    `${nodeApi}/api/orders/${existingOrderId}`
+                    `${nodeApi}/api/orders/${existingOrderId}`,
                   );
                   if (orderRes.ok) {
                     const orderData = await orderRes.json();
@@ -1277,17 +1290,17 @@ export default function MenuPage() {
                         sessionToken = orderData.sessionToken;
                         localStorage.setItem(
                           "terra_sessionToken",
-                          sessionToken
+                          sessionToken,
                         );
                         setSessionToken(sessionToken);
                         console.log(
                           "[Menu] Table is locked but user has active order - using order's sessionToken:",
-                          sessionToken
+                          sessionToken,
                         );
                       }
                       // Table is already occupied by this user's order - skip marking as occupied
                       console.log(
-                        "[Menu] Table is already occupied by user's active order - skipping markTableOccupied"
+                        "[Menu] Table is already occupied by user's active order - skipping markTableOccupied",
                       );
                       shouldMarkOccupied = false;
                       return; // Skip marking as occupied
@@ -1296,7 +1309,7 @@ export default function MenuPage() {
                 } catch (orderErr) {
                   console.warn(
                     "[Menu] Failed to verify order when table is locked:",
-                    orderErr
+                    orderErr,
                   );
                 }
               }
@@ -1312,7 +1325,7 @@ export default function MenuPage() {
                 };
                 localStorage.setItem(
                   "terra_selectedTable",
-                  JSON.stringify(updatedTableData)
+                  JSON.stringify(updatedTableData),
                 );
 
                 // If 423 response has sessionToken, check if it matches ours
@@ -1321,7 +1334,7 @@ export default function MenuPage() {
                   if (tableSessionToken === sessionToken) {
                     // Session matches - we own this table, can proceed
                     console.log(
-                      "[Menu] Table is locked but sessionToken matches - we own this table"
+                      "[Menu] Table is locked but sessionToken matches - we own this table",
                     );
                     // Update sessionToken to ensure it's in sync
                     localStorage.setItem("terra_sessionToken", sessionToken);
@@ -1336,7 +1349,7 @@ export default function MenuPage() {
                     if (storedToken && storedToken === tableSessionToken) {
                       // Our stored token matches table's token - we own it
                       console.log(
-                        "[Menu] Table is locked but stored sessionToken matches table's token - we own this table"
+                        "[Menu] Table is locked but stored sessionToken matches table's token - we own this table",
                       );
                       sessionToken = storedToken;
                       localStorage.setItem("terra_sessionToken", sessionToken);
@@ -1345,7 +1358,7 @@ export default function MenuPage() {
                     } else {
                       // Session doesn't match - table is occupied by another user
                       console.warn(
-                        "[Menu] Table is locked and sessionToken doesn't match - table belongs to another user"
+                        "[Menu] Table is locked and sessionToken doesn't match - table belongs to another user",
                       );
                       shouldMarkOccupied = false;
                       return; // Skip marking as occupied
@@ -1357,14 +1370,14 @@ export default function MenuPage() {
                   if (sessionToken) {
                     // We have a sessionToken - try to proceed (backend will validate)
                     console.log(
-                      "[Menu] Table is locked and no sessionToken in response, but we have one - proceeding (backend will validate)"
+                      "[Menu] Table is locked and no sessionToken in response, but we have one - proceeding (backend will validate)",
                     );
                     // Continue with marking as occupied - backend will check if token is valid
                     shouldMarkOccupied = true;
                   } else {
                     // No sessionToken at all - table is occupied by another user
                     console.warn(
-                      "[Menu] Table is locked and no sessionToken available - table belongs to another user"
+                      "[Menu] Table is locked and no sessionToken available - table belongs to another user",
                     );
                     shouldMarkOccupied = false;
                     return; // Skip marking as occupied
@@ -1375,13 +1388,13 @@ export default function MenuPage() {
                 if (sessionToken) {
                   // We have a sessionToken - try to proceed (backend will validate)
                   console.log(
-                    "[Menu] Table is locked and no table data in response, but we have sessionToken - proceeding (backend will validate)"
+                    "[Menu] Table is locked and no table data in response, but we have sessionToken - proceeding (backend will validate)",
                   );
                   shouldMarkOccupied = true;
                 } else {
                   // No table data and no sessionToken - table is occupied by another user
                   console.warn(
-                    "[Menu] Table is locked and user has no active order for this table - skipping markTableOccupied"
+                    "[Menu] Table is locked and user has no active order for this table - skipping markTableOccupied",
                   );
                   shouldMarkOccupied = false;
                   return; // Skip marking as occupied
@@ -1403,7 +1416,7 @@ export default function MenuPage() {
                 };
                 localStorage.setItem(
                   "terra_selectedTable",
-                  JSON.stringify(updatedTableData)
+                  JSON.stringify(updatedTableData),
                 );
 
                 // If backend table has a sessionToken that doesn't match ours
@@ -1419,7 +1432,7 @@ export default function MenuPage() {
                   if (existingOrderId) {
                     try {
                       const orderRes = await fetch(
-                        `${nodeApi}/api/orders/${existingOrderId}`
+                        `${nodeApi}/api/orders/${existingOrderId}`,
                       );
                       if (orderRes.ok) {
                         const orderData = await orderRes.json();
@@ -1432,30 +1445,30 @@ export default function MenuPage() {
                             sessionToken = orderData.sessionToken;
                             localStorage.setItem(
                               "terra_sessionToken",
-                              sessionToken
+                              sessionToken,
                             );
                             setSessionToken(sessionToken);
                             console.log(
                               "[Menu] Using order's sessionToken:",
-                              sessionToken
+                              sessionToken,
                             );
                           } else {
                             // Use backend table's sessionToken
                             sessionToken = backendSessionToken;
                             localStorage.setItem(
                               "terra_sessionToken",
-                              sessionToken
+                              sessionToken,
                             );
                             setSessionToken(sessionToken);
                             console.log(
                               "[Menu] Using backend table's sessionToken:",
-                              sessionToken
+                              sessionToken,
                             );
                           }
                         } else {
                           // Order doesn't belong to this table - skip marking as occupied
                           console.warn(
-                            "[Menu] User has order but not for this table - skipping markTableOccupied"
+                            "[Menu] User has order but not for this table - skipping markTableOccupied",
                           );
                           shouldMarkOccupied = false;
                         }
@@ -1471,7 +1484,7 @@ export default function MenuPage() {
                     // No active order and table has different sessionToken
                     // Table is occupied by someone else - don't mark as occupied
                     console.warn(
-                      "[Menu] Table has different sessionToken and user has no active order - skipping markTableOccupied"
+                      "[Menu] Table has different sessionToken and user has no active order - skipping markTableOccupied",
                     );
                     shouldMarkOccupied = false;
                   }
@@ -1481,12 +1494,12 @@ export default function MenuPage() {
                 ) {
                   // SessionToken matches - proceed
                   console.log(
-                    "[Menu] SessionToken matches - proceeding with markTableOccupied"
+                    "[Menu] SessionToken matches - proceeding with markTableOccupied",
                   );
                 } else if (!backendSessionToken) {
                   // Table has no sessionToken - it's available, proceed
                   console.log(
-                    "[Menu] Table has no sessionToken - proceeding with markTableOccupied"
+                    "[Menu] Table has no sessionToken - proceeding with markTableOccupied",
                   );
                 }
               }
@@ -1500,7 +1513,7 @@ export default function MenuPage() {
           if (refreshErr?.status !== 423) {
             console.warn(
               "[Menu] Failed to refresh table status before markTableOccupied:",
-              refreshErr
+              refreshErr,
             );
           }
           // Continue with marking as occupied if refresh fails (unless it was a 423)
@@ -1524,14 +1537,14 @@ export default function MenuPage() {
           existingOrderId &&
           existingOrderStatus &&
           !["Paid", "Cancelled", "Returned", "Completed"].includes(
-            existingOrderStatus
+            existingOrderStatus,
           );
 
         // If user has active order, verify it's still valid before skipping occupy call
         if (hasActiveOrder && existingOrderId) {
           try {
             const orderRes = await fetch(
-              `${nodeApi}/api/orders/${existingOrderId}`
+              `${nodeApi}/api/orders/${existingOrderId}`,
             );
             if (orderRes.ok) {
               const orderData = await orderRes.json();
@@ -1539,19 +1552,19 @@ export default function MenuPage() {
               if (
                 orderData.status &&
                 !["Paid", "Cancelled", "Returned", "Completed"].includes(
-                  orderData.status
+                  orderData.status,
                 ) &&
                 (orderData.table?.toString() === tableId?.toString() ||
                   orderData.tableId?.toString() === tableId?.toString())
               ) {
                 console.log(
-                  "[Menu] User has active order for this table - skipping markTableOccupied"
+                  "[Menu] User has active order for this table - skipping markTableOccupied",
                 );
                 // Still update sessionToken if order has one
                 if (orderData.sessionToken) {
                   localStorage.setItem(
                     "terra_sessionToken",
-                    orderData.sessionToken
+                    orderData.sessionToken,
                   );
                   setSessionToken(orderData.sessionToken);
                 }
@@ -1561,7 +1574,7 @@ export default function MenuPage() {
           } catch (err) {
             console.warn(
               "[Menu] Failed to verify order before markTableOccupied:",
-              err
+              err,
             );
             // Continue with marking as occupied if verification fails
           }
@@ -1606,12 +1619,12 @@ export default function MenuPage() {
                 }
                 return attempt < 1;
               },
-            }
+            },
           );
         } catch (fetchError) {
           console.warn(
             "[Menu] Failed to mark table as occupied after retries:",
-            fetchError
+            fetchError,
           );
           // Create a mock response for error handling
           res = {
@@ -1635,7 +1648,7 @@ export default function MenuPage() {
             };
             localStorage.setItem(
               "terra_selectedTable",
-              JSON.stringify(updatedTableData)
+              JSON.stringify(updatedTableData),
             );
             // CRITICAL: Update sessionToken in localStorage and state
             // This ensures subsequent table lookups use the correct token
@@ -1644,7 +1657,7 @@ export default function MenuPage() {
               setSessionToken(newSessionToken);
               console.log(
                 "[Menu] Updated sessionToken after marking table occupied:",
-                newSessionToken
+                newSessionToken,
               );
             }
           } else {
@@ -1652,7 +1665,7 @@ export default function MenuPage() {
             tableData.status = "OCCUPIED";
             localStorage.setItem(
               "terra_selectedTable",
-              JSON.stringify(tableData)
+              JSON.stringify(tableData),
             );
           }
         } else {
@@ -1669,7 +1682,7 @@ export default function MenuPage() {
                 const refreshRes = await fetch(
                   `${nodeApi}/api/tables/lookup/${slug}?sessionToken=${
                     sessionToken || ""
-                  }`
+                  }`,
                 );
                 if (refreshRes.ok) {
                   const refreshPayload = await refreshRes
@@ -1682,7 +1695,7 @@ export default function MenuPage() {
                     setSessionToken(newSessionToken);
                     console.log(
                       "[Menu] Table already occupied by us, updated sessionToken:",
-                      newSessionToken
+                      newSessionToken,
                     );
                   }
                 }
@@ -1718,7 +1731,7 @@ export default function MenuPage() {
         // 2. Takeaway QR cart (terra_takeaway_cartId)
         // 3. Table data cartId (for dine-in)
         let cartId = "";
-        
+
         // Check for selected cart (PICKUP/DELIVERY)
         const selectedCartId = localStorage.getItem("terra_selectedCartId");
         if (selectedCartId) {
@@ -1737,24 +1750,28 @@ export default function MenuPage() {
               let tableDataStr = localStorage.getItem("terra_selectedTable");
               if (!tableDataStr) {
                 // Fallback to TABLE_SELECTION_KEY if terra_selectedTable doesn't exist
-                tableDataStr = localStorage.getItem(TABLE_SELECTION_KEY) || "{}";
+                tableDataStr =
+                  localStorage.getItem(TABLE_SELECTION_KEY) || "{}";
               }
-              
+
               const tableData = JSON.parse(tableDataStr);
               cartId = tableData.cartId || tableData.cafeId || "";
-              
+
               console.log("[Menu] Table data for cartId lookup:", {
                 hasTableData: !!tableDataStr,
                 tableDataKeys: tableData ? Object.keys(tableData) : [],
                 cartId: tableData.cartId,
                 cafeId: tableData.cafeId,
-                foundCartId: cartId
+                foundCartId: cartId,
               });
-              
+
               if (cartId) {
                 console.log("[Menu] Using table cart ID for menu:", cartId);
               } else {
-                console.warn("[Menu] No cartId or cafeId found in table data:", tableData);
+                console.warn(
+                  "[Menu] No cartId or cafeId found in table data:",
+                  tableData,
+                );
               }
             } catch (e) {
               // Could not get cartId from table data
@@ -1767,11 +1784,11 @@ export default function MenuPage() {
         const menuUrl = cartId
           ? `${nodeApi}/api/menu/public?cartId=${cartId}`
           : `${nodeApi}/api/menu/public`;
-        
+
         console.log("[Menu] Loading menu from:", menuUrl, {
           hasCartId: !!cartId,
           cartId: cartId,
-          serviceType: serviceType
+          serviceType: serviceType,
         });
 
         const res = await fetch(menuUrl);
@@ -1784,11 +1801,11 @@ export default function MenuPage() {
         } catch (jsonError) {
           console.error(
             "[Menu] Failed to parse menu response as JSON:",
-            jsonError
+            jsonError,
           );
           const text = await res.text().catch(() => "Unknown error");
           throw new Error(
-            `Invalid menu response format: ${text.substring(0, 100)}`
+            `Invalid menu response format: ${text.substring(0, 100)}`,
           );
         }
         if (cancelled) return;
@@ -1830,7 +1847,7 @@ export default function MenuPage() {
         setMenuCatalog({});
         setOpenCategory(null);
         setMenuError(
-          "Trying to connect to live menu... please check your network or ask staff."
+          "Trying to connect to live menu... please check your network or ask staff.",
         );
       } finally {
         if (!cancelled) {
@@ -1896,14 +1913,14 @@ export default function MenuPage() {
     if (existingOrderId) {
       try {
         const orderRes = await fetch(
-          `${nodeApi}/api/orders/${existingOrderId}`
+          `${nodeApi}/api/orders/${existingOrderId}`,
         );
         if (orderRes.ok) {
           const orderData = await orderRes.json();
           if (orderData?.sessionToken) {
             console.log(
               "[Menu] recoverSessionToken: Found in existing order:",
-              orderData.sessionToken
+              orderData.sessionToken,
             );
             localStorage.setItem("terra_sessionToken", orderData.sessionToken);
             setSessionToken(orderData.sessionToken);
@@ -1913,7 +1930,7 @@ export default function MenuPage() {
       } catch (err) {
         console.warn(
           "[Menu] recoverSessionToken: Failed to get from existing order:",
-          err
+          err,
         );
       }
     }
@@ -1922,11 +1939,11 @@ export default function MenuPage() {
     if (providedRefreshedTableInfo?.sessionToken) {
       console.log(
         "[Menu] recoverSessionToken: Found in refreshedTableInfo:",
-        providedRefreshedTableInfo.sessionToken
+        providedRefreshedTableInfo.sessionToken,
       );
       localStorage.setItem(
         "terra_sessionToken",
-        providedRefreshedTableInfo.sessionToken
+        providedRefreshedTableInfo.sessionToken,
       );
       setSessionToken(providedRefreshedTableInfo.sessionToken);
       return providedRefreshedTableInfo.sessionToken;
@@ -1937,7 +1954,7 @@ export default function MenuPage() {
     if (currentTableInfo?.sessionToken) {
       console.log(
         "[Menu] recoverSessionToken: Found in tableInfo:",
-        currentTableInfo.sessionToken
+        currentTableInfo.sessionToken,
       );
       localStorage.setItem("terra_sessionToken", currentTableInfo.sessionToken);
       setSessionToken(currentTableInfo.sessionToken);
@@ -1949,7 +1966,7 @@ export default function MenuPage() {
     if (storedToken) {
       console.log(
         "[Menu] recoverSessionToken: Found in localStorage:",
-        storedToken
+        storedToken,
       );
       return storedToken;
     }
@@ -1962,7 +1979,7 @@ export default function MenuPage() {
         if (tableData?.sessionToken) {
           console.log(
             "[Menu] recoverSessionToken: Found in terra_selectedTable:",
-            tableData.sessionToken
+            tableData.sessionToken,
           );
           localStorage.setItem("terra_sessionToken", tableData.sessionToken);
           setSessionToken(tableData.sessionToken);
@@ -1972,7 +1989,7 @@ export default function MenuPage() {
     } catch (e) {
       console.warn(
         "[Menu] recoverSessionToken: Failed to parse terra_selectedTable:",
-        e
+        e,
       );
     }
 
@@ -1993,7 +2010,7 @@ export default function MenuPage() {
             } catch (e) {
               console.warn(
                 "[Menu] recoverSessionToken: Failed to parse 423 response:",
-                e
+                e,
               );
             }
           }
@@ -2001,11 +2018,11 @@ export default function MenuPage() {
           if (lookupPayload?.table?.sessionToken) {
             console.log(
               "[Menu] recoverSessionToken: Found in fresh table lookup:",
-              lookupPayload.table.sessionToken
+              lookupPayload.table.sessionToken,
             );
             localStorage.setItem(
               "terra_sessionToken",
-              lookupPayload.table.sessionToken
+              lookupPayload.table.sessionToken,
             );
             setSessionToken(lookupPayload.table.sessionToken);
             return lookupPayload.table.sessionToken;
@@ -2014,7 +2031,7 @@ export default function MenuPage() {
       } catch (err) {
         console.warn(
           "[Menu] recoverSessionToken: Failed to perform table lookup:",
-          err
+          err,
         );
       }
     }
@@ -2077,7 +2094,7 @@ export default function MenuPage() {
     if (serviceType === "DINE_IN" && !existingId && !tableInfo) {
       setProcessOpen(false); // Ensure overlay is closed if validation fails
       alert(
-        "We couldn't detect your table. Please scan the table QR again or contact staff before placing an order."
+        "We couldn't detect your table. Please scan the table QR again or contact staff before placing an order.",
       );
       return;
     }
@@ -2102,7 +2119,7 @@ export default function MenuPage() {
           if (blockedStatuses.includes(existingOrder.status)) {
             console.log(
               "[Menu] Existing order is in blocked status, creating new order instead:",
-              existingOrder.status
+              existingOrder.status,
             );
             // Clear the active order ID so we create a new order
             existingId = null;
@@ -2124,7 +2141,7 @@ export default function MenuPage() {
         } else {
           // Order not found or error, create new order
           console.log(
-            "[Menu] Could not fetch existing order, creating new order"
+            "[Menu] Could not fetch existing order, creating new order",
           );
           existingId = null;
           setActiveOrderId(null);
@@ -2145,7 +2162,7 @@ export default function MenuPage() {
       } catch (err) {
         console.warn(
           "[Menu] Error checking existing order, creating new order:",
-          err
+          err,
         );
         existingId = null;
         setActiveOrderId(null);
@@ -2168,17 +2185,33 @@ export default function MenuPage() {
     // Reset & open overlay
     setProcessSteps(
       initialProcessSteps.map((s, index) => {
-          // Re-translate using latest state
-          let label = s.label;
-          switch(index) {
-             case 0: label = t("processSteps.checkingOrder", "Checking your order"); break;
-             case 1: label = t("processSteps.confirmingItems", "Confirming items & price"); break;
-             case 2: label = t("processSteps.placingOrder", "Placing your order"); break;
-             case 3: label = t("processSteps.sendingToKitchen", "Sending to kitchen"); break;
-             case 4: label = t("processSteps.preparingDetails", "Preparing order details"); break;
-          }
-          return { ...s, label, state: "pending" };
-      })
+        // Re-translate using latest state
+        let label = s.label;
+        switch (index) {
+          case 0:
+            label = t("processSteps.checkingOrder", "Checking your order");
+            break;
+          case 1:
+            label = t(
+              "processSteps.confirmingItems",
+              "Confirming items & price",
+            );
+            break;
+          case 2:
+            label = t("processSteps.placingOrder", "Placing your order");
+            break;
+          case 3:
+            label = t("processSteps.sendingToKitchen", "Sending to kitchen");
+            break;
+          case 4:
+            label = t(
+              "processSteps.preparingDetails",
+              "Preparing order details",
+            );
+            break;
+        }
+        return { ...s, label, state: "pending" };
+      }),
     );
     setProcessOpen(true);
 
@@ -2203,18 +2236,23 @@ export default function MenuPage() {
       // Get order type and location for PICKUP/DELIVERY (only for non-DINE_IN orders)
       // CRITICAL: Only read orderType for TAKEAWAY/PICKUP/DELIVERY, not for DINE_IN
       // This prevents leftover orderType values from previous orders affecting DINE_IN orders
-      const orderType = serviceType !== "DINE_IN" 
-        ? (localStorage.getItem("terra_orderType") || null) 
-        : null; // PICKUP or DELIVERY (only for non-DINE_IN)
-      const customerLocationStr = serviceType !== "DINE_IN"
-        ? localStorage.getItem("terra_customerLocation")
-        : null;
+      const orderType =
+        serviceType !== "DINE_IN"
+          ? localStorage.getItem("terra_orderType") || null
+          : null; // PICKUP or DELIVERY (only for non-DINE_IN)
+      const customerLocationStr =
+        serviceType !== "DINE_IN"
+          ? localStorage.getItem("terra_customerLocation")
+          : null;
       let customerLocation = null;
       if (customerLocationStr) {
         try {
           customerLocation = JSON.parse(customerLocationStr);
         } catch (e) {
-          console.warn("[Menu] Failed to parse customerLocation from localStorage:", e);
+          console.warn(
+            "[Menu] Failed to parse customerLocation from localStorage:",
+            e,
+          );
           customerLocation = null;
         }
       }
@@ -2222,7 +2260,10 @@ export default function MenuPage() {
       // Get customer info from localStorage for takeaway/pickup/delivery orders
       // CRITICAL: Check for both serviceType === "TAKEAWAY" AND orderType === "PICKUP"/"DELIVERY"
       // CRITICAL: For DINE_IN orders, isTakeawayType should always be false
-      const isTakeawayType = serviceType === "TAKEAWAY" || orderType === "PICKUP" || orderType === "DELIVERY";
+      const isTakeawayType =
+        serviceType === "TAKEAWAY" ||
+        orderType === "PICKUP" ||
+        orderType === "DELIVERY";
       const storedCustomerName = isTakeawayType
         ? localStorage.getItem("terra_takeaway_customerName") ||
           localStorage.getItem("terra_customerName") ||
@@ -2251,7 +2292,7 @@ export default function MenuPage() {
         } else {
           try {
             const tableData = JSON.parse(
-              localStorage.getItem(TABLE_SELECTION_KEY) || "{}"
+              localStorage.getItem(TABLE_SELECTION_KEY) || "{}",
             );
             let rawCartId = tableData.cartId || tableData.cafeId || null;
             // Handle case where cartId might be an object (populated from MongoDB)
@@ -2266,12 +2307,12 @@ export default function MenuPage() {
             }
             console.log(
               "[Menu] Using cartId from table data for takeaway:",
-              cartId
+              cartId,
             );
           } catch (e) {
             console.warn(
               "[Menu] Could not get cartId from table data for takeaway order:",
-              e
+              e,
             );
           }
         }
@@ -2295,16 +2336,16 @@ export default function MenuPage() {
             .substr(2, 9)}`;
           localStorage.setItem(
             "terra_takeaway_sessionToken",
-            finalSessionToken
+            finalSessionToken,
           );
           console.log(
             "[Menu] Generated new takeaway sessionToken (unified for both flows):",
-            finalSessionToken
+            finalSessionToken,
           );
         } else {
           console.log(
             "[Menu] Using existing takeaway sessionToken (unified for both flows):",
-            finalSessionToken
+            finalSessionToken,
           );
         }
       } else {
@@ -2320,34 +2361,77 @@ export default function MenuPage() {
           setSessionToken(finalSessionToken);
           console.log(
             "[Menu] Generated new DINE_IN sessionToken:",
-            finalSessionToken
+            finalSessionToken,
           );
         }
       }
 
       // Get special instructions and cartId (orderType and customerLocation already retrieved above)
-      const specialInstructions = localStorage.getItem("terra_specialInstructions") || null;
-      const selectedCartId = localStorage.getItem("terra_selectedCartId") || cartId;
+      const specialInstructions =
+        localStorage.getItem("terra_specialInstructions") || null;
+      const selectedCartId =
+        localStorage.getItem("terra_selectedCartId") || cartId;
+      const effectiveCartId =
+        selectedCartId ||
+        (() => {
+          try {
+            const tableData = JSON.parse(
+              localStorage.getItem(TABLE_SELECTION_KEY) || "{}",
+            );
+            const raw = tableData.cartId || tableData.cafeId;
+            if (typeof raw === "string") return raw;
+            if (raw && typeof raw === "object" && raw._id) return raw._id;
+            if (raw != null) return String(raw);
+          } catch (_) {}
+          return "";
+        })();
 
-      // Prepare Add-ons
-      const savedAddOnsIDs = JSON.parse(localStorage.getItem("terra_cart_addons") || "[]");
-      const globalAddons = JSON.parse(localStorage.getItem("terra_global_addons") || "[]");
-      const addonLookupList = Array.isArray(globalAddons) && globalAddons.length > 0 ? globalAddons : addOnList;
-      
-      const resolvedAddons = savedAddOnsIDs.map(id => {
-          const meta = addonLookupList.find(a => a.id === id);
-          return meta ? { 
-              addonId: id, 
-              name: meta.name, 
-              price: meta.price 
-          } : null;
-      }).filter(Boolean);
+      // Prepare Add-ons (scoped by cartId so extras don't mix between carts)
+      const addonsRaw = localStorage.getItem("terra_cart_addons") || "{}";
+      let savedAddOnsIDs = [];
+      try {
+        const parsed = JSON.parse(addonsRaw);
+        if (Array.isArray(parsed)) {
+          savedAddOnsIDs = parsed;
+        } else if (effectiveCartId && Array.isArray(parsed[effectiveCartId])) {
+          savedAddOnsIDs = parsed[effectiveCartId];
+        }
+      } catch (_) {
+        savedAddOnsIDs = [];
+      }
+      const globalAddons = JSON.parse(
+        localStorage.getItem("terra_global_addons") || "[]",
+      );
+      const addonLookupList =
+        Array.isArray(globalAddons) && globalAddons.length > 0
+          ? globalAddons
+          : addOnList;
+
+      const resolvedAddons = savedAddOnsIDs
+        .map((id) => {
+          const meta = addonLookupList.find((a) => a.id === id);
+          return meta
+            ? {
+                addonId: id,
+                name: meta.name,
+                price: meta.price,
+              }
+            : null;
+        })
+        .filter(Boolean);
 
       const orderPayload = buildOrderPayload(cart, {
-        serviceType: orderType ? (orderType === "PICKUP" ? "PICKUP" : "DELIVERY") : serviceType,
+        serviceType: orderType
+          ? orderType === "PICKUP"
+            ? "PICKUP"
+            : "DELIVERY"
+          : serviceType,
         // CRITICAL: Only pass orderType if it's actually PICKUP or DELIVERY
         // For regular TAKEAWAY orders, orderType should be undefined to prevent validation errors
-        orderType: (orderType === "PICKUP" || orderType === "DELIVERY") ? orderType : undefined,
+        orderType:
+          orderType === "PICKUP" || orderType === "DELIVERY"
+            ? orderType
+            : undefined,
         tableId:
           refreshedTableInfo?.id ||
           refreshedTableInfo?._id ||
@@ -2375,7 +2459,10 @@ export default function MenuPage() {
             ? storedCustomerEmail.trim()
             : undefined,
         // Include cartId for takeaway/pickup/delivery orders
-        cartId: (serviceType === "TAKEAWAY" || orderType) ? (selectedCartId || cartId) : undefined,
+        cartId:
+          serviceType === "TAKEAWAY" || orderType
+            ? selectedCartId || cartId
+            : undefined,
         // Include customer location for PICKUP/DELIVERY
         customerLocation: customerLocation,
         // Include special instructions
@@ -2385,7 +2472,6 @@ export default function MenuPage() {
 
       // Addons handled by buildOrderPayload logic now
 
-
       // CRITICAL: Validate order payload before sending
       if (
         !orderPayload.items ||
@@ -2394,7 +2480,7 @@ export default function MenuPage() {
       ) {
         console.error("[Menu] Invalid order payload - no items:", orderPayload);
         alert(
-          "❌ Your cart is empty. Please add items before placing an order."
+          "❌ Your cart is empty. Please add items before placing an order.",
         );
         setStepState(2, "error");
         await wait(DUR.error);
@@ -2409,15 +2495,15 @@ export default function MenuPage() {
           typeof item.quantity !== "number" ||
           item.quantity <= 0 ||
           typeof item.price !== "number" ||
-          item.price < 0
+          item.price < 0,
       );
       if (invalidItems.length > 0) {
         console.error(
           "[Menu] Invalid order payload - invalid items:",
-          invalidItems
+          invalidItems,
         );
         alert(
-          "❌ Some items in your cart are invalid. Please refresh the page and try again."
+          "❌ Some items in your cart are invalid. Please refresh the page and try again.",
         );
         setStepState(2, "error");
         await wait(DUR.error);
@@ -2446,22 +2532,33 @@ export default function MenuPage() {
       // VALIDATION: Check customer info for PICKUP/DELIVERY orders before placing order
       // CRITICAL: Only validate for PICKUP/DELIVERY orders, NOT for DINE_IN or regular TAKEAWAY orders
       // Explicitly exclude DINE_IN and TAKEAWAY to prevent false positives
-      const isPickupOrDelivery = 
-        orderPayload.serviceType === "PICKUP" || 
-        orderPayload.serviceType === "DELIVERY" || 
-        orderPayload.orderType === "PICKUP" || 
+      const isPickupOrDelivery =
+        orderPayload.serviceType === "PICKUP" ||
+        orderPayload.serviceType === "DELIVERY" ||
+        orderPayload.orderType === "PICKUP" ||
         orderPayload.orderType === "DELIVERY";
-      
+
       if (isPickupOrDelivery) {
         if (!orderPayload.customerName || !orderPayload.customerName.trim()) {
-          alert("❌ Customer name is required for " + (orderPayload.orderType || orderPayload.serviceType) + " orders. Please provide your name.");
+          alert(
+            "❌ Customer name is required for " +
+              (orderPayload.orderType || orderPayload.serviceType) +
+              " orders. Please provide your name.",
+          );
           setStepState(2, "error");
           await wait(DUR.error);
           setProcessOpen(false);
           return;
         }
-        if (!orderPayload.customerMobile || !orderPayload.customerMobile.trim()) {
-          alert("❌ Customer mobile number is required for " + (orderPayload.orderType || orderPayload.serviceType) + " orders. Please provide your mobile number.");
+        if (
+          !orderPayload.customerMobile ||
+          !orderPayload.customerMobile.trim()
+        ) {
+          alert(
+            "❌ Customer mobile number is required for " +
+              (orderPayload.orderType || orderPayload.serviceType) +
+              " orders. Please provide your mobile number.",
+          );
           setStepState(2, "error");
           await wait(DUR.error);
           setProcessOpen(false);
@@ -2470,9 +2567,18 @@ export default function MenuPage() {
       }
 
       // VALIDATION: Check delivery availability for DELIVERY orders before placing order
-      if (orderPayload.serviceType === "DELIVERY" || orderPayload.orderType === "DELIVERY") {
-        if (!orderPayload.customerLocation || !orderPayload.customerLocation.latitude || !orderPayload.customerLocation.longitude) {
-          alert("❌ Delivery location is required. Please go back and provide your delivery address.");
+      if (
+        orderPayload.serviceType === "DELIVERY" ||
+        orderPayload.orderType === "DELIVERY"
+      ) {
+        if (
+          !orderPayload.customerLocation ||
+          !orderPayload.customerLocation.latitude ||
+          !orderPayload.customerLocation.longitude
+        ) {
+          alert(
+            "❌ Delivery location is required. Please go back and provide your delivery address.",
+          );
           setStepState(2, "error");
           await wait(DUR.error);
           setProcessOpen(false);
@@ -2480,7 +2586,9 @@ export default function MenuPage() {
         }
 
         if (!orderPayload.cartId) {
-          alert("❌ Store selection is required for delivery. Please go back and select a store.");
+          alert(
+            "❌ Store selection is required for delivery. Please go back and select a store.",
+          );
           setStepState(2, "error");
           await wait(DUR.error);
           setProcessOpen(false);
@@ -2490,24 +2598,26 @@ export default function MenuPage() {
         // Fetch cart details to check delivery availability
         try {
           const cartResponse = await fetch(
-            `${nodeApi}/api/carts/${orderPayload.cartId}?latitude=${orderPayload.customerLocation.latitude}&longitude=${orderPayload.customerLocation.longitude}&orderType=DELIVERY`
+            `${nodeApi}/api/carts/${orderPayload.cartId}?latitude=${orderPayload.customerLocation.latitude}&longitude=${orderPayload.customerLocation.longitude}&orderType=DELIVERY`,
           );
-          
+
           if (cartResponse.ok) {
             const cartData = await cartResponse.json();
             if (cartData.success && cartData.data) {
               const cart = cartData.data;
-              
+
               // Check if delivery is available
               if (!cart.canDeliver) {
                 let errorMessage = "❌ Delivery not available!\n\n";
                 if (cart.distance !== null) {
                   errorMessage += `You are ${cart.distance.toFixed(2)} km away, but maximum delivery radius is ${cart.deliveryRadius || 5} km.\n\n`;
                 } else {
-                  errorMessage += "Delivery is not enabled for this store or the store location is not configured.\n\n";
+                  errorMessage +=
+                    "Delivery is not enabled for this store or the store location is not configured.\n\n";
                 }
-                errorMessage += "Please select a different store or choose Pickup instead.";
-                
+                errorMessage +=
+                  "Please select a different store or choose Pickup instead.";
+
                 alert(errorMessage);
                 setStepState(2, "error");
                 await wait(DUR.error);
@@ -2549,7 +2659,7 @@ export default function MenuPage() {
                 error.message?.includes("CORS")
               ) {
                 console.log(
-                  `[Menu] Retrying order creation (attempt ${attempt + 1}/2)...`
+                  `[Menu] Retrying order creation (attempt ${attempt + 1}/2)...`,
                 );
                 return true;
               }
@@ -2563,12 +2673,12 @@ export default function MenuPage() {
               }
               return attempt < 1;
             },
-          }
+          },
         );
       } catch (fetchError) {
         console.error(
           "[Menu] Order creation failed after retries:",
-          fetchError
+          fetchError,
         );
         // Create a mock response object for error handling
         const errorMessage =
@@ -2646,7 +2756,7 @@ export default function MenuPage() {
             errorMessage.includes("table")
           ) {
             alert(
-              `⚠️ ${errorMessage}\n\nPlease scan the table QR code again or contact staff for assistance.`
+              `⚠️ ${errorMessage}\n\nPlease scan the table QR code again or contact staff for assistance.`,
             );
           } else {
             alert(`❌ ${errorMessage}`);
@@ -2706,7 +2816,7 @@ export default function MenuPage() {
       // Order created successfully - proceed with success flow
       console.log(
         "[Menu] Proceeding with order success flow for order:",
-        data._id
+        data._id,
       );
 
       // Backend OK
@@ -2730,21 +2840,21 @@ export default function MenuPage() {
         if (data.sessionToken) {
           localStorage.setItem(
             "terra_takeaway_sessionToken",
-            data.sessionToken
+            data.sessionToken,
           );
           console.log(
             "[Menu] Stored takeaway sessionToken from order response:",
-            data.sessionToken
+            data.sessionToken,
           );
         } else if (finalSessionToken) {
           // If backend didn't return sessionToken but we generated one, store it
           localStorage.setItem(
             "terra_takeaway_sessionToken",
-            finalSessionToken
+            finalSessionToken,
           );
           console.log(
             "[Menu] Stored generated takeaway sessionToken:",
-            finalSessionToken
+            finalSessionToken,
           );
         }
       } else {
@@ -2762,20 +2872,20 @@ export default function MenuPage() {
       if (serviceType === "TAKEAWAY") {
         localStorage.setItem(
           "terra_orderStatus_TAKEAWAY",
-          data.status || "Confirmed"
+          data.status || "Confirmed",
         );
         localStorage.setItem(
           "terra_orderStatusUpdatedAt_TAKEAWAY",
-          new Date().toISOString()
+          new Date().toISOString(),
         );
       } else {
         localStorage.setItem(
           "terra_orderStatus_DINE_IN",
-          data.status || "Confirmed"
+          data.status || "Confirmed",
         );
         localStorage.setItem(
           "terra_orderStatusUpdatedAt_DINE_IN",
-          new Date().toISOString()
+          new Date().toISOString(),
         );
       }
 
@@ -2850,7 +2960,7 @@ export default function MenuPage() {
       !("SpeechRecognition" in window)
     ) {
       alert(
-        "Your browser doesn't support voice input. Please use the menu buttons to order."
+        "Your browser doesn't support voice input. Please use the menu buttons to order.",
       );
       return;
     }
@@ -2873,244 +2983,60 @@ export default function MenuPage() {
         console.log("🎤 Voice recognition started");
       };
 
-      recognition.onresult = async (event) => {
+      recognition.onresult = (event) => {
         const transcript = event.results[0][0].transcript;
         console.log("📝 Transcribed:", transcript);
         setOrderText(transcript);
         setRecording(false);
 
-        // Parse the order using Flask backend
         setIsProcessing(true);
-        try {
-          const res = await fetch(`${flaskApi}/parse-order-text`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text: transcript }),
-            signal: AbortSignal.timeout(10000), // 10 second timeout
-          });
-
-          if (!res.ok) {
-            const errorData = await res.json().catch(() => ({}));
-            throw new Error(
-              errorData.error || `Backend returned ${res.status}`
-            );
-          }
-
-          const data = await res.json();
-          console.log("📦 Flask response:", data);
-
-          if (data.items && data.items.length > 0) {
-            // Ensure flatMenuItems is available before processing
-            if (!Array.isArray(flatMenuItems) || flatMenuItems.length === 0) {
-              console.warn(
-                "⚠️ Menu items not loaded yet, cannot add items to cart"
-              );
-              alert(
-                "Menu is still loading. Please wait a moment and try again."
-              );
-              setIsProcessing(false);
-              return;
-            }
-
-            // Add items directly to cart
-            const updatedCart = { ...cart };
-            let addedCount = 0;
-
-            data.items.forEach((item) => {
-              const itemName = item.name;
-              if (itemName) {
-                // Use flatMenuItems to find the actual menu item
-                // Try exact match first (case-insensitive)
-
-                let matched = flatMenuItems.find(
-                  (menuItem) =>
-                    menuItem?.name &&
-                    menuItem.name.toLowerCase() === itemName.toLowerCase()
-                );
-
-                // If not found, try partial match
-                if (!matched) {
-                  matched = flatMenuItems.find(
-                    (menuItem) =>
-                      menuItem?.name &&
-                      (menuItem.name
-                        .toLowerCase()
-                        .includes(itemName.toLowerCase()) ||
-                        itemName
-                          .toLowerCase()
-                          .includes(menuItem.name.toLowerCase()))
-                  );
-                }
-
-                // If still not found, try matching with original name from Flask response
-                if (!matched && item.original) {
-                  matched = flatMenuItems.find(
-                    (menuItem) =>
-                      menuItem?.name &&
-                      (menuItem.name.toLowerCase() ===
-                        item.original.toLowerCase() ||
-                        menuItem.name
-                          .toLowerCase()
-                          .includes(item.original.toLowerCase()))
-                  );
-                }
-
-                if (matched && matched.isAvailable !== false) {
-                  // Item found in menu - add to cart
-                  updatedCart[matched.name] =
-                    (updatedCart[matched.name] || 0) + (item.quantity || 1);
-                  addedCount++;
-                  console.log(
-                    `✅ Added to cart: ${item.quantity || 1}x ${
-                      matched.name
-                    } (matched from: ${itemName})`
-                  );
-                } else {
-                  console.warn(`⚠️ Item not found in menu: ${itemName}`, {
-                    availableItems: Array.isArray(flatMenuItems)
-                      ? flatMenuItems
-                          .map((i) => i?.name)
-                          .filter(Boolean)
-                          .slice(0, 5)
-                      : [],
-                  });
-                }
-              }
-            });
-
-            if (addedCount > 0) {
-              setCart(updatedCart);
-
-              // Format order text for display
-              const formattedOrder = data.items
-                .filter((item) => {
-                  // Only show items that were successfully added
-                  if (
-                    !Array.isArray(flatMenuItems) ||
-                    flatMenuItems.length === 0
-                  ) {
-                    return false;
-                  }
-                  const matched = flatMenuItems.find(
-                    (m) =>
-                      m?.name &&
-                      m.name.toLowerCase() === item.name?.toLowerCase()
-                  );
-                  return matched;
-                })
-                .map(
-                  (item) => `${item.quantity || 1}x ${item.name || "Unknown"}`
-                )
-                .join(", ");
-              setOrderText(formattedOrder);
-
-              console.log(
-                `✅ Successfully added ${addedCount} item(s) to cart`
-              );
-              // Show success message
-              if (addedCount === data.items.length) {
-                // All items added successfully
-                console.log("✅ All items added to cart successfully");
-              } else {
-                // Some items couldn't be added
-                const failedCount = data.items.length - addedCount;
-                alert(
-                  `✅ Added ${addedCount} item(s) to cart.\n⚠️ ${failedCount} item(s) could not be found in menu.`
-                );
-              }
-            } else {
-              console.warn(
-                "⚠️ No items could be added to cart - items not found in menu"
-              );
-              console.warn("Flask returned items:", data.items);
-              console.warn(
-                "Available menu items:",
-                Array.isArray(flatMenuItems)
-                  ? flatMenuItems
-                      .map((i) => i?.name)
-                      .filter(Boolean)
-                      .slice(0, 10)
-                  : []
-              );
-              alert(
-                `⚠️ Could not find these items in the menu:\n${data.items
-                  .map((i) => i.name)
-                  .join(
-                    ", "
-                  )}\n\nPlease check the item names or use the menu buttons to add items.`
-              );
-              setOrderText(transcript);
-            }
-
-            // Show unmatched items if any
-            if (data.unmatched && data.unmatched.length > 0) {
-              console.warn("⚠️ Unmatched items:", data.unmatched);
-              const unmatchedNames = data.unmatched
-                .map((u) => u.name)
-                .join(", ");
-              alert(`⚠️ Could not match these items: ${unmatchedNames}`);
-            }
-          } else {
-            console.warn("⚠️ No items returned from Flask backend");
-            // Fallback: try to parse manually
-            processVoiceOrder(transcript);
-            setOrderText(transcript);
-          }
-        } catch (err) {
-          console.error("Order parsing failed:", err);
-          console.error("Flask API URL used:", flaskApi);
-
-          // Fallback: try manual parsing
-          processVoiceOrder(transcript);
-          setOrderText(transcript);
-
-          // Show error only if it's a connection issue
-          if (
-            err.name === "TypeError" ||
-            err.message.includes("fetch") ||
-            err.message.includes("Failed to fetch") ||
-            err.message.includes("ERR_CONNECTION_REFUSED")
-          ) {
-            const errorMsg =
-              `⚠️ Cannot connect to Flask backend server.\n\n` +
-              `Current Flask URL: ${flaskApi}\n` +
-              `Expected: http://localhost:5050\n\n` +
-              `Please check:\n` +
-              `1. Flask server is running on port 5050\n` +
-              `2. Update frontend/.env file: VITE_FLASK_API_URL=http://localhost:5050\n` +
-              `3. Restart frontend dev server after updating .env\n\n` +
-              `Using basic parsing as fallback.`;
-            alert(errorMsg);
-          } else if (
-            err.name === "AbortError" ||
-            err.message.includes("timeout")
-          ) {
-            alert("⏱️ Request timed out. Using basic parsing.");
-          } else {
-            console.error("Unexpected error:", err);
-            alert(
-              `Error processing order: ${err.message}\n\nUsing basic parsing as fallback.`
-            );
-          }
-        } finally {
+        if (!Array.isArray(flatMenuItems) || flatMenuItems.length === 0) {
+          console.warn("⚠️ Menu items not loaded yet, cannot add items to cart");
+          alert("Menu is still loading. Please wait a moment and try again.");
           setIsProcessing(false);
+          return;
         }
+
+        const { addedItems, notFound } = processVoiceOrder(transcript);
+        const addedCount = addedItems.length;
+
+        const formattedOrder = addedItems
+          .map(({ name, qty }) => `${qty}x ${name}`)
+          .join(", ");
+        if (formattedOrder) setOrderText(formattedOrder);
+
+        if (addedCount > 0) {
+          console.log(`✅ Voice order: added ${addedCount} item(s) to cart`);
+          if (notFound.length > 0) {
+            alert(
+              `✅ Added ${addedCount} item(s) to cart.\n⚠️ Not found in menu: ${notFound.join(", ")}`,
+            );
+          }
+        } else if (addedItems.length === 0 && notFound.length > 0) {
+          alert(
+            `Could not find in menu: ${notFound.join(", ")}. Try saying item names as shown in the menu.`,
+          );
+        } else if (!transcript.trim()) {
+          setOrderText("");
+        }
+        setIsProcessing(false);
       };
 
       recognition.onerror = (event) => {
         console.error("Voice recognition error:", event.error);
         setRecording(false);
         setIsProcessing(false);
+        recognitionRef.current = null;
 
         if (event.error === "no-speech") {
           alert("No speech detected. Please try again.");
         } else if (event.error === "not-allowed") {
           alert(
-            "Microphone permission denied. Please allow microphone access."
+            "Microphone permission denied. Please allow microphone access.",
           );
         } else {
           alert(
-            "Voice recognition error. Please try again or use menu buttons."
+            "Voice recognition error. Please try again or use menu buttons.",
           );
         }
       };
@@ -3120,11 +3046,12 @@ export default function MenuPage() {
         recognitionRef.current = null;
       };
 
+      setRecording(true);
       recognition.start();
     } catch (err) {
       console.error("Error starting voice recognition:", err);
       alert(
-        "Failed to start voice input. Please try again or use menu buttons."
+        "Failed to start voice input. Please try again or use menu buttons.",
       );
       setRecording(false);
     }
@@ -3164,7 +3091,7 @@ export default function MenuPage() {
         // Verify the order still exists and is active
         try {
           const orderRes = await fetch(
-            `${nodeApi}/api/orders/${takeawayOrderId}`
+            `${nodeApi}/api/orders/${takeawayOrderId}`,
           );
           if (orderRes.ok) {
             const orderData = await orderRes.json();
@@ -3172,11 +3099,11 @@ export default function MenuPage() {
             if (
               orderData.status &&
               ["Paid", "Cancelled", "Returned", "Completed"].includes(
-                orderData.status
+                orderData.status,
               )
             ) {
               alert(
-                "This order has been completed. Please create a new order."
+                "This order has been completed. Please create a new order.",
               );
               return;
             }
@@ -3189,14 +3116,14 @@ export default function MenuPage() {
             setOrderStatus(orderData.status || orderStatus || "Confirmed");
             localStorage.setItem(
               "terra_orderStatus_TAKEAWAY",
-              orderData.status || orderStatus || "Confirmed"
+              orderData.status || orderStatus || "Confirmed",
             );
 
             if (orderData.updatedAt) {
               setOrderStatusUpdatedAt(orderData.updatedAt);
               localStorage.setItem(
                 "terra_orderStatusUpdatedAt_TAKEAWAY",
-                orderData.updatedAt
+                orderData.updatedAt,
               );
             }
 
@@ -3226,7 +3153,7 @@ export default function MenuPage() {
         sessionToken || localStorage.getItem("terra_sessionToken");
       if (!storedTable || !storedSession) {
         alert(
-          "We couldn't detect your table. Please scan the table QR again or contact staff."
+          "We couldn't detect your table. Please scan the table QR again or contact staff.",
         );
         return;
       }
@@ -3269,7 +3196,7 @@ export default function MenuPage() {
         if (tableSessionToken && tableSessionToken === latestSessionToken) {
           // Table is occupied by us - this is fine, continue
           console.log(
-            "[Menu] Table is occupied by current session, proceeding"
+            "[Menu] Table is occupied by current session, proceeding",
           );
         } else {
           // Table is occupied by someone else
@@ -3279,7 +3206,7 @@ export default function MenuPage() {
           if (latestSessionToken) {
             // Session might be stale (table released). Try once without the old token.
             console.warn(
-              "Stale session detected, retrying table lookup without session token."
+              "Stale session detected, retrying table lookup without session token.",
             );
             localStorage.removeItem("terra_sessionToken");
             setSessionToken(null);
@@ -3296,7 +3223,7 @@ export default function MenuPage() {
               throw new Error(
                 retryPayload?.message ||
                   lockedMessage ||
-                  "Unable to refresh table session. Please ask staff for help."
+                  "Unable to refresh table session. Please ask staff for help.",
               );
             }
 
@@ -3309,7 +3236,7 @@ export default function MenuPage() {
       } else if (!res.ok) {
         throw new Error(
           payload?.message ||
-            "Failed to refresh table session. Please ask staff for help."
+            "Failed to refresh table session. Please ask staff for help.",
         );
       }
 
@@ -3339,7 +3266,7 @@ export default function MenuPage() {
             localStorage.removeItem(`terra_orderId_${serviceType}`);
             localStorage.removeItem(`terra_orderStatus_${serviceType}`);
             localStorage.removeItem(
-              `terra_orderStatusUpdatedAt_${serviceType}`
+              `terra_orderStatusUpdatedAt_${serviceType}`,
             );
           });
         }
@@ -3350,7 +3277,7 @@ export default function MenuPage() {
       if (payload.table) {
         localStorage.setItem(
           "terra_selectedTable",
-          JSON.stringify(payload.table)
+          JSON.stringify(payload.table),
         );
         setTableInfo(payload.table);
       }
@@ -3377,7 +3304,7 @@ export default function MenuPage() {
           payload.order.serviceType !== currentServiceType
         ) {
           console.log(
-            `[Menu] Ignoring order from table lookup - serviceType mismatch: order is ${payload.order.serviceType}, current is ${currentServiceType}`
+            `[Menu] Ignoring order from table lookup - serviceType mismatch: order is ${payload.order.serviceType}, current is ${currentServiceType}`,
           );
           return; // Don't process order if serviceType doesn't match
         }
@@ -3398,7 +3325,7 @@ export default function MenuPage() {
           setOrderStatusUpdatedAt(payload.order.updatedAt);
           localStorage.setItem(
             "terra_orderStatusUpdatedAt",
-            payload.order.updatedAt
+            payload.order.updatedAt,
           );
         }
         persistPreviousOrder(null);
@@ -3408,7 +3335,7 @@ export default function MenuPage() {
         if (activeOrderId) {
           // Keep existing order status - user is adding more items to existing order
           console.log(
-            "No order returned from table lookup, keeping existing order status"
+            "No order returned from table lookup, keeping existing order status",
           );
         } else {
           // Only clear if we don't have an active order
@@ -3456,7 +3383,7 @@ export default function MenuPage() {
       alert("No active order found.");
       return;
     }
-    
+
     setReasonAction("Cancel");
     setReasonText("");
     setShowReasonModal(true);
@@ -3510,14 +3437,14 @@ export default function MenuPage() {
                   // Store it for future use
                   localStorage.setItem(
                     "terra_takeaway_sessionToken",
-                    sessionToken
+                    sessionToken,
                   );
                 }
               }
             } catch (err) {
               console.warn(
                 "[Menu] Failed to fetch order to get sessionToken:",
-                err
+                err,
               );
             }
           }
@@ -3535,7 +3462,7 @@ export default function MenuPage() {
               sessionToken: sessionToken || undefined,
               reason: reasonText,
             }),
-          }
+          },
         );
 
         const data = await res.json().catch(() => ({}));
@@ -3583,7 +3510,7 @@ export default function MenuPage() {
           localStorage.removeItem("terra_takeaway_customerMobile");
           localStorage.removeItem("terra_takeaway_customerEmail");
           console.log(
-            "[Menu] Cleared takeaway customer data after order cancellation"
+            "[Menu] Cleared takeaway customer data after order cancellation",
           );
         } else {
           localStorage.removeItem("terra_orderId");
@@ -3602,7 +3529,7 @@ export default function MenuPage() {
         if (serviceType === "TAKEAWAY") {
           localStorage.removeItem("terra_waitToken");
           console.log(
-            "[Menu] Cleared waitlist state for cancelled takeaway order"
+            "[Menu] Cleared waitlist state for cancelled takeaway order",
           );
         }
 
@@ -3610,7 +3537,6 @@ export default function MenuPage() {
         setIsOrderingMore(false);
         alert("Your order has been cancelled.");
         setCancelling(false);
-        
       } else if (reasonAction === "Return") {
         setReturning(true);
         const sessionToken = localStorage.getItem("terra_sessionToken");
@@ -3622,10 +3548,12 @@ export default function MenuPage() {
             body: JSON.stringify({
               status: "Returned",
               sessionToken:
-                serviceType === "DINE_IN" ? sessionToken || undefined : undefined,
+                serviceType === "DINE_IN"
+                  ? sessionToken || undefined
+                  : undefined,
               reason: reasonText,
             }),
-          }
+          },
         );
 
         const data = await res.json().catch(() => ({}));
@@ -3682,7 +3610,7 @@ export default function MenuPage() {
         // CRITICAL: If this is a takeaway order, clear waitlist state
         if (serviceType === "TAKEAWAY") {
           localStorage.removeItem("terra_waitToken");
-          
+
           // CRITICAL: Clear takeaway customer data when order is returned
           localStorage.removeItem("terra_takeaway_customerName");
           localStorage.removeItem("terra_takeaway_customerMobile");
@@ -3692,7 +3620,7 @@ export default function MenuPage() {
         alert("Your order has been marked as returned.");
         setReturning(false);
       }
-      
+
       setShowReasonModal(false);
     } catch (err) {
       if (import.meta.env.DEV) {
@@ -3714,7 +3642,7 @@ export default function MenuPage() {
     }
     if (
       !(await window.confirm(
-        "Confirm that payment has been completed for this order?"
+        "Confirm that payment has been completed for this order?",
       ))
     ) {
       return;
@@ -3733,7 +3661,7 @@ export default function MenuPage() {
             sessionToken:
               serviceType === "DINE_IN" ? sessionToken || undefined : undefined,
           }),
-        }
+        },
       );
 
       const data = await res.json().catch(() => ({}));
@@ -3822,7 +3750,7 @@ export default function MenuPage() {
   const handlePrintInvoice = useCallback(() => {
     if (!invoiceRef.current || !invoiceOrder || printingInvoice) return;
     setPrintingInvoice(true);
-    
+
     try {
       const iframe = document.createElement("iframe");
       iframe.style.position = "fixed";
@@ -3832,17 +3760,22 @@ export default function MenuPage() {
       iframe.style.height = "0";
       iframe.style.border = "0";
       iframe.style.visibility = "hidden";
-      
+
       // Add sandbox attribute for better security in production
-      iframe.setAttribute("sandbox", "allow-same-origin allow-scripts allow-modals");
-      
+      iframe.setAttribute(
+        "sandbox",
+        "allow-same-origin allow-scripts allow-modals",
+      );
+
       document.body.appendChild(iframe);
       const doc = iframe.contentWindow?.document;
-      
+
       if (!doc) {
         setPrintingInvoice(false);
         document.body.removeChild(iframe);
-        alert("Print preview failed to open. Please check your browser settings.");
+        alert(
+          "Print preview failed to open. Please check your browser settings.",
+        );
         return;
       }
 
@@ -3897,7 +3830,9 @@ export default function MenuPage() {
             iframe.contentWindow?.print();
           } catch (printError) {
             console.error("Print failed:", printError);
-            alert("Print failed. Please try using your browser's print function (Ctrl+P).");
+            alert(
+              "Print failed. Please try using your browser's print function (Ctrl+P).",
+            );
           } finally {
             // Clean up after print dialog closes or fails
             setTimeout(() => {
@@ -3909,7 +3844,7 @@ export default function MenuPage() {
           }
         }, 250); // Increased timeout for production
       };
-      
+
       // Fallback timeout in case onload never fires
       setTimeout(() => {
         if (printingInvoice && document.body.contains(iframe)) {
@@ -3918,7 +3853,6 @@ export default function MenuPage() {
           console.warn("Print timeout - iframe failed to load");
         }
       }, 5000);
-      
     } catch (error) {
       console.error("Print setup failed:", error);
       setPrintingInvoice(false);
@@ -3935,20 +3869,20 @@ export default function MenuPage() {
         useCORS: true,
         backgroundColor: "#ffffff",
         onclone: (clonedDoc) => {
-          const allElements = clonedDoc.querySelectorAll('*');
+          const allElements = clonedDoc.querySelectorAll("*");
           allElements.forEach((el) => {
             const computedStyle = window.getComputedStyle(el);
-            ['color', 'backgroundColor', 'borderColor'].forEach((prop) => {
+            ["color", "backgroundColor", "borderColor"].forEach((prop) => {
               const value = computedStyle[prop];
-              if (value && value.includes('oklch')) {
-                el.style[prop] = '#000000';
-                if (prop === 'backgroundColor') {
-                  el.style[prop] = 'transparent';
+              if (value && value.includes("oklch")) {
+                el.style[prop] = "#000000";
+                if (prop === "backgroundColor") {
+                  el.style[prop] = "transparent";
                 }
               }
             });
           });
-        }
+        },
       });
       const imageData = canvas.toDataURL("image/png");
       const pdf = new jsPDF("p", "mm", "a4");
@@ -3975,7 +3909,7 @@ export default function MenuPage() {
           margin,
           position,
           usableWidth,
-          imgHeight
+          imgHeight,
         );
         heightLeft -= pdfHeight - margin * 2;
       }
@@ -4009,7 +3943,7 @@ export default function MenuPage() {
       alert(
         orderStatus === "Returned"
           ? "This order has already been returned."
-          : "This order has been cancelled."
+          : "This order has been cancelled.",
       );
       return;
     }
@@ -4025,42 +3959,72 @@ export default function MenuPage() {
     setShowInvoiceModal(true);
   }, [previousOrderDetail]);
 
-  const processVoiceOrder = (text) => {
-    if (!text) return;
-    const updatedCart = { ...cart };
-    const catalogItems = Object.values(menuCatalog);
-    const fallbackItems = !catalogItems.length
-      ? fallbackMenuItems.map((item) => ({
-          ...item,
-          isAvailable: true,
-        }))
-      : catalogItems;
+  // Word-to-number for voice fallback parsing (e.g. "two chai" -> 2)
+  const wordToNumber = (word) => {
+    const map = {
+      one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+      ek: 1, do: 2, teen: 3, char: 4, paanch: 5, che: 6, saat: 7, aath: 8, nau: 9, das: 10,
+    };
+    const w = (word || "").toLowerCase().trim();
+    if (map[w] !== undefined) return map[w];
+    const n = parseInt(w, 10);
+    return Number.isNaN(n) ? 0 : n;
+  };
 
-    text
-      .split(",")
+  const processVoiceOrder = (text) => {
+    const result = { addedItems: [], notFound: [] };
+    if (!text) return result;
+    const updatedCart = { ...cart };
+    const itemsToMatch = Array.isArray(flatMenuItems) && flatMenuItems.length > 0
+      ? flatMenuItems
+      : Object.values(menuCatalog).length > 0
+        ? Object.values(menuCatalog)
+        : fallbackMenuItems.map((item) => ({ ...item, isAvailable: true }));
+
+    const entries = text
+      .split(/[,;]/)
       .map((entry) => entry.trim())
-      .forEach((entry) => {
-        const match = entry.match(/(\d+)\s+(.*)/);
-        if (!match) return;
-        const qty = parseInt(match[1], 10);
-        const itemName = match[2];
-        if (!qty || !itemName) return;
-        const matchedItem =
-          (Array.isArray(fallbackItems) ? fallbackItems : []).find(
-            (item) =>
-              item?.name && item.name.toLowerCase() === itemName.toLowerCase()
-          ) ||
-          (Array.isArray(fallbackItems) ? fallbackItems : []).find(
-            (item) =>
-              item?.name &&
-              item.name.toLowerCase().includes(itemName.toLowerCase())
-          );
-        if (matchedItem && matchedItem.isAvailable !== false) {
-          updatedCart[matchedItem.name] =
-            (updatedCart[matchedItem.name] || 0) + qty;
+      .filter(Boolean);
+
+    entries.forEach((entry) => {
+      let qty = 1;
+      let itemName = entry;
+      const numericMatch = entry.match(/^(\d+)\s+(.+)$/);
+      if (numericMatch) {
+        qty = parseInt(numericMatch[1], 10) || 1;
+        itemName = numericMatch[2].trim();
+      } else {
+        const wordNumMatch = entry.match(
+          /^(one|two|three|four|five|six|seven|eight|nine|ten|ek|do|teen|char|paanch|che|saat|aath|nau|das)\s+(.+)$/i,
+        );
+        if (wordNumMatch) {
+          qty = wordToNumber(wordNumMatch[1]) || 1;
+          itemName = wordNumMatch[2].trim();
         }
-      });
+      }
+      if (!itemName) return;
+
+      const matchedItem =
+        itemsToMatch.find(
+          (item) =>
+            item?.name && item.name.toLowerCase() === itemName.toLowerCase(),
+        ) ||
+        itemsToMatch.find(
+          (item) =>
+            item?.name &&
+            (item.name.toLowerCase().includes(itemName.toLowerCase()) ||
+              itemName.toLowerCase().includes(item.name.toLowerCase())),
+        );
+      if (matchedItem && matchedItem.isAvailable !== false) {
+        updatedCart[matchedItem.name] =
+          (updatedCart[matchedItem.name] || 0) + qty;
+        result.addedItems.push({ name: matchedItem.name, qty });
+      } else {
+        result.notFound.push(itemName);
+      }
+    });
     setCart(updatedCart);
+    return result;
   };
 
   const speakOrderSummary = () => {
@@ -4142,7 +4106,7 @@ export default function MenuPage() {
           // Only log once to avoid console spam
           if (!connectionErrorLogged) {
             console.warn(
-              "[Menu] Backend server appears to be offline. Will retry automatically."
+              "[Menu] Backend server appears to be offline. Will retry automatically.",
             );
             connectionErrorLogged = true;
           }
@@ -4185,7 +4149,7 @@ export default function MenuPage() {
         } catch (jsonError) {
           console.error(
             "[Menu] Failed to parse order status response as JSON:",
-            jsonError
+            jsonError,
           );
           // Keep existing status on JSON parse error
           return;
@@ -4201,7 +4165,7 @@ export default function MenuPage() {
         // If order serviceType doesn't match current serviceType, ignore it
         if (data.serviceType && data.serviceType !== serviceType) {
           console.log(
-            `[Menu] Ignoring order update - serviceType mismatch: order is ${data.serviceType}, current is ${serviceType}`
+            `[Menu] Ignoring order update - serviceType mismatch: order is ${data.serviceType}, current is ${serviceType}`,
           );
           return;
         }
@@ -4329,7 +4293,7 @@ export default function MenuPage() {
         // Only log socket connection error once to avoid console spam
         if (!socketErrorLogged) {
           console.warn(
-            "[Menu] Socket connection error - backend may be offline. Will retry automatically."
+            "[Menu] Socket connection error - backend may be offline. Will retry automatically.",
           );
           socketErrorLogged = true;
         }
@@ -4490,7 +4454,7 @@ export default function MenuPage() {
         "[Menu] Table status updated via socket:",
         updatedTable.status,
         "Previous status:",
-        currentTableInfo.status
+        currentTableInfo.status,
       );
 
       // Update table info with new status
@@ -4505,7 +4469,7 @@ export default function MenuPage() {
       // Update localStorage to persist the change
       localStorage.setItem(
         "terra_selectedTable",
-        JSON.stringify(updatedTableInfo)
+        JSON.stringify(updatedTableInfo),
       );
 
       // CRITICAL: If table becomes AVAILABLE, clear waitlist state and order data
@@ -4521,7 +4485,7 @@ export default function MenuPage() {
         existingOrderId &&
         existingOrderStatus &&
         !["Paid", "Cancelled", "Returned", "Completed"].includes(
-          existingOrderStatus
+          existingOrderStatus,
         );
 
       if (updatedTable.status === "AVAILABLE") {
@@ -4529,7 +4493,7 @@ export default function MenuPage() {
         // This prevents clearing current customer's order when admin makes table available
         if (!hasActiveOrder) {
           console.log(
-            "[Menu] Table became AVAILABLE via socket - clearing waitlist state and order data (user has no active order)"
+            "[Menu] Table became AVAILABLE via socket - clearing waitlist state and order data (user has no active order)",
           );
           // Clear waitlist token and info
           localStorage.removeItem("terra_waitToken");
@@ -4546,7 +4510,7 @@ export default function MenuPage() {
             localStorage.removeItem(`terra_orderId_${serviceType}`);
             localStorage.removeItem(`terra_orderStatus_${serviceType}`);
             localStorage.removeItem(
-              `terra_orderStatusUpdatedAt_${serviceType}`
+              `terra_orderStatusUpdatedAt_${serviceType}`,
             );
           });
           // Clear order state in component
@@ -4555,7 +4519,7 @@ export default function MenuPage() {
           console.log("[Menu] Cleared all order data for new customer");
         } else {
           console.log(
-            "[Menu] Table became AVAILABLE but user has active order - preserving order data"
+            "[Menu] Table became AVAILABLE but user has active order - preserving order data",
           );
         }
       }
@@ -4614,7 +4578,7 @@ export default function MenuPage() {
         if (storedStatus !== orderStatus) {
           console.log(
             "[Menu] Syncing orderStatus from localStorage:",
-            storedStatus
+            storedStatus,
           );
           setOrderStatus(storedStatus);
         }
@@ -4647,7 +4611,7 @@ export default function MenuPage() {
         "[Menu] Restoring activeOrderId on mount:",
         storedOrderId,
         "serviceType:",
-        currentServiceType
+        currentServiceType,
       );
       setActiveOrderId(storedOrderId);
     }
@@ -4681,16 +4645,21 @@ export default function MenuPage() {
     if (searchParams.get("action") === "confirm" && !menuLoading) {
       // Safety check: ensure we actually have prices before confirming
       if (menuError || Object.keys(menuCatalog).length === 0) {
-        console.error("[Menu] Auto-confirm aborted: Menu data missing or error", { menuCatalogSize: Object.keys(menuCatalog).length, menuError });
+        console.error(
+          "[Menu] Auto-confirm aborted: Menu data missing or error",
+          { menuCatalogSize: Object.keys(menuCatalog).length, menuError },
+        );
         // Clean URL to prevent loop, user will see the menu (or error state)
         const newParams = new URLSearchParams(searchParams);
         newParams.delete("action");
         setSearchParams(newParams);
-        
+
         if (menuError) {
           alert("Cannot place order automatically: " + menuError);
         } else {
-          alert("Cannot place order automatically: Menu prices not loaded. Please try again manually.");
+          alert(
+            "Cannot place order automatically: Menu prices not loaded. Please try again manually.",
+          );
         }
         return;
       }
@@ -4698,14 +4667,12 @@ export default function MenuPage() {
       const newParams = new URLSearchParams(searchParams);
       newParams.delete("action");
       setSearchParams(newParams);
-      
+
       // Open overlay immediately to prevent flash/gap
       setProcessOpen(true);
       handleContinue();
     }
   }, [searchParams, menuLoading, menuCatalog, menuError]);
-
-
 
   return (
     <div
@@ -4719,10 +4686,13 @@ export default function MenuPage() {
 
       <div className="overlay"></div>
 
-      <Header accessibilityMode={accessibilityMode} onClickCart={() => navigate("/cart")} cartCount={cartItemCount} />
+      <Header
+        accessibilityMode={accessibilityMode}
+        onClickCart={() => navigate("/cart")}
+        cartCount={cartItemCount}
+      />
 
       <div className="content-wrapper">
-
         <div className="main-container">
           <div className="panels-container">
             {/* Left Panel - Smart Serve */}
@@ -4747,7 +4717,9 @@ export default function MenuPage() {
                   {serviceType === "DINE_IN" && (
                     <div className="guest-count-badge">
                       <span className="guest-icon">👥</span>
-                      <span>{tableInfo?.seats || tableInfo?.capacity || 2}</span>
+                      <span>
+                        {tableInfo?.seats || tableInfo?.capacity || 2}
+                      </span>
                     </div>
                   )}
                 </div>
@@ -4763,20 +4735,24 @@ export default function MenuPage() {
 
               {/* Large Tap to Order Button */}
               <button
+                type="button"
                 onClick={handleVoiceOrder}
                 className={`voice-button ${recording ? "recording" : ""}`}
                 aria-pressed={recording}
                 aria-label={recordVoiceAria}
+                disabled={menuLoading}
               >
                 {recording ? <FiMicOff /> : <FiMic />}
               </button>
 
               <p className="instruction-text">
-                {isProcessing
-                  ? processingText
-                  : recording
-                  ? tapToStop
-                  : tapToOrder}
+                {menuLoading
+                  ? (t("loadingMenu", "Loading menu...") || "Loading menu...")
+                  : isProcessing
+                    ? processingText
+                    : recording
+                      ? tapToStop
+                      : tapToOrder}
               </p>
 
               {/* Call Waiter and Request Water Buttons - Only show for DINE_IN orders */}
@@ -4785,29 +4761,40 @@ export default function MenuPage() {
                   <button
                     onClick={async () => {
                       try {
-                        const tableDataStr = localStorage.getItem('terra_selectedTable');
+                        const tableDataStr = localStorage.getItem(
+                          "terra_selectedTable",
+                        );
                         if (!tableDataStr) {
                           alert("Please select a table first");
                           return;
                         }
                         const tableData = JSON.parse(tableDataStr);
                         const tableId = tableData.id || tableData._id;
-                        const orderId = localStorage.getItem('terra_orderId') || null;
-                        const nodeApi = (import.meta.env.VITE_NODE_API_URL || "http://localhost:5001").replace(/\/$/, "");
-                        
-                        const response = await fetch(`${nodeApi}/api/customer-requests`, {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({
-                            tableId: tableId,
-                            requestType: "assistance",
-                            customerNotes: "Call Waiter",
-                            ...(orderId && { orderId: orderId }),
-                          }),
-                        });
-                        
+                        const orderId =
+                          localStorage.getItem("terra_orderId") || null;
+                        const nodeApi = (
+                          import.meta.env.VITE_NODE_API_URL ||
+                          "http://localhost:5001"
+                        ).replace(/\/$/, "");
+
+                        const response = await fetch(
+                          `${nodeApi}/api/customer-requests`,
+                          {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              tableId: tableId,
+                              requestType: "assistance",
+                              customerNotes: "Call Waiter",
+                              ...(orderId && { orderId: orderId }),
+                            }),
+                          },
+                        );
+
                         if (response.ok) {
-                          alert("✅ Waiter called! Someone will be with you shortly.");
+                          alert(
+                            "✅ Waiter called! Someone will be with you shortly.",
+                          );
                         } else {
                           throw new Error("Failed to send request");
                         }
@@ -4820,40 +4807,53 @@ export default function MenuPage() {
                   >
                     {t("callWaiter", "Call Waiter")}
                   </button>
-                  
+
                   {!activeOrderId ? (
                     <button
                       onClick={async () => {
                         try {
-                          const tableDataStr = localStorage.getItem('terra_selectedTable');
+                          const tableDataStr = localStorage.getItem(
+                            "terra_selectedTable",
+                          );
                           if (!tableDataStr) {
                             alert("Please select a table first");
                             return;
                           }
                           const tableData = JSON.parse(tableDataStr);
                           const tableId = tableData.id || tableData._id;
-                          const orderId = localStorage.getItem('terra_orderId') || null;
-                          const nodeApi = (import.meta.env.VITE_NODE_API_URL || "http://localhost:5001").replace(/\/$/, "");
-                          
-                          const response = await fetch(`${nodeApi}/api/customer-requests`, {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({
-                              tableId: tableId,
-                              requestType: "water",
-                              customerNotes: "Request Water",
-                              ...(orderId && { orderId: orderId }),
-                            }),
-                          });
-                          
+                          const orderId =
+                            localStorage.getItem("terra_orderId") || null;
+                          const nodeApi = (
+                            import.meta.env.VITE_NODE_API_URL ||
+                            "http://localhost:5001"
+                          ).replace(/\/$/, "");
+
+                          const response = await fetch(
+                            `${nodeApi}/api/customer-requests`,
+                            {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({
+                                tableId: tableId,
+                                requestType: "water",
+                                customerNotes: "Request Water",
+                                ...(orderId && { orderId: orderId }),
+                              }),
+                            },
+                          );
+
                           if (response.ok) {
-                            alert("✅ Water requested! Someone will bring it shortly.");
+                            alert(
+                              "✅ Water requested! Someone will bring it shortly.",
+                            );
                           } else {
                             throw new Error("Failed to send request");
                           }
                         } catch (error) {
                           console.error("Error requesting water:", error);
-                          alert("❌ Failed to request water. Please try again.");
+                          alert(
+                            "❌ Failed to request water. Please try again.",
+                          );
                         }
                       }}
                       className="action-button request-water-button"
@@ -4864,29 +4864,40 @@ export default function MenuPage() {
                     <button
                       onClick={async () => {
                         try {
-                          const tableDataStr = localStorage.getItem('terra_selectedTable');
+                          const tableDataStr = localStorage.getItem(
+                            "terra_selectedTable",
+                          );
                           if (!tableDataStr) {
                             alert("Please select a table first");
                             return;
                           }
                           const tableData = JSON.parse(tableDataStr);
                           const tableId = tableData.id || tableData._id;
-                          const orderId = localStorage.getItem('terra_orderId') || null;
-                          const nodeApi = (import.meta.env.VITE_NODE_API_URL || "http://localhost:5001").replace(/\/$/, "");
-                          
-                          const response = await fetch(`${nodeApi}/api/customer-requests`, {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({
-                              tableId: tableId,
-                              requestType: "bill",
-                              customerNotes: "Request Bill",
-                              ...(orderId && { orderId: orderId }),
-                            }),
-                          });
-                          
+                          const orderId =
+                            localStorage.getItem("terra_orderId") || null;
+                          const nodeApi = (
+                            import.meta.env.VITE_NODE_API_URL ||
+                            "http://localhost:5001"
+                          ).replace(/\/$/, "");
+
+                          const response = await fetch(
+                            `${nodeApi}/api/customer-requests`,
+                            {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({
+                                tableId: tableId,
+                                requestType: "bill",
+                                customerNotes: "Request Bill",
+                                ...(orderId && { orderId: orderId }),
+                              }),
+                            },
+                          );
+
                           if (response.ok) {
-                            alert("✅ Bill requested! Someone will bring it shortly.");
+                            alert(
+                              "✅ Bill requested! Someone will bring it shortly.",
+                            );
                           } else {
                             throw new Error("Failed to send request");
                           }
@@ -4909,8 +4920,6 @@ export default function MenuPage() {
                   <span className="order-text-italic">{orderText}</span>
                 </p>
               )}
-
-
 
               {/* Cart Overlay Removed - using /cart page */}
 
@@ -4937,7 +4946,11 @@ export default function MenuPage() {
                       status={orderStatus}
                       updatedAt={orderStatusUpdatedAt}
                       serviceType={serviceType}
-                      tableLabel={serviceType === "DINE_IN" && tableInfo?.number ? `Dine-In | Table ${tableInfo.number}` : null}
+                      tableLabel={
+                        serviceType === "DINE_IN" && tableInfo?.number
+                          ? `Dine-In | Table ${tableInfo.number}`
+                          : null
+                      }
                     />
                   </div>
                   <div className="button-group status-actions">
@@ -5077,7 +5090,6 @@ export default function MenuPage() {
                       return null;
                     })()}
                   </div>
-
                 </div>
               )}
 
@@ -5331,18 +5343,26 @@ export default function MenuPage() {
                       invoiceOrder?.franchise?.address ||
                       "123 Main Street, City"}
                   </div>
-                  {invoiceOrder?.franchise?.gstNumber ? (
+                  {(invoiceOrder?.franchise?.fssaiNumber ||
+                    invoiceOrder?.franchise?.fssai ||
+                    invoiceOrder?.cafe?.fssaiNumber ||
+                    invoiceOrder?.cafe?.fssai) && (
                     <div className="brand-address">
-                      GSTIN: {invoiceOrder.franchise.gstNumber}
+                      FSSAI No:{" "}
+                      {invoiceOrder.franchise?.fssaiNumber ||
+                        invoiceOrder.franchise?.fssai ||
+                        invoiceOrder.cafe?.fssaiNumber ||
+                        invoiceOrder.cafe?.fssai}
                     </div>
-                  ) : invoiceOrder?.franchiseId ? (
-                    <div
-                      className="brand-address"
-                      style={{ color: "#999", fontSize: "0.9em" }}
-                    >
-                      GSTIN: Not configured
+                  )}
+                  {(invoiceOrder?.franchise?.gstNumber ||
+                    invoiceOrder?.cafe?.gstNumber) && (
+                    <div className="brand-address">
+                      FSSAI No:{" "}
+                      {invoiceOrder.franchise?.gstNumber ||
+                        invoiceOrder.cafe?.gstNumber}
                     </div>
-                  ) : null}
+                  )}
                 </div>
                 <div className="invoice-meta-block">
                   <div className="meta-line">
@@ -5407,11 +5427,21 @@ export default function MenuPage() {
                     </>
                   )}
 
-                
                 {invoiceOrder?.specialInstructions && (
-                  <div className="meta-line" style={{ marginTop: '8px', borderTop: '1px dashed #e5e7eb', paddingTop: '4px' }}>
-                    <span style={{ color: '#d97706', fontWeight: 'bold' }}>Note:</span>
-                    <span style={{ fontStyle: 'italic' }}>{invoiceOrder.specialInstructions}</span>
+                  <div
+                    className="meta-line"
+                    style={{
+                      marginTop: "8px",
+                      borderTop: "1px dashed #e5e7eb",
+                      paddingTop: "4px",
+                    }}
+                  >
+                    <span style={{ color: "#d97706", fontWeight: "bold" }}>
+                      Note:
+                    </span>
+                    <span style={{ fontStyle: "italic" }}>
+                      {invoiceOrder.specialInstructions}
+                    </span>
                   </div>
                 )}
               </div>
@@ -5483,7 +5513,10 @@ export default function MenuPage() {
       )}
 
       {showReasonModal && (
-        <div className="invoice-modal-overlay" onClick={() => setShowReasonModal(false)}>
+        <div
+          className="invoice-modal-overlay"
+          onClick={() => setShowReasonModal(false)}
+        >
           <div
             className="invoice-modal"
             style={{ maxWidth: "24rem", maxHeight: "auto", height: "auto" }}
@@ -5562,17 +5595,32 @@ export default function MenuPage() {
       {Object.keys(cart).length > 0 && !showCart && (
         <div className="menu-cart-footer">
           <div className="menu-cart-footer-inner">
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
-              <span style={{ fontWeight: 'bold', fontSize: '1.1rem', color: '#333' }}>{cartItemCount} Items</span>
-              <span style={{ color: '#666', fontSize: '0.9rem' }}>Total: ₹{cartTotal.toFixed(2)}</span>
+            <div style={{ display: "flex", flexDirection: "column" }}>
+              <span
+                style={{
+                  fontWeight: "bold",
+                  fontSize: "1.1rem",
+                  color: "#333",
+                }}
+              >
+                {cartItemCount} Items
+              </span>
+              <span style={{ color: "#666", fontSize: "0.9rem" }}>
+                Total: ₹{cartTotal.toFixed(2)}
+              </span>
             </div>
             <button
               onClick={() => navigate("/cart")}
               style={{
-                backgroundColor: '#ff6b35', color: 'white',
-                padding: '12px 24px', borderRadius: '50px',
-                fontWeight: 'bold', fontSize: '1rem', border: 'none',
-                cursor: 'pointer', boxShadow: '0 4px 6px rgba(255, 107, 53, 0.3)'
+                backgroundColor: "#ff6b35",
+                color: "white",
+                padding: "12px 24px",
+                borderRadius: "50px",
+                fontWeight: "bold",
+                fontSize: "1rem",
+                border: "none",
+                cursor: "pointer",
+                boxShadow: "0 4px 6px rgba(255, 107, 53, 0.3)",
               }}
             >
               View Cart &rarr;
@@ -5586,9 +5634,6 @@ export default function MenuPage() {
         steps={processSteps}
         title="Processing your order"
       />
-
-
     </div>
   );
 }
-

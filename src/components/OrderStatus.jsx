@@ -1,50 +1,86 @@
-import React from 'react';
-import './OrderStatus.css';
+import React from "react";
+import "./OrderStatus.css";
 
-const dineInSteps = [
-  { key: 'Pending', label: 'Order Placed', index: 0 },
-  { key: 'Confirmed', label: 'Order Confirmed', index: 1 },
-  { key: 'Preparing', label: 'Preparing Order', index: 2 },
-  { key: 'Ready', label: 'Ready to Serve', index: 3 },
-  { key: 'Served', label: 'Served', index: 4 },
-  { key: 'Finalized', label: 'Finalized', index: 5 },
-  { key: 'Paid', label: 'Paid', index: 6 },
-];
+// UI shows only 3 states; all backend statuses map to one of these (updates when admin changes status)
+const DISPLAY_STEPS = {
+  DINE_IN: [
+    { key: "placed", label: "Order Placed" },
+    { key: "preparing", label: "Preparing" },
+    { key: "done", label: "Done" },
+  ],
+  TAKEAWAY: [
+    { key: "placed", label: "Order Placed" },
+    { key: "preparing", label: "Preparing" },
+    { key: "done", label: "Done" },
+  ],
+};
 
-const takeawaySteps = [
-  { key: 'Pending', label: 'Order Placed', index: 0 },
-  { key: 'Accepted', label: 'Accepted', index: 1 },
-  { key: 'Being Prepared', label: 'Being Prepared', index: 2 },
-  { key: 'BeingPrepared', label: 'Being Prepared', index: 2 },
-  { key: 'Completed', label: 'Completed', index: 3 },
-  { key: 'Paid', label: 'Paid', index: 4 },
-];
-
-const dineInStepKeys = ['Pending', 'Confirmed', 'Preparing', 'Ready', 'Served', 'Finalized', 'Paid'];
-const takeawayStepKeys = ['Pending', 'Accepted', 'Being Prepared', 'Completed', 'Paid'];
+// Map every backend status -> display step index (0, 1, 2). When admin updates status, current step updates.
+const DINE_IN_STATUS_TO_STEP = {
+  Pending: 0,
+  Confirmed: 0,
+  Preparing: 1,
+  Ready: 1,
+  Served: 1,
+  Finalized: 1,
+  Paid: 2,
+  Cancelled: -1,
+  Returned: -1,
+};
+const TAKEAWAY_STATUS_TO_STEP = {
+  Pending: 0,
+  Confirmed: 0,
+  Accept: 1,
+  Accepted: 1,
+  "Being Prepared": 1,
+  BeingPrepared: 1,
+  Completed: 1,
+  Paid: 2,
+  Exit: 2,
+  Cancelled: -1,
+  Returned: -1,
+};
 
 function getOrderedSteps(serviceType) {
-  const list = serviceType === 'TAKEAWAY' ? takeawaySteps : dineInSteps;
-  const keys = serviceType === 'TAKEAWAY' ? takeawayStepKeys : dineInStepKeys;
-  return keys.map(k => list.find(s => s.key === k)).filter(Boolean);
+  const key = serviceType === "TAKEAWAY" ? "TAKEAWAY" : "DINE_IN";
+  return DISPLAY_STEPS[key];
+}
+
+function normalizeTakeawayStatus(status) {
+  if (status == null || status === "") return "Pending";
+  const s = String(status).trim();
+  if (s === "Accept") return "Accepted";
+  if (s === "BeingPrepared") return "Being Prepared";
+  return s;
 }
 
 function getCurrentIndex(status, serviceType) {
-  const list = serviceType === 'TAKEAWAY' ? takeawaySteps : dineInSteps;
-  const found = list.find(s => s.key === status);
-  if (found != null) return found.index;
-  const byIndex = list.filter(s => s.index >= 0);
-  const maxIdx = Math.max(...byIndex.map(s => s.index), -1);
-  return maxIdx;
+  const safe = (status ?? "").toString().trim();
+  if (serviceType === "TAKEAWAY") {
+    const normalized = normalizeTakeawayStatus(safe);
+    const step = TAKEAWAY_STATUS_TO_STEP[normalized];
+    if (step !== undefined && step >= 0) return step;
+    return 0;
+  }
+  const step = DINE_IN_STATUS_TO_STEP[safe];
+  if (step !== undefined && step >= 0) return step;
+  return 0;
 }
 
-export default function OrderStatus({ status = 'Pending', className = '', updatedAt, serviceType = 'DINE_IN', tableLabel }) {
+export default function OrderStatus({
+  status = "Pending",
+  className = "",
+  updatedAt,
+  serviceType = "DINE_IN",
+  tableLabel,
+}) {
   const orderedSteps = getOrderedSteps(serviceType);
-  const currentIndex = getCurrentIndex(status, serviceType);
+  const safeStatus = status ?? "Pending";
+  const currentIndex = getCurrentIndex(safeStatus, serviceType);
   const updatedLabel = updatedAt
     ? new Date(updatedAt).toLocaleTimeString()
     : null;
-  const isTerminal = ['Cancelled', 'Returned'].includes(status);
+  const isTerminal = ["Cancelled", "Returned"].includes(safeStatus);
 
   if (isTerminal) {
     return (
@@ -52,8 +88,12 @@ export default function OrderStatus({ status = 'Pending', className = '', update
         <div className="order-status-timeline-step order-status-step-completed">
           <div className="order-status-dot order-status-dot-completed" />
           <div className="order-status-step-content">
-            <span className="order-status-step-label">{status}</span>
-            {updatedLabel && <span className="order-status-step-meta">Updated {updatedLabel}</span>}
+            <span className="order-status-step-label">{safeStatus}</span>
+            {updatedLabel && (
+              <span className="order-status-step-meta">
+                Updated {updatedLabel}
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -66,10 +106,9 @@ export default function OrderStatus({ status = 'Pending', className = '', update
         <div className="order-status-updated-meta">Updated {updatedLabel}</div>
       )}
       {orderedSteps.map((step, idx) => {
-        const stepIndex = step.index;
-        const isCompleted = currentIndex > stepIndex;
-        const isCurrent = currentIndex === stepIndex;
-        const isPending = currentIndex < stepIndex;
+        const isCompleted = idx < currentIndex;
+        const isCurrent = idx === currentIndex;
+        const isPending = idx > currentIndex;
         const isLast = idx === orderedSteps.length - 1;
         const label = idx === 0 && tableLabel ? tableLabel : step.label;
 
@@ -79,13 +118,20 @@ export default function OrderStatus({ status = 'Pending', className = '', update
               <div className="order-status-step-left">
                 <div
                   className={`order-status-dot ${
-                    isCompleted ? 'order-status-dot-completed' : ''
-                  } ${isCurrent ? 'order-status-dot-active' : ''} ${
-                    isPending ? 'order-status-dot-pending' : ''
+                    isCompleted ? "order-status-dot-completed" : ""
+                  } ${isCurrent ? "order-status-dot-active" : ""} ${
+                    isPending ? "order-status-dot-pending" : ""
                   }`}
                 >
                   {isCompleted && (
-                    <svg className="order-status-check" viewBox="0 0 12 12" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round">
+                    <svg
+                      className="order-status-check"
+                      viewBox="0 0 12 12"
+                      fill="none"
+                      stroke="white"
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                    >
                       <path d="M2 6l3 3 5-6" />
                     </svg>
                   )}
@@ -93,11 +139,15 @@ export default function OrderStatus({ status = 'Pending', className = '', update
                 {!isLast && <div className="order-status-line" />}
               </div>
               <div className="order-status-step-content">
-                <span className={`order-status-step-label ${isCurrent ? 'order-status-step-label-active' : ''} ${isPending ? 'order-status-step-label-pending' : ''}`}>
+                <span
+                  className={`order-status-step-label ${isCurrent ? "order-status-step-label-active" : ""} ${isPending ? "order-status-step-label-pending" : ""}`}
+                >
                   {label}
                 </span>
                 {isCurrent && updatedLabel && (
-                  <span className="order-status-step-meta">Updated {updatedLabel}</span>
+                  <span className="order-status-step-meta">
+                    Updated {updatedLabel}
+                  </span>
                 )}
               </div>
             </div>

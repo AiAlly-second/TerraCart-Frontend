@@ -25,7 +25,7 @@ if (
   console.error(
     "[Landing] ⚠️ WARNING: VITE_NODE_API_URL is not set correctly in production!",
     "Current value:",
-    import.meta.env.VITE_NODE_API_URL || "undefined"
+    import.meta.env.VITE_NODE_API_URL || "undefined",
   );
 }
 
@@ -33,7 +33,7 @@ if (
 // CRITICAL: Preserves takeaway order data - only clears DINE_IN data
 function clearOldOrderData() {
   console.log(
-    "[Landing] Clearing old DINE_IN order data due to session change (preserving takeaway data)"
+    "[Landing] Clearing old DINE_IN order data due to session change (preserving takeaway data)",
   );
   // Clear generic keys (used by DINE_IN)
   localStorage.removeItem("terra_orderId");
@@ -67,7 +67,7 @@ function updateSessionToken(newToken, oldToken) {
 export default function Landing() {
   const navigate = useNavigate();
   const [accessibilityMode, setAccessibilityMode] = useState(
-    localStorage.getItem("accessibilityMode") === "true"
+    localStorage.getItem("accessibilityMode") === "true",
   );
   const language = localStorage.getItem("language") || "en";
 
@@ -83,7 +83,7 @@ export default function Landing() {
     const params = new URLSearchParams(window.location.search);
     const tableParam = params.get("table");
     const takeawayParam = params.get("takeaway");
-    
+
     // If there's a table or takeaway parameter, auto-set language and continue
     if (tableParam || takeawayParam) {
       if (!localStorage.getItem("language")) {
@@ -93,7 +93,7 @@ export default function Landing() {
       // Don't redirect - let the table lookup logic handle it
       return;
     }
-    
+
     // For normal links, do nothing - show language selection
     console.log("[Landing] Normal link - showing language selection");
   }, [navigate]);
@@ -113,33 +113,42 @@ export default function Landing() {
     const takeawayParam = params.get("takeaway");
     const cartParam = params.get("cart");
 
+    if (cartParam) {
+      // Always store cart ID if present in URL
+      localStorage.setItem("terra_takeaway_cartId", cartParam);
+    }
+
     if (takeawayParam) {
       // Enable takeaway-only mode for this session
       localStorage.setItem("terra_takeaway_only", "true");
-      if (cartParam) {
-        localStorage.setItem("terra_takeaway_cartId", cartParam);
-      }
     } else {
       // If no takeaway flag in URL, clear any previous takeaway-only mode
       localStorage.removeItem("terra_takeaway_only");
-      localStorage.removeItem("terra_takeaway_cartId");
+      
+      // Only clear cart ID if it wasn't just set from the URL
+      if (!cartParam) {
+        localStorage.removeItem("terra_takeaway_cartId");
+      }
     }
   }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     let slug = params.get("table");
-    
+
     // CRITICAL: Check sessionStorage for persisted table parameter
     // This handles the case where useTablePersistence is maintaining the table across pages
     if (!slug) {
-      const persistedTable = sessionStorage.getItem('terra_table_param');
+      const persistedTable = sessionStorage.getItem("terra_table_param");
       if (persistedTable) {
-        console.log('[Landing] Using persisted table parameter from sessionStorage:', persistedTable);
+        console.log(
+          "[Landing] Using persisted table parameter from sessionStorage:",
+          persistedTable,
+        );
         slug = persistedTable;
         // Update URL to include table parameter for consistency
         const newUrl = `${window.location.pathname}?table=${persistedTable}`;
-        window.history.replaceState({}, '', newUrl);
+        window.history.replaceState({}, "", newUrl);
       }
     }
 
@@ -159,21 +168,26 @@ export default function Landing() {
       localStorage.removeItem("terra_waitToken");
       localStorage.removeItem("terra_serviceType"); // Clear serviceType for normal links
       localStorage.removeItem("terra_orderType"); // Clear orderType for normal links (prevents Pickup/Delivery persistence)
-      console.log("[Landing] No table parameter - cleared all dine-in order data");
+      console.log(
+        "[Landing] No table parameter - cleared all dine-in order data",
+      );
       setIsLoading(false);
       return;
     }
-    
+
     // CRITICAL: Validate stored table matches URL slug
     // This prevents using wrong table data when URL changes
     const storedSlug = localStorage.getItem("terra_scanToken");
     const storedTableStr = localStorage.getItem("terra_selectedTable");
-    
+
     if (storedSlug && storedSlug !== slug) {
-      console.warn("[Landing] URL table slug doesn't match stored slug - clearing old table data:", {
-        urlSlug: slug,
-        storedSlug: storedSlug,
-      });
+      console.warn(
+        "[Landing] URL table slug doesn't match stored slug - clearing old table data:",
+        {
+          urlSlug: slug,
+          storedSlug: storedSlug,
+        },
+      );
       // Clear old table data if it doesn't match URL
       localStorage.removeItem("terra_selectedTable");
       localStorage.removeItem("terra_scanToken");
@@ -187,11 +201,14 @@ export default function Landing() {
         const storedTable = JSON.parse(storedTableStr);
         const storedTableSlug = storedTable.qrSlug || storedSlug;
         if (storedTableSlug && storedTableSlug !== slug) {
-          console.warn("[Landing] Stored table qrSlug doesn't match URL slug - clearing:", {
-            urlSlug: slug,
-            storedTableSlug: storedTableSlug,
-            tableNumber: storedTable.number,
-          });
+          console.warn(
+            "[Landing] Stored table qrSlug doesn't match URL slug - clearing:",
+            {
+              urlSlug: slug,
+              storedTableSlug: storedTableSlug,
+              tableNumber: storedTable.number,
+            },
+          );
           // Clear mismatched table data
           localStorage.removeItem("terra_selectedTable");
           localStorage.removeItem("terra_scanToken");
@@ -213,9 +230,12 @@ export default function Landing() {
         // CRITICAL: Check if payment was completed - if so, clear all previous session data
         // This ensures that after payment completion, when user refreshes and scans a table (new or same),
         // they start with a fresh session and don't see previous order data
-        const paymentCompleted = localStorage.getItem("terra_paymentCompleted") === "true";
+        const paymentCompleted =
+          localStorage.getItem("terra_paymentCompleted") === "true";
         if (paymentCompleted) {
-          console.log("[Landing] Payment was completed - clearing all previous session data for fresh start");
+          console.log(
+            "[Landing] Payment was completed - clearing all previous session data for fresh start",
+          );
           // Clear all session and order data
           localStorage.removeItem("terra_selectedTable");
           localStorage.removeItem("terra_scanToken");
@@ -237,7 +257,9 @@ export default function Landing() {
           localStorage.removeItem("terra_orderStatusUpdatedAt_TAKEAWAY");
           // Clear the payment completed flag
           localStorage.removeItem("terra_paymentCompleted");
-          console.log("[Landing] All session data cleared after payment completion");
+          console.log(
+            "[Landing] All session data cleared after payment completion",
+          );
         }
 
         const previousSlug = localStorage.getItem("terra_scanToken");
@@ -247,14 +269,17 @@ export default function Landing() {
         // CRITICAL: Always clear old table data when scanning a NEW slug
         // This prevents wrong table data from being used (e.g., scanning table 12 but using cached table 8 data)
         const isNewTableScan = previousSlug && previousSlug !== slug;
-        
+
         if (isNewTableScan) {
           // CRITICAL: Clear ALL table-related data when scanning a different table QR
           // This ensures we start fresh and don't use cached data from a different table
-          console.log("[Landing] New table QR scan detected - clearing old table data:", {
-            previousSlug,
-            newSlug: slug,
-          });
+          console.log(
+            "[Landing] New table QR scan detected - clearing old table data:",
+            {
+              previousSlug,
+              newSlug: slug,
+            },
+          );
           // Clear ALL table-related data first
           localStorage.removeItem("terra_selectedTable");
           localStorage.removeItem("terra_scanToken");
@@ -296,7 +321,7 @@ export default function Landing() {
           // CRITICAL: Clear takeaway-only flag to prevent takeaway mode
           localStorage.removeItem("terra_takeaway_only");
           console.log(
-            "[Landing] Different table QR scan detected, cleared takeaway data, cartId, and flags"
+            "[Landing] Different table QR scan detected, cleared takeaway data, cartId, and flags",
           );
         } else if (!previousSlug) {
           // First scan (no previous slug) - clear takeaway data to ensure clean state
@@ -305,12 +330,12 @@ export default function Landing() {
           // Also clear stale takeaway order IDs to prevent redirect
           localStorage.removeItem("terra_orderId_TAKEAWAY");
           console.log(
-            "[Landing] First table QR scan - cleared takeaway cartId, flags, and order IDs for clean state"
+            "[Landing] First table QR scan - cleared takeaway cartId, flags, and order IDs for clean state",
           );
         } else {
           // Same slug (page refresh) - preserve takeaway order data
           console.log(
-            "[Landing] Same table QR or first scan - preserving takeaway order data"
+            "[Landing] Same table QR or first scan - preserving takeaway order data",
           );
         }
 
@@ -331,14 +356,14 @@ export default function Landing() {
           alert("Invalid table QR code. Please scan the table QR code again.");
           return;
         }
-        
+
         const url = `${nodeApi}/api/tables/lookup/${encodeURIComponent(validSlug)}${
           query.toString() ? `?${query.toString()}` : ""
         }`;
         console.log("[Landing] Table lookup URL:", url);
         console.log(
           "[Landing] Table lookup with waitToken:",
-          storedWait || "No"
+          storedWait || "No",
         );
         console.log("[Landing] Backend API URL:", nodeApi);
         console.log("[Landing] Slug from URL:", slug);
@@ -372,7 +397,7 @@ export default function Landing() {
                 console.log(
                   `[Landing] Retrying table lookup (attempt ${
                     attempt + 1
-                  }/3)...`
+                  }/3)...`,
                 );
                 return true;
               }
@@ -386,14 +411,14 @@ export default function Landing() {
               }
               return attempt < 2;
             },
-          }
+          },
         ).catch((fetchError) => {
           console.error("[Landing] Fetch error after retries:", fetchError);
 
           // Provide user-friendly error messages
           if (fetchError.message?.includes("timeout")) {
             throw new Error(
-              "Connection timeout: The server took too long to respond. This might be due to slow network or server issues. Please try again."
+              "Connection timeout: The server took too long to respond. This might be due to slow network or server issues. Please try again.",
             );
           }
           if (
@@ -401,13 +426,13 @@ export default function Landing() {
             fetchError.message?.includes("Failed to fetch")
           ) {
             throw new Error(
-              `Network error: Cannot connect to server. Please check your internet connection. If the problem persists, the server might be temporarily unavailable.`
+              `Network error: Cannot connect to server. Please check your internet connection. If the problem persists, the server might be temporarily unavailable.`,
             );
           }
           throw new Error(
             `Network error: ${
               fetchError.message || "Unknown error"
-            }. Please try again or contact support if the problem persists.`
+            }. Please try again or contact support if the problem persists.`,
           );
         });
 
@@ -432,7 +457,7 @@ export default function Landing() {
             "[Landing] Failed to parse response:",
             parseErr,
             "Status:",
-            res.status
+            res.status,
           );
           // For 423 status, we still want to proceed - it's expected behavior
           if (res.status === 423) {
@@ -463,7 +488,7 @@ export default function Landing() {
 
           if (res.status === 404) {
             throw new Error(
-              "Table not found. The QR code may be invalid or the table may have been deleted. Please contact staff."
+              "Table not found. The QR code may be invalid or the table may have been deleted. Please contact staff.",
             );
           }
 
@@ -471,33 +496,33 @@ export default function Landing() {
             // Table is merged - show special message
             alert(
               payload.message ||
-                "This table has been merged with another table. Please scan the primary table's QR code."
+                "This table has been merged with another table. Please scan the primary table's QR code.",
             );
             throw new Error(payload.message || "Table is merged");
           }
 
           if (res.status === 0 || !res.status) {
             throw new Error(
-              "Cannot connect to server. This might be a network issue or the server is temporarily unavailable. Please check your internet connection and try again."
+              "Cannot connect to server. This might be a network issue or the server is temporarily unavailable. Please check your internet connection and try again.",
             );
           }
 
           // Provide more specific error messages based on status code
           if (res.status === 500 || res.status >= 502) {
             throw new Error(
-              "Server error: The server encountered an issue. Please try again in a moment. If the problem persists, contact support."
+              "Server error: The server encountered an issue. Please try again in a moment. If the problem persists, contact support.",
             );
           }
 
           if (res.status === 503) {
             throw new Error(
-              "Service unavailable: The server is temporarily unavailable. Please try again in a few moments."
+              "Service unavailable: The server is temporarily unavailable. Please try again in a few moments.",
             );
           }
 
           throw new Error(
             payload?.message ||
-              `Failed to fetch table information (Status: ${res.status}). Please try scanning the QR code again.`
+              `Failed to fetch table information (Status: ${res.status}). Please try scanning the QR code again.`,
           );
         }
 
@@ -505,7 +530,7 @@ export default function Landing() {
         if (res.status === 423) {
           console.log(
             "[Landing] Table locked (423), waitlist info:",
-            payload.waitlist
+            payload.waitlist,
           );
         }
 
@@ -536,7 +561,7 @@ export default function Landing() {
             tableId: tableData.id || tableData._id,
           });
           throw new Error(
-            `Table QR code mismatch: Scanned slug "${slug}" but got table with slug "${returnedQrSlug}" (Table ${tableData.number || tableData.tableNumber}). Please scan the correct QR code.`
+            `Table QR code mismatch: Scanned slug "${slug}" but got table with slug "${returnedQrSlug}" (Table ${tableData.number || tableData.tableNumber}). Please scan the correct QR code.`,
           );
         }
 
@@ -578,7 +603,7 @@ export default function Landing() {
           // This was already handled above in the isNewTableScan check
           // Don't clear takeaway data here again to avoid double-clearing
           console.log(
-            "[Landing] New table scan - cleared DINE_IN data, takeaway data already handled"
+            "[Landing] New table scan - cleared DINE_IN data, takeaway data already handled",
           );
 
           // Clear only DINE_IN-specific keys - preserve TAKEAWAY data
@@ -591,7 +616,7 @@ export default function Landing() {
           localStorage.removeItem("terra_lastTableSlug_DINE_IN");
 
           console.log(
-            "[Landing] New table detected, cleared all cart, order, and customer data"
+            "[Landing] New table detected, cleared all cart, order, and customer data",
           );
         }
 
@@ -600,19 +625,19 @@ export default function Landing() {
         if (!tableData.cartId && !tableData.cafeId) {
           console.warn(
             "[Landing] Table response missing cartId/cafeId:",
-            tableData
+            tableData,
           );
         }
-        
+
         // CRITICAL: Clear takeaway cartId when table is successfully scanned
         // This ensures menu loads the correct cart for dine-in orders
         localStorage.removeItem("terra_takeaway_cartId");
         localStorage.removeItem("terra_takeaway_only");
-        
+
         // CRITICAL: Explicitly set serviceType to DINE_IN when table QR is scanned
         // This prevents Menu.jsx from detecting stale takeaway orders and redirecting
         localStorage.setItem("terra_serviceType", "DINE_IN");
-        
+
         // CRITICAL: Store table data with all required fields
         // Ensure we include id, number, qrSlug, cartId, and status for proper table identification
         // CRITICAL: Always use the slug from the URL (the one we scanned), not from the response
@@ -632,7 +657,7 @@ export default function Landing() {
           sessionToken: tableData.sessionToken || null,
           currentOrder: tableData.currentOrder || null,
         };
-        
+
         // CRITICAL: Validate table number matches what we expect
         // Double-check that we're storing the correct table
         const storedTableNumber = tableDataToStore.number;
@@ -644,23 +669,32 @@ export default function Landing() {
           cartId: tableDataToStore.cartId,
           status: tableDataToStore.status,
         });
-        
-        localStorage.setItem("terra_selectedTable", JSON.stringify(tableDataToStore));
+
+        localStorage.setItem(
+          "terra_selectedTable",
+          JSON.stringify(tableDataToStore),
+        );
         localStorage.setItem("terra_scanToken", slug);
-        
+
         // CRITICAL: Verify the stored data matches what we scanned
         const verifyStored = localStorage.getItem("terra_selectedTable");
         if (verifyStored) {
           try {
             const verified = JSON.parse(verifyStored);
             if (verified.qrSlug !== slug) {
-              console.error("[Landing] CRITICAL: Stored table slug doesn't match scanned slug!", {
-                scannedSlug: slug,
-                storedSlug: verified.qrSlug,
-                tableNumber: verified.number,
-              });
+              console.error(
+                "[Landing] CRITICAL: Stored table slug doesn't match scanned slug!",
+                {
+                  scannedSlug: slug,
+                  storedSlug: verified.qrSlug,
+                  tableNumber: verified.number,
+                },
+              );
               // Clear and re-store with correct slug
-              localStorage.setItem("terra_selectedTable", JSON.stringify(tableDataToStore));
+              localStorage.setItem(
+                "terra_selectedTable",
+                JSON.stringify(tableDataToStore),
+              );
               localStorage.setItem("terra_scanToken", slug);
             }
           } catch (e) {
@@ -679,7 +713,7 @@ export default function Landing() {
           // Don't clear takeaway data unless user is explicitly switching modes
           clearOldOrderData(); // This now only clears DINE_IN data
           console.log(
-            "[Landing] Table is AVAILABLE - cleared DINE_IN order data (preserved takeaway data)"
+            "[Landing] Table is AVAILABLE - cleared DINE_IN order data (preserved takeaway data)",
           );
         }
 
@@ -693,7 +727,7 @@ export default function Landing() {
           // Preserve takeaway order data - only clear when user is actually switching to dine-in
           clearOldOrderData(); // This now only clears DINE_IN data
           console.log(
-            "[Landing] Table is AVAILABLE - cleared DINE_IN order data (preserved takeaway data)"
+            "[Landing] Table is AVAILABLE - cleared DINE_IN order data (preserved takeaway data)",
           );
 
           // Update sessionToken
@@ -714,7 +748,7 @@ export default function Landing() {
           // This ensures new customers don't see previous customer's orders
           clearOldOrderData();
           console.log(
-            "[Landing] Table is AVAILABLE - cleared all order data for new customer"
+            "[Landing] Table is AVAILABLE - cleared all order data for new customer",
           );
 
           // Update sessionToken
@@ -754,7 +788,7 @@ export default function Landing() {
             if (currentToken) {
               // Keep existing token
               console.log(
-                "[Landing] Preserving sessionToken for user with active order"
+                "[Landing] Preserving sessionToken for user with active order",
               );
             }
           }
@@ -778,7 +812,7 @@ export default function Landing() {
             // This ensures new waitlist customers don't see previous customer's orders
             clearOldOrderData();
             console.log(
-              "[Landing] Waitlist user SEATED - cleared all order data for new customer"
+              "[Landing] Waitlist user SEATED - cleared all order data for new customer",
             );
 
             updateSessionToken(payload.waitlist.sessionToken, storedSession);
@@ -789,7 +823,7 @@ export default function Landing() {
           if (payload.waitlist?.status === "NOTIFIED") {
             clearOldOrderData();
             console.log(
-              "[Landing] Waitlist user NOTIFIED - cleared all order data for new customer"
+              "[Landing] Waitlist user NOTIFIED - cleared all order data for new customer",
             );
           }
         }
@@ -808,7 +842,7 @@ export default function Landing() {
             // This ensures new customers don't see previous customer's orders
             clearOldOrderData();
             console.log(
-              "[Landing] Table is AVAILABLE (423 response) - cleared all order data for new customer"
+              "[Landing] Table is AVAILABLE (423 response) - cleared all order data for new customer",
             );
 
             const newSessionToken =
@@ -828,7 +862,7 @@ export default function Landing() {
                   status: payload.waitlist.status,
                   position: payload.waitlist.position,
                 }
-              : "No waitlist info"
+              : "No waitlist info",
           );
 
           // CRITICAL: Don't auto-store waitlist token - user must explicitly join waitlist
@@ -842,13 +876,13 @@ export default function Landing() {
               const position = payload.waitlist?.position || 1;
               alert(
                 payload?.message ||
-                  `Table is currently occupied. You are #${position} in the waitlist.`
+                  `Table is currently occupied. You are #${position} in the waitlist.`,
               );
             } else {
               // No waitlist entry - user must join manually
               alert(
                 payload?.message ||
-                  "This table is currently occupied. You will be asked to join the waitlist on the next page."
+                  "This table is currently occupied. You will be asked to join the waitlist on the next page.",
               );
               // Clear any old waitlist token
               localStorage.removeItem("terra_waitToken");
@@ -870,7 +904,7 @@ export default function Landing() {
           }
           localStorage.removeItem("terra_scanToken");
           alert(
-            "This table is currently occupied. Please ask the staff for assistance."
+            "This table is currently occupied. Please ask the staff for assistance.",
           );
         } else if (err.message && err.message.includes("merged")) {
           // Table is merged - message already shown in the check above
@@ -888,11 +922,11 @@ export default function Landing() {
             // Check if it's a 404 error (table not found)
             if (err.message && err.message.includes("Table not found")) {
               alert(
-                "Table not found. The QR code may be invalid or the table may have been removed. Please scan the table QR code again or contact staff for assistance."
+                "Table not found. The QR code may be invalid or the table may have been removed. Please scan the table QR code again or contact staff for assistance.",
               );
             } else {
               alert(
-                "We couldn't detect your table. Please rescan the table QR or contact staff."
+                "We couldn't detect your table. Please rescan the table QR or contact staff.",
               );
             }
           }
@@ -940,8 +974,9 @@ export default function Landing() {
   };
 
   const startListening = () => {
-    const recognition = new (window.SpeechRecognition ||
-      window.webkitSpeechRecognition)();
+    const recognition = new (
+      window.SpeechRecognition || window.webkitSpeechRecognition
+    )();
     recognition.lang = "en-US";
     recognition.interimResults = false;
     recognition.maxAlternatives = 1;
@@ -976,7 +1011,7 @@ export default function Landing() {
 
       // If no match
       const utterance = new SpeechSynthesisUtterance(
-        "Your voice was not clear, please repeat again."
+        "Your voice was not clear, please repeat again.",
       );
       utterance.voice = window.speechSynthesis.getVoices()[0];
       utterance.onend = () => {
@@ -1068,10 +1103,10 @@ export default function Landing() {
 
           {/* Loading Indicator or Language Selection */}
           {isLoading ? (
-             <div className="flex flex-col items-center justify-center">
-               <div className="w-12 h-12 border-4 border-orange-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-               <p className="text-lg font-semibold text-gray-700">Loading...</p>
-             </div>
+            <div className="flex flex-col items-center justify-center">
+              <div className="w-12 h-12 border-4 border-orange-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+              <p className="text-lg font-semibold text-gray-700">Loading...</p>
+            </div>
           ) : (
             <motion.div
               initial={{ opacity: 0, scale: 0.9, y: 40 }}
@@ -1110,7 +1145,9 @@ export default function Landing() {
                       }
                     `}
                     style={{
-                      backgroundColor: accessibilityMode ? undefined : "#FC8019",
+                      backgroundColor: accessibilityMode
+                        ? undefined
+                        : "#FC8019",
                     }}
                   >
                     {lang.label}
@@ -1121,7 +1158,7 @@ export default function Landing() {
           )}
         </div>
       </div>
-      
+
       {/* Existing floating button code ... */}
       <motion.button
         whileHover={{ scale: 1.1 }}

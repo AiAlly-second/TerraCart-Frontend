@@ -695,9 +695,32 @@ export default function OrderSummary() {
             <div ref={invoiceRef} className="invoice-preview">
               <div className="invoice-top">
                 <div>
-                  <div className="brand-name">Terra Cart</div>
-                  <div className="brand-address">123 Main Street, City</div>
-                  <div className="brand-address">GSTIN: 22AAAAA0000A1Z5</div>
+                  <div className="brand-name">
+                    {order.cafe?.cafeName || order.cafe?.name || "Terra Cart"}
+                  </div>
+                  <div className="brand-address">
+                    {order.cafe?.address ||
+                      order.franchise?.address ||
+                      "—"}
+                  </div>
+                  {(order.franchise?.fssaiNumber ||
+                    order.franchise?.fssai ||
+                    order.cafe?.fssaiNumber ||
+                    order.cafe?.fssai) && (
+                    <div className="brand-address">
+                      FSSAI No:{" "}
+                      {order.franchise?.fssaiNumber ||
+                        order.franchise?.fssai ||
+                        order.cafe?.fssaiNumber ||
+                        order.cafe?.fssai}
+                    </div>
+                  )}
+                  {(order.franchise?.gstNumber || order.cafe?.gstNumber) && (
+                    <div className="brand-address">
+                      FSSAI No:{" "}
+                      {order.franchise?.gstNumber || order.cafe?.gstNumber}
+                    </div>
+                  )}
                 </div>
                 <div className="invoice-meta-block">
                   <div className="meta-line">

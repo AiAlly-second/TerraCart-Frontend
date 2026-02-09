@@ -7,12 +7,17 @@ import translations from "../data/translations/Header.json";
 import NavigationTabs from "./NavigationTabs";
 
 // CHANGE 1: Add the 'isFixed' prop with a default value of 'true'
-export default function Header({ showNavigationTabs = true, isFixed = true, onClickCart, cartCount = 0 }) {
+export default function Header({
+  showNavigationTabs = true,
+  isFixed = true,
+  onClickCart,
+  cartCount = 0,
+}) {
   const navigate = useNavigate();
   const location = useLocation();
 
   const [language, setLanguage] = useState(
-    localStorage.getItem("language") || "en"
+    localStorage.getItem("language") || "en",
   );
   const t = translations[language];
   const [showCard, setShowCard] = useState(false);
@@ -20,7 +25,7 @@ export default function Header({ showNavigationTabs = true, isFixed = true, onCl
   const [customRequest, setCustomRequest] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
   const [accessibilityMode, setAccessibilityMode] = useState(
-    localStorage.getItem("accessibilityMode") === "true"
+    localStorage.getItem("accessibilityMode") === "true",
   );
   const [activeTab, setActiveTab] = useState("table");
   const mediaRecorderRef = useRef(null);
@@ -29,7 +34,7 @@ export default function Header({ showNavigationTabs = true, isFixed = true, onCl
   useEffect(() => {
     const handleStorageChange = () => {
       setAccessibilityMode(
-        localStorage.getItem("accessibilityMode") === "true"
+        localStorage.getItem("accessibilityMode") === "true",
       );
       setLanguage(localStorage.getItem("language") || "en");
     };
@@ -126,7 +131,7 @@ export default function Header({ showNavigationTabs = true, isFixed = true, onCl
         {showCard && (
           <>
             <motion.div
-              className="fixed inset-0 backdrop-blur-sm bg-black/30 z-[100000]" 
+              className="fixed inset-0 backdrop-blur-sm bg-black/30 z-[100000]"
               style={{ zIndex: 100000 }}
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}

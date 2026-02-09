@@ -27,7 +27,8 @@ export const getNearbyCarts = async (latitude, longitude, orderType, pinCode = n
     }
     
     const data = await response.json();
-    return data.success ? data.data : [];
+    const list = data.success ? data.data : [];
+    return list.filter((c) => c.cartAdminId != null && c.cartAdminId.isActive !== false);
   } catch (error) {
     // net::ERR_CONNECTION_REFUSED = backend not running at VITE_NODE_API_URL (default localhost:5001)
     const isConnectionRefused = error?.message === "Failed to fetch" || error?.name === "TypeError";
@@ -59,7 +60,8 @@ export const getAvailableCarts = async (orderType = null) => {
     }
     
     const data = await response.json();
-    return data.success ? data.data : [];
+    const list = data.success ? data.data : [];
+    return list.filter((c) => c.cartAdminId != null && c.cartAdminId.isActive !== false);
   } catch (error) {
     console.error("[CartAPI] Error fetching available carts:", error);
     return [];

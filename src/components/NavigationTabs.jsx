@@ -23,20 +23,18 @@ export default function NavigationTabs({
   // Select translations safely
   const t = translations[language] || translations.en;
 
-  // Get service type to conditionally hide Assistance for takeaway
-  // Read directly from localStorage on each render for reactivity
-  const serviceType = (() => {
-    try {
-      return localStorage.getItem("terra_serviceType") || "DINE_IN";
-    } catch {
-      return "DINE_IN";
-    }
-  })();
-
-  const isTakeaway = serviceType === "TAKEAWAY";
-
   // Internal state for Table Service popup
   const [showCard, setShowCard] = useState(false);
+
+  // Hide Assistance tab for takeaway/pickup/delivery (no table service)
+  const hideAssistanceTab = useMemo(() => {
+    try {
+      const st = localStorage.getItem("terra_serviceType") || "DINE_IN";
+      return ["TAKEAWAY", "PICKUP", "DELIVERY"].includes(st);
+    } catch {
+      return false;
+    }
+  }, []);
 
   // Get assigned table from QR (read-only)
   const tableNumber = useMemo(() => {
@@ -77,8 +75,8 @@ export default function NavigationTabs({
         </button>
         */}
 
-        {/* Table Service - Only show for DINE_IN, hide for TAKEAWAY */}
-        {!isTakeaway && (
+        {/* Table Service / Assistance - hidden for takeaway, pickup, delivery */}
+        {!hideAssistanceTab && (
           <button
             className={`flex-1 py-2 text-xs sm:text-sm md:text-base font-medium transition-colors border-r border-orange-500 ${
               activeTab === "table" ? buttonBase : inactiveTab
@@ -106,16 +104,14 @@ export default function NavigationTabs({
         </button>
       </div>
 
-      {/* Table Service Popup - Only show for DINE_IN */}
-      {!isTakeaway && (
-        <TableServicePopup
-          showCard={showCard}
-          setShowCard={setShowCard}
-          language={language}
-          accessibilityMode={accessibilityMode}
-          currentTable={tableNumber}
-        />
-      )}
+      {/* Table Service Popup */}
+      <TableServicePopup
+        showCard={showCard}
+        setShowCard={setShowCard}
+        language={language}
+        accessibilityMode={accessibilityMode}
+        currentTable={tableNumber}
+      />
     </>
   );
 }

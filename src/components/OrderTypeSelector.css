@@ -5,7 +5,6 @@
   margin-bottom: 1rem;
 }
 
-
 /* Radio buttons are hidden in JSX - styles handled by Tailwind classes */
 .order-type-option input[type="radio"] {
   display: none;
@@ -96,4 +95,3 @@
 .cart-option input[type="radio"]:disabled {
   cursor: not-allowed;
 }
-

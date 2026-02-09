@@ -72,7 +72,7 @@ function calculateTotalsFromItems(mergedItems) {
 
   return {
     subtotal,
-    gst,
+
     totalAmount,
   };
 }
@@ -91,7 +91,7 @@ export default function Billing() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [accessibilityMode, setAccessibilityMode] = useState(
-    localStorage.getItem("accessibilityMode") === "true"
+    localStorage.getItem("accessibilityMode") === "true",
   );
   const [activeModal, setActiveModal] = useState(null);
 
@@ -318,7 +318,7 @@ export default function Billing() {
                   <span>
                     ₹
                     {(((item.price || 0) / 100) * (item.quantity || 0)).toFixed(
-                      2
+                      2,
                     )}
                   </span>
                 </div>

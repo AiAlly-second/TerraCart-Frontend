@@ -74,6 +74,23 @@ const formatMoney = (value) => {
   return num.toFixed(2);
 };
 
+const getAssignedStaffFromOrder = (order) => {
+  if (!order) return null;
+
+  const acceptedBy = order.acceptedBy || null;
+  const assignedStaff = order.assignedStaff || null;
+  const name = acceptedBy?.employeeName || assignedStaff?.name || null;
+
+  if (!name) return null;
+
+  return {
+    name,
+    role: assignedStaff?.role || acceptedBy?.employeeRole || null,
+    disability:
+      acceptedBy?.disability?.type || assignedStaff?.disability || null,
+  };
+};
+
 const buildInvoiceId = (order) => {
   if (!order) return "INV-NA";
   const date = new Date(order.createdAt || Date.now())
@@ -783,6 +800,7 @@ export default function MenuPage() {
       return null;
     }
   });
+  const [currentOrderDetail, setCurrentOrderDetail] = useState(null);
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
   const [invoiceOrder, setInvoiceOrder] = useState(null);
   const [invoiceLoading, setInvoiceLoading] = useState(false);
@@ -916,6 +934,14 @@ export default function MenuPage() {
 
   const previousDetailInvoiceId = useMemo(
     () => (previousOrderDetail ? buildInvoiceId(previousOrderDetail) : null),
+    [previousOrderDetail],
+  );
+  const activeAssignedStaff = useMemo(
+    () => getAssignedStaffFromOrder(currentOrderDetail),
+    [currentOrderDetail],
+  );
+  const previousAssignedStaff = useMemo(
+    () => getAssignedStaffFromOrder(previousOrderDetail),
     [previousOrderDetail],
   );
 
@@ -1058,13 +1084,13 @@ export default function MenuPage() {
         localStorage.getItem("terra_orderStatus_DINE_IN");
       const hasActiveOrderInStorage =
         existingOrderId &&
-        existingOrderStatus &&
-        !["Paid", "Cancelled", "Returned", "Completed"].includes(
-          existingOrderStatus,
-        );
+        (!existingOrderStatus ||
+          !["Paid", "Cancelled", "Returned", "Completed"].includes(
+            existingOrderStatus,
+          ));
 
-      // If we have an order in storage, verify it exists on backend
-      if (hasActiveOrderInStorage && existingOrderId) {
+      // If we have an order ID in storage, verify it exists on backend.
+      if (existingOrderId) {
         try {
           const orderRes = await fetch(
             `${nodeApi}/api/orders/${existingOrderId}`,
@@ -2867,6 +2893,7 @@ export default function MenuPage() {
       setActiveOrderId(data._id);
       setOrderStatus(data.status || "Confirmed");
       setOrderStatusUpdatedAt(new Date().toISOString());
+      setCurrentOrderDetail(data);
 
       // Store status in service-type-specific keys
       if (serviceType === "TAKEAWAY") {
@@ -4060,6 +4087,7 @@ export default function MenuPage() {
     if (!orderId) {
       setOrderStatus(null);
       setOrderStatusUpdatedAt(null);
+      setCurrentOrderDetail(null);
       return;
     }
 
@@ -4071,6 +4099,15 @@ export default function MenuPage() {
     let timer;
     // Track if we've already logged connection error - must be outside function to persist
     let connectionErrorLogged = false;
+    let joinedCartId = null;
+
+    const joinCartRoom = (cartId) => {
+      if (!socket || !cartId) return;
+      const normalizedCartId = String(cartId);
+      if (joinedCartId === normalizedCartId) return;
+      socket.emit("join:cart", normalizedCartId);
+      joinedCartId = normalizedCartId;
+    };
 
     const fetchStatus = async () => {
       try {
@@ -4091,6 +4128,7 @@ export default function MenuPage() {
         }
 
         if (!orderId) {
+          setCurrentOrderDetail(null);
           return;
         }
 
@@ -4140,6 +4178,7 @@ export default function MenuPage() {
             setActiveOrderId(null);
             setOrderStatus(null);
             setOrderStatusUpdatedAt(null);
+            setCurrentOrderDetail(null);
           }
           return;
         }
@@ -4208,10 +4247,16 @@ export default function MenuPage() {
             setActiveOrderId(null);
             setOrderStatus(null);
             setOrderStatusUpdatedAt(null);
+            setCurrentOrderDetail(null);
             persistPreviousOrder(null);
             persistPreviousOrderDetail(null);
             return;
           }
+        }
+
+        setCurrentOrderDetail(data);
+        if (data.cartId) {
+          joinCartRoom(data.cartId);
         }
 
         // For takeaway orders, persist full order detail (including token) for dashboard display
@@ -4286,7 +4331,23 @@ export default function MenuPage() {
         // Reset error flags on successful connection
         socketErrorLogged = false;
         connectionErrorLogged = false;
-        // Socket connected
+        // Join cart room for real-time order assignment updates.
+        const cartIdFromOrder = currentOrderDetail?.cartId;
+        const cartIdFromTakeaway = localStorage.getItem("terra_takeaway_cartId");
+        let cartIdFromTable = null;
+        try {
+          const tableData = JSON.parse(
+            localStorage.getItem(TABLE_SELECTION_KEY) || "{}",
+          );
+          const rawCartId = tableData.cartId || tableData.cafeId;
+          cartIdFromTable =
+            typeof rawCartId === "object" && rawCartId?._id
+              ? rawCartId._id
+              : rawCartId;
+        } catch {
+          cartIdFromTable = null;
+        }
+        joinCartRoom(cartIdFromOrder || cartIdFromTakeaway || cartIdFromTable);
       });
 
       socket.on("connect_error", (error) => {
@@ -4330,7 +4391,7 @@ export default function MenuPage() {
       // CRITICAL: Only process if this is our order and status actually changed
       // Also verify serviceType matches to prevent TAKEAWAY orders appearing in DINE_IN mode
       if (
-        payload?._id === orderId &&
+        String(payload?._id || "") === String(orderId || "") &&
         payload?.status &&
         payload?.serviceType === currentServiceType
       ) {
@@ -4360,6 +4421,10 @@ export default function MenuPage() {
         const nowIso = new Date().toISOString();
         setOrderStatus(payload.status);
         setOrderStatusUpdatedAt(nowIso);
+        setCurrentOrderDetail(payload);
+        if (payload.cartId) {
+          joinCartRoom(payload.cartId);
+        }
         // Also update localStorage to keep it in sync
         localStorage.setItem("terra_orderStatus", payload.status);
         localStorage.setItem("terra_orderStatusUpdatedAt", nowIso);
@@ -4371,6 +4436,74 @@ export default function MenuPage() {
           localStorage.setItem("terra_orderStatus_DINE_IN", payload.status);
           localStorage.setItem("terra_orderStatusUpdatedAt_DINE_IN", nowIso);
         }
+      }
+    };
+
+    const handleOrderAccepted = (payload) => {
+      if (!payload) return;
+
+      const currentServiceType =
+        localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN";
+      let orderId = null;
+      if (currentServiceType === "TAKEAWAY") {
+        orderId =
+          activeOrderId || localStorage.getItem("terra_orderId_TAKEAWAY");
+      } else {
+        orderId =
+          activeOrderId ||
+          localStorage.getItem("terra_orderId_DINE_IN") ||
+          localStorage.getItem("terra_orderId");
+      }
+
+      const acceptedOrderId = payload.orderId || payload.order?._id;
+      if (
+        !acceptedOrderId ||
+        String(acceptedOrderId) !== String(orderId || "")
+      ) {
+        return;
+      }
+
+      const acceptedStatus = payload.status || payload.order?.status || "Confirmed";
+      const nowIso = new Date().toISOString();
+      setOrderStatus(acceptedStatus);
+      setOrderStatusUpdatedAt(nowIso);
+
+      localStorage.setItem("terra_orderStatus", acceptedStatus);
+      localStorage.setItem("terra_orderStatusUpdatedAt", nowIso);
+      if (currentServiceType === "TAKEAWAY") {
+        localStorage.setItem("terra_orderStatus_TAKEAWAY", acceptedStatus);
+        localStorage.setItem("terra_orderStatusUpdatedAt_TAKEAWAY", nowIso);
+      } else {
+        localStorage.setItem("terra_orderStatus_DINE_IN", acceptedStatus);
+        localStorage.setItem("terra_orderStatusUpdatedAt_DINE_IN", nowIso);
+      }
+
+      if (payload.order && typeof payload.order === "object") {
+        setCurrentOrderDetail(payload.order);
+        if (payload.order.cartId) {
+          joinCartRoom(payload.order.cartId);
+        }
+        return;
+      }
+
+      if (payload.assignedStaff) {
+        setCurrentOrderDetail((prev) => {
+          const next = prev ? { ...prev } : { _id: acceptedOrderId };
+          next.status = acceptedStatus;
+          next.assignedStaff = payload.assignedStaff;
+          if (!next.acceptedBy) {
+            next.acceptedBy = {
+              employeeId: payload.assignedStaff.id || null,
+              employeeName: payload.assignedStaff.name || null,
+              employeeRole: payload.assignedStaff.role || null,
+              disability: {
+                hasDisability: Boolean(payload.assignedStaff.disability),
+                type: payload.assignedStaff.disability || null,
+              },
+            };
+          }
+          return next;
+        });
       }
     };
 
@@ -4394,6 +4527,7 @@ export default function MenuPage() {
       if (payload?.id === orderId) {
         setOrderStatus(null);
         setActiveOrderId(null);
+        setCurrentOrderDetail(null);
         // Clear service-type-specific keys
         if (currentServiceType === "TAKEAWAY") {
           localStorage.removeItem("terra_orderId_TAKEAWAY");
@@ -4483,10 +4617,10 @@ export default function MenuPage() {
         localStorage.getItem("terra_orderStatus_DINE_IN");
       const hasActiveOrder =
         existingOrderId &&
-        existingOrderStatus &&
-        !["Paid", "Cancelled", "Returned", "Completed"].includes(
-          existingOrderStatus,
-        );
+        (!existingOrderStatus ||
+          !["Paid", "Cancelled", "Returned", "Completed"].includes(
+            existingOrderStatus,
+          ));
 
       if (updatedTable.status === "AVAILABLE") {
         // Only clear order data if user doesn't have an active order
@@ -4516,6 +4650,7 @@ export default function MenuPage() {
           // Clear order state in component
           setActiveOrderId(null);
           setOrderStatus(null);
+          setCurrentOrderDetail(null);
           console.log("[Menu] Cleared all order data for new customer");
         } else {
           console.log(
@@ -4528,6 +4663,7 @@ export default function MenuPage() {
     // Register event listeners only if socket is connected
     if (socket) {
       socket.on("orderUpdated", handleOrderUpdated);
+      socket.on("ORDER_ACCEPTED", handleOrderAccepted);
       socket.on("orderDeleted", handleOrderDeleted);
       socket.on("table:status:updated", handleTableStatusUpdated);
     }
@@ -4537,14 +4673,15 @@ export default function MenuPage() {
         clearInterval(timer);
       }
       // Remove event listeners before disconnecting
-      if (socket && !isTakeaway) {
+      if (socket) {
         socket.off("orderUpdated", handleOrderUpdated);
+        socket.off("ORDER_ACCEPTED", handleOrderAccepted);
         socket.off("orderDeleted", handleOrderDeleted);
         socket.off("table:status:updated", handleTableStatusUpdated);
         socket.disconnect();
       }
     };
-  }, [activeOrderId, isOrderingMore]);
+  }, [activeOrderId, isOrderingMore, serviceType]);
 
   // Sync orderStatus from localStorage when component mounts or activeOrderId changes
   // This ensures that when user navigates back from payment page or refreshes, the status is synced
@@ -4638,6 +4775,39 @@ export default function MenuPage() {
       }
     }
   }, []); // Only run once on mount
+
+  useEffect(() => {
+    if (!activeOrderId) {
+      setCurrentOrderDetail(null);
+      return;
+    }
+
+    let cancelled = false;
+    const loadCurrentOrderDetail = async () => {
+      try {
+        const res = await fetch(`${nodeApi}/api/orders/${activeOrderId}`, {
+          signal: AbortSignal.timeout(5000),
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled || !data) return;
+
+        const currentServiceType =
+          localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN";
+        if (data.serviceType && data.serviceType !== currentServiceType) {
+          return;
+        }
+        setCurrentOrderDetail(data);
+      } catch {
+        // Keep existing detail state on transient fetch errors.
+      }
+    };
+
+    loadCurrentOrderDetail();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeOrderId, serviceType]);
 
   useEffect(() => {
     // CRITICAL: Wait for menu to fully load before processing confirm action
@@ -4953,6 +5123,23 @@ export default function MenuPage() {
                       }
                     />
                   </div>
+                  {activeAssignedStaff?.name && (
+                    <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg text-center">
+                      <p className="text-green-800 font-medium">
+                        Your order is being handled by {activeAssignedStaff.name}
+                      </p>
+                      {activeAssignedStaff.role && (
+                        <p className="text-sm text-gray-700 mt-1">
+                          Role: {activeAssignedStaff.role}
+                        </p>
+                      )}
+                      {activeAssignedStaff.disability && (
+                        <p className="text-sm text-gray-600 mt-1">
+                          Disability Support: {activeAssignedStaff.disability}
+                        </p>
+                      )}
+                    </div>
+                  )}
                   <div className="button-group status-actions">
                     {/* Row 1, Col 1: Cancel Order Button */}
                     {(() => {
@@ -5149,6 +5336,23 @@ export default function MenuPage() {
                       </span>
                     )}
                   </div>
+                  {previousAssignedStaff?.name && (
+                    <div
+                      style={{
+                        marginBottom: "8px",
+                        padding: "8px",
+                        borderRadius: "8px",
+                        background: "#ecfdf5",
+                        border: "1px solid #bbf7d0",
+                        fontSize: "0.8rem",
+                      }}
+                    >
+                      <strong>Handled by:</strong> {previousAssignedStaff.name}
+                      {previousAssignedStaff.role && (
+                        <span> ({previousAssignedStaff.role})</span>
+                      )}
+                    </div>
+                  )}
                   <div style={{ marginBottom: "8px", fontSize: "0.85rem" }}>
                     <div
                       style={{

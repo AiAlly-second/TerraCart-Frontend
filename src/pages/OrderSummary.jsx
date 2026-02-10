@@ -103,6 +103,20 @@ const formatMoney = (value) => {
   return num.toFixed(2);
 };
 
+const toAcceptedByFromAssignedStaff = (assignedStaff) => {
+  if (!assignedStaff || !assignedStaff.id) return null;
+  return {
+    employeeId: assignedStaff.id,
+    employeeName: assignedStaff.name || null,
+    employeeRole: assignedStaff.role || null,
+    disability: {
+      hasDisability: Boolean(assignedStaff.disability),
+      type: assignedStaff.disability || null,
+    },
+    acceptedAt: assignedStaff.acceptedAt || null,
+  };
+};
+
 export default function OrderSummary() {
   const navigate = useNavigate();
   const [order, setOrder] = useState(null);
@@ -228,6 +242,37 @@ export default function OrderSummary() {
       }
     };
 
+    const handleOrderAccepted = (payload) => {
+      if (!payload) return;
+      const acceptedOrderId =
+        payload.orderId || payload.order?._id || payload.order?.id;
+      if (String(acceptedOrderId || "") !== String(orderId || "")) return;
+
+      // Prefer full order payload when available, else patch local order state.
+      if (payload.order && typeof payload.order === "object") {
+        setOrder({
+          ...payload.order,
+          assignedStaff:
+            payload.assignedStaff || payload.order.assignedStaff || null,
+        });
+        return;
+      }
+
+      if (payload.assignedStaff) {
+        setOrder((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            status: payload.status || prev.status,
+            assignedStaff: payload.assignedStaff,
+            acceptedBy:
+              toAcceptedByFromAssignedStaff(payload.assignedStaff) ||
+              prev.acceptedBy,
+          };
+        });
+      }
+    };
+
     // Create socket connection for order updates (only when needed)
     let orderSocket = null;
     try {
@@ -274,6 +319,7 @@ export default function OrderSummary() {
       });
 
       orderSocket.on("orderUpdated", handleOrderUpdated);
+      orderSocket.on("ORDER_ACCEPTED", handleOrderAccepted);
     } catch (err) {
       console.warn("[OrderSummary] Failed to create socket connection:", err);
     }
@@ -282,6 +328,7 @@ export default function OrderSummary() {
     return () => {
       if (orderSocket) {
         orderSocket.off("orderUpdated", handleOrderUpdated);
+        orderSocket.off("ORDER_ACCEPTED", handleOrderAccepted);
         orderSocket.off("connect");
         orderSocket.off("connect_error");
         orderSocket.off("disconnect");
@@ -305,6 +352,12 @@ export default function OrderSummary() {
   const tableName = order.table?.name;
   const serviceValue = isTakeaway ? t("takeawayLabel") : t("dineInLabel");
   const invoiceId = buildInvoiceId(order);
+  const acceptedStaffName =
+    order.acceptedBy?.employeeName || order.assignedStaff?.name;
+  const acceptedStaffRole =
+    order.assignedStaff?.role || order.acceptedBy?.employeeRole;
+  const disabilitySupport =
+    order.acceptedBy?.disability?.type || order.assignedStaff?.disability;
 
   const handlePrintInvoice = () => {
     if (!invoiceRef.current || printing) return;
@@ -590,14 +643,19 @@ export default function OrderSummary() {
               <p className="text-lg text-center font-medium text-gray-700">
                 {statusMessages[order.status] || statusMessages.Pending}
               </p>
-              {order.acceptedBy?.employeeName && (
+              {acceptedStaffName && (
                 <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg text-center">
                   <p className="text-green-800 font-medium">
-                    Your order has been accepted by {order.acceptedBy.employeeName}
+                    Your order has been accepted by {acceptedStaffName}
                   </p>
-                  {order.acceptedBy.disability?.hasDisability && order.acceptedBy.disability?.type && (
+                  {acceptedStaffRole && (
+                    <p className="text-sm text-gray-700 mt-1">
+                      Role: {acceptedStaffRole}
+                    </p>
+                  )}
+                  {disabilitySupport && (
                     <p className="text-sm text-gray-600 mt-1">
-                      Your server has indicated: {order.acceptedBy.disability.type}
+                      Your server has indicated: {disabilitySupport}
                     </p>
                   )}
                 </div>

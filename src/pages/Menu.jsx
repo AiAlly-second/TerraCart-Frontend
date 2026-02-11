@@ -77,6 +77,25 @@ const formatMoney = (value) => {
 const getAssignedStaffFromOrder = (order) => {
   if (!order) return null;
 
+  const explicitDisplayType = order.assignmentDisplayType;
+  const role =
+    order.assignedStaff?.role || order.acceptedBy?.employeeRole || null;
+  const assignmentDisplayType =
+    explicitDisplayType === "TEAM" || explicitDisplayType === "INDIVIDUAL"
+      ? explicitDisplayType
+      : String(role || "").toUpperCase() === "ADMIN"
+        ? "TEAM"
+        : "INDIVIDUAL";
+
+  if (assignmentDisplayType === "TEAM") {
+    return {
+      displayType: "TEAM",
+      name: null,
+      role: null,
+      disability: null,
+    };
+  }
+
   const acceptedBy = order.acceptedBy || null;
   const assignedStaff = order.assignedStaff || null;
   const name = acceptedBy?.employeeName || assignedStaff?.name || null;
@@ -84,6 +103,7 @@ const getAssignedStaffFromOrder = (order) => {
   if (!name) return null;
 
   return {
+    displayType: "INDIVIDUAL",
     name,
     role: assignedStaff?.role || acceptedBy?.employeeRole || null,
     disability:
@@ -4479,7 +4499,13 @@ export default function MenuPage() {
       }
 
       if (payload.order && typeof payload.order === "object") {
-        setCurrentOrderDetail(payload.order);
+        setCurrentOrderDetail({
+          ...payload.order,
+          assignmentDisplayType:
+            payload.assignmentDisplayType ||
+            payload.order.assignmentDisplayType ||
+            null,
+        });
         if (payload.order.cartId) {
           joinCartRoom(payload.order.cartId);
         }
@@ -4491,6 +4517,8 @@ export default function MenuPage() {
           const next = prev ? { ...prev } : { _id: acceptedOrderId };
           next.status = acceptedStatus;
           next.assignedStaff = payload.assignedStaff;
+          next.assignmentDisplayType =
+            payload.assignmentDisplayType || next.assignmentDisplayType || null;
           if (!next.acceptedBy) {
             next.acceptedBy = {
               employeeId: payload.assignedStaff.id || null,
@@ -5123,7 +5151,15 @@ export default function MenuPage() {
                       }
                     />
                   </div>
-                  {activeAssignedStaff?.name && (
+                  {activeAssignedStaff?.displayType === "TEAM" && (
+                    <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg text-center">
+                      <p className="text-green-800 font-medium">
+                        Your order has been confirmed and is being prepared by our team.
+                      </p>
+                    </div>
+                  )}
+                  {activeAssignedStaff?.displayType !== "TEAM" &&
+                    activeAssignedStaff?.name && (
                     <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg text-center">
                       <p className="text-green-800 font-medium">
                         Your order is being handled by {activeAssignedStaff.name}
@@ -5336,7 +5372,23 @@ export default function MenuPage() {
                       </span>
                     )}
                   </div>
-                  {previousAssignedStaff?.name && (
+                  {previousAssignedStaff?.displayType === "TEAM" && (
+                    <div
+                      style={{
+                        marginBottom: "8px",
+                        padding: "8px",
+                        borderRadius: "8px",
+                        background: "#ecfdf5",
+                        border: "1px solid #bbf7d0",
+                        fontSize: "0.8rem",
+                      }}
+                    >
+                      <strong>Handled by:</strong>{" "}
+                      Our team
+                    </div>
+                  )}
+                  {previousAssignedStaff?.displayType !== "TEAM" &&
+                    previousAssignedStaff?.name && (
                     <div
                       style={{
                         marginBottom: "8px",

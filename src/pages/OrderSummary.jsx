@@ -117,6 +117,14 @@ const toAcceptedByFromAssignedStaff = (assignedStaff) => {
   };
 };
 
+const resolveAssignmentDisplayType = (orderLike) => {
+  const explicit = orderLike?.assignmentDisplayType;
+  if (explicit === "TEAM" || explicit === "INDIVIDUAL") return explicit;
+
+  const role = orderLike?.assignedStaff?.role || orderLike?.acceptedBy?.employeeRole;
+  return String(role || "").toUpperCase() === "ADMIN" ? "TEAM" : "INDIVIDUAL";
+};
+
 export default function OrderSummary() {
   const navigate = useNavigate();
   const [order, setOrder] = useState(null);
@@ -254,6 +262,10 @@ export default function OrderSummary() {
           ...payload.order,
           assignedStaff:
             payload.assignedStaff || payload.order.assignedStaff || null,
+          assignmentDisplayType:
+            payload.assignmentDisplayType ||
+            payload.order.assignmentDisplayType ||
+            null,
         });
         return;
       }
@@ -265,6 +277,10 @@ export default function OrderSummary() {
             ...prev,
             status: payload.status || prev.status,
             assignedStaff: payload.assignedStaff,
+            assignmentDisplayType:
+              payload.assignmentDisplayType ||
+              prev.assignmentDisplayType ||
+              null,
             acceptedBy:
               toAcceptedByFromAssignedStaff(payload.assignedStaff) ||
               prev.acceptedBy,
@@ -352,6 +368,8 @@ export default function OrderSummary() {
   const tableName = order.table?.name;
   const serviceValue = isTakeaway ? t("takeawayLabel") : t("dineInLabel");
   const invoiceId = buildInvoiceId(order);
+  const assignmentDisplayType = resolveAssignmentDisplayType(order);
+  const showTeamAssignmentMessage = assignmentDisplayType === "TEAM";
   const acceptedStaffName =
     order.acceptedBy?.employeeName || order.assignedStaff?.name;
   const acceptedStaffRole =
@@ -643,7 +661,14 @@ export default function OrderSummary() {
               <p className="text-lg text-center font-medium text-gray-700">
                 {statusMessages[order.status] || statusMessages.Pending}
               </p>
-              {acceptedStaffName && (
+              {showTeamAssignmentMessage && (
+                <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg text-center">
+                  <p className="text-green-800 font-medium">
+                    Your order has been confirmed and is being prepared by our team.
+                  </p>
+                </div>
+              )}
+              {!showTeamAssignmentMessage && acceptedStaffName && (
                 <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg text-center">
                   <p className="text-green-800 font-medium">
                     Your order has been accepted by {acceptedStaffName}

@@ -2415,10 +2415,13 @@ export default function MenuPage() {
       // Get special instructions and cartId (orderType and customerLocation already retrieved above)
       const specialInstructions =
         localStorage.getItem("terra_specialInstructions") || null;
-      const selectedCartId =
-        localStorage.getItem("terra_selectedCartId") || cartId;
+      const isPickupDeliveryFlow =
+        orderType === "PICKUP" || orderType === "DELIVERY";
+      const selectedCartId = isPickupDeliveryFlow
+        ? localStorage.getItem("terra_selectedCartId")
+        : null;
       const effectiveCartId =
-        selectedCartId ||
+        (isPickupDeliveryFlow ? selectedCartId : cartId) ||
         (() => {
           try {
             const tableData = JSON.parse(
@@ -2507,7 +2510,9 @@ export default function MenuPage() {
         // Include cartId for takeaway/pickup/delivery orders
         cartId:
           serviceType === "TAKEAWAY" || orderType
-            ? selectedCartId || cartId
+            ? isPickupDeliveryFlow
+              ? selectedCartId || cartId
+              : cartId
             : undefined,
         // Include customer location for PICKUP/DELIVERY
         customerLocation: customerLocation,

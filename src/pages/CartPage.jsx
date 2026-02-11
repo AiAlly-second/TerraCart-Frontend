@@ -33,24 +33,45 @@ async function getCartId(searchParams) {
       return urlCartId;
     }
 
-    // Priority 2: Check localStorage for selected cart
+    // Priority 2/3 depends on order flow:
+    // - PICKUP/DELIVERY: selected cart should win
+    // - Regular TAKEAWAY: takeaway QR cart should win
+    const orderType = localStorage.getItem("terra_orderType");
+    const isPickupOrDelivery =
+      orderType === "PICKUP" || orderType === "DELIVERY";
     const selectedCartId = localStorage.getItem("terra_selectedCartId");
-    if (selectedCartId) {
-      console.log(
-        "[CartPage] getCartId - from terra_selectedCartId:",
-        selectedCartId,
-      );
-      return selectedCartId;
-    }
-
-    // Priority 2: Check localStorage for takeaway cart
     const qrCartId = localStorage.getItem("terra_takeaway_cartId");
-    if (qrCartId) {
-      console.log(
-        "[CartPage] getCartId - from terra_takeaway_cartId:",
-        qrCartId,
-      );
-      return qrCartId;
+
+    if (isPickupOrDelivery) {
+      if (selectedCartId) {
+        console.log(
+          "[CartPage] getCartId - from terra_selectedCartId:",
+          selectedCartId,
+        );
+        return selectedCartId;
+      }
+      if (qrCartId) {
+        console.log(
+          "[CartPage] getCartId - fallback terra_takeaway_cartId:",
+          qrCartId,
+        );
+        return qrCartId;
+      }
+    } else {
+      if (qrCartId) {
+        console.log(
+          "[CartPage] getCartId - from terra_takeaway_cartId:",
+          qrCartId,
+        );
+        return qrCartId;
+      }
+      if (selectedCartId) {
+        console.log(
+          "[CartPage] getCartId - fallback terra_selectedCartId:",
+          selectedCartId,
+        );
+        return selectedCartId;
+      }
     }
 
     // Priority 3: Check localStorage table data

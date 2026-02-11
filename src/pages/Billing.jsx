@@ -307,7 +307,7 @@ export default function Billing() {
           <div className="order-items">
             {items.length === 0 ? (
               <div className="order-item empty-state">
-                {t("noItems") || "No items on this order yet."}
+                {t("noItems") || "No items on thiis order yet."}
               </div>
             ) : (
               items.map((item, idx) => (

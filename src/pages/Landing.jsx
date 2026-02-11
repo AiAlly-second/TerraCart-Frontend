@@ -73,6 +73,24 @@ export default function Landing() {
 
   const handleLanguageSelect = (langCode) => {
     localStorage.setItem("language", langCode);
+    // Global takeaway link only: skip SecondPage and go directly to menu
+    const isGlobalTakeaway = localStorage.getItem("terra_takeaway_only") === "true";
+    if (isGlobalTakeaway) {
+      // IMPORTANT: prevent stale PICKUP/DELIVERY cart selection from overriding takeaway cartId
+      // Menu.jsx prioritizes terra_selectedCartId over terra_takeaway_cartId.
+      localStorage.removeItem("terra_selectedCartId");
+      localStorage.removeItem("terra_waitToken");
+      localStorage.setItem("terra_serviceType", "TAKEAWAY");
+      const takeawaySessionToken = `TAKEAWAY-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      localStorage.setItem("terra_takeaway_sessionToken", takeawaySessionToken);
+      localStorage.removeItem("terra_orderId_TAKEAWAY");
+      localStorage.removeItem("terra_cart_TAKEAWAY");
+      localStorage.removeItem("terra_orderStatus_TAKEAWAY");
+      localStorage.removeItem("terra_orderStatusUpdatedAt_TAKEAWAY");
+      localStorage.removeItem("terra_orderType");
+      navigate("/menu", { state: { serviceType: "TAKEAWAY" } });
+      return;
+    }
     navigate("/secondpage");
   };
 
@@ -124,7 +142,7 @@ export default function Landing() {
     } else {
       // If no takeaway flag in URL, clear any previous takeaway-only mode
       localStorage.removeItem("terra_takeaway_only");
-      
+
       // Only clear cart ID if it wasn't just set from the URL
       if (!cartParam) {
         localStorage.removeItem("terra_takeaway_cartId");

@@ -586,12 +586,21 @@ export default function CartPage() {
     }
   };
 
-  const toggleAddOn = (id) => {
-    const newSelected = selectedAddOns.includes(id)
-      ? selectedAddOns.filter((item) => item !== id)
-      : [...selectedAddOns, id];
-    setSelectedAddOns(newSelected);
-    saveAddonsForCart(newSelected);
+  const getAddonQuantity = (id) =>
+    selectedAddOns.filter((item) => item === id).length;
+
+  const addAddOn = (id) => {
+    const next = [...selectedAddOns, id];
+    setSelectedAddOns(next);
+    saveAddonsForCart(next);
+  };
+
+  const removeAddOn = (id) => {
+    const idx = selectedAddOns.indexOf(id);
+    if (idx === -1) return;
+    const next = selectedAddOns.filter((_, i) => i !== idx);
+    setSelectedAddOns(next);
+    saveAddonsForCart(next);
   };
 
   // Calculate items with details
@@ -648,6 +657,13 @@ export default function CartPage() {
               >
                 Go to Menu
               </span>
+              {selectedAddOns.length > 0 && (
+                <div style={{ marginTop: "10px", color: "#888", fontSize: 12 }}>
+                  Add-ons are extras and can only be ordered with at least one
+                  menu item. Please add an item from the menu to place the
+                  order.
+                </div>
+              )}
             </div>
           ) : (
             cartItemsParams.map((item) => (
@@ -690,110 +706,128 @@ export default function CartPage() {
         </div>
 
         {cartItemsParams.length > 0 && (
-          <>
-            <div className="cart-footer">
-              <div className="cart-footer-content">
-                <div className="total-row final-total-row">
-                  <span>Total</span>
-                  <span>₹{finalTotal.toFixed(2)}</span>
-                </div>
-                <div className="action-buttons">
-                  <button onClick={handleReset} className="reset-btn">
-                    Reset
-                  </button>
-                  <button onClick={handleConfirm} className="confirm-btn">
-                    Confirm Order
-                  </button>
-                </div>
+          <div className="cart-footer">
+            <div className="cart-footer-content">
+              <div className="total-row final-total-row">
+                <span>Total</span>
+                <span>₹{finalTotal.toFixed(2)}</span>
+              </div>
+              <div className="action-buttons">
+                <button onClick={handleReset} className="reset-btn">
+                  Reset
+                </button>
+                <button onClick={handleConfirm} className="confirm-btn">
+                  Confirm Order
+                </button>
               </div>
             </div>
-
-            <div className="addons-section">
-              <h3>Customizations & Extras</h3>
-              {addonsLoading ? (
-                <div
-                  style={{
-                    padding: "20px",
-                    textAlign: "center",
-                    color: "#666",
-                  }}
-                >
-                  Loading add-ons...
-                </div>
-              ) : addonList.length === 0 ? (
-                <div
-                  style={{
-                    padding: "20px",
-                    textAlign: "center",
-                    color: "#999",
-                    fontSize: "14px",
-                  }}
-                >
-                  No add-ons available
-                </div>
-              ) : (
-                <div className="addons-grid">
-                  {addonList.map((addon) => (
-                    <label
-                      key={addon.id}
-                      className={`addon-card ${selectedAddOns.includes(addon.id) ? "active" : ""}`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedAddOns.includes(addon.id)}
-                        onChange={() => toggleAddOn(addon.id)}
-                      />
-                      <div className="addon-info">
-                        <div className="addon-text">
-                          <span className="addon-name">{addon.name}</span>
-                          {addon.price > 0 && (
-                            <span className="addon-price">+₹{addon.price}</span>
-                          )}
-                        </div>
-                      </div>
-                      <div className="addon-check">
-                        {selectedAddOns.includes(addon.id) ? "✓" : "+"}
-                      </div>
-                    </label>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div
-              className="instructions-section"
-              style={{ marginTop: "20px", padding: "0 16px 20px" }}
-            >
-              <h3
-                style={{
-                  fontSize: "18px",
-                  marginBottom: "10px",
-                  color: "#333",
-                }}
-              >
-                Special Instructions / Extra Items
-              </h3>
-              <textarea
-                placeholder="Type any extra requirements or items here..."
-                value={specialInstructions}
-                onChange={(e) => {
-                  setSpecialInstructions(e.target.value);
-                  // localStorage.setItem("terra_specialInstructions", e.target.value); // Removed persistence
-                }}
-                style={{
-                  width: "100%",
-                  minHeight: "80px",
-                  padding: "12px",
-                  borderRadius: "12px",
-                  border: "1px solid #ddd",
-                  fontSize: "14px",
-                  resize: "vertical",
-                  fontFamily: "inherit",
-                }}
-              />
-            </div>
-          </>
+          </div>
         )}
+
+        {/* Keep add-ons visible even if cart is empty (user may want to add/remove add-ons first). */}
+        <div className="addons-section">
+          <h3>Customizations & Extras</h3>
+          {addonsLoading ? (
+            <div
+              style={{
+                padding: "20px",
+                textAlign: "center",
+                color: "#666",
+              }}
+            >
+              Loading add-ons...
+            </div>
+          ) : addonList.length === 0 ? (
+            <div
+              style={{
+                padding: "20px",
+                textAlign: "center",
+                color: "#999",
+                fontSize: "14px",
+              }}
+            >
+              No add-ons available
+            </div>
+          ) : (
+            <div className="addons-grid">
+              {addonList.map((addon) => {
+                const qty = getAddonQuantity(addon.id);
+                return (
+                  <div
+                    key={addon.id}
+                    className={`addon-card ${qty > 0 ? "active" : ""}`}
+                  >
+                    <div className="addon-info">
+                      <div className="addon-text">
+                        <span className="addon-name">{addon.name}</span>
+                        {addon.price > 0 && (
+                          <span className="addon-price">+₹{addon.price}</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="addon-qty-controls">
+                      <button
+                        type="button"
+                        className="addon-ctrl-btn"
+                        onClick={() => removeAddOn(addon.id)}
+                        disabled={qty === 0}
+                        aria-label={`Remove one ${addon.name}`}
+                      >
+                        {qty === 1 ? (
+                          <FiTrash2 size={16} />
+                        ) : (
+                          <FiMinus size={18} />
+                        )}
+                      </button>
+                      <span className="addon-qty-val">{qty}</span>
+                      <button
+                        type="button"
+                        className="addon-ctrl-btn"
+                        onClick={() => addAddOn(addon.id)}
+                        aria-label={`Add one ${addon.name}`}
+                      >
+                        <FiPlus size={18} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div
+          className="instructions-section"
+          style={{ marginTop: "20px", padding: "0 16px 20px" }}
+        >
+          <h3
+            style={{
+              fontSize: "18px",
+              marginBottom: "10px",
+              color: "#333",
+            }}
+          >
+            Special Instructions / Extra Items
+          </h3>
+          <textarea
+            placeholder="Type any extra requirements or items here..."
+            value={specialInstructions}
+            onChange={(e) => {
+              setSpecialInstructions(e.target.value);
+              // localStorage.setItem("terra_specialInstructions", e.target.value); // Removed persistence
+            }}
+            style={{
+              width: "100%",
+              minHeight: "80px",
+              padding: "12px",
+              borderRadius: "12px",
+              border: "1px solid #ddd",
+              fontSize: "14px",
+              resize: "vertical",
+              fontFamily: "inherit",
+            }}
+          />
+        </div>
       </div>
       <ProcessOverlay
         open={processOpen}

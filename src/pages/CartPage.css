@@ -255,16 +255,9 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  cursor: pointer;
   transition: all 0.2s ease;
   position: relative;
   overflow: hidden;
-}
-
-.addon-card input {
-  position: absolute;
-  opacity: 0;
-  cursor: pointer;
 }
 
 .addon-card.active {
@@ -298,6 +291,44 @@
   font-size: 0.85rem;
   color: #fc8019;
   font-weight: 700;
+}
+
+.addon-qty-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.addon-ctrl-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid #e2c1ac;
+  background: #fff;
+  color: #fc8019;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.addon-ctrl-btn:hover:not(:disabled) {
+  background: #fffaf5;
+  border-color: #fc8019;
+}
+
+.addon-ctrl-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.addon-qty-val {
+  min-width: 24px;
+  text-align: center;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #333;
 }
 
 .addon-check {
@@ -358,4 +389,18 @@
 .cart-page.accessibility-mode .active .addon-check {
   background: #00bfff;
   color: black;
+}
+
+.cart-page.accessibility-mode .addon-ctrl-btn {
+  border-color: #444;
+  color: #00bfff;
+}
+
+.cart-page.accessibility-mode .addon-ctrl-btn:hover:not(:disabled) {
+  background: #1a1a1a;
+  border-color: #00bfff;
+}
+
+.cart-page.accessibility-mode .addon-qty-val {
+  color: white;
 }

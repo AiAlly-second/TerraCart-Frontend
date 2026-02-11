@@ -5226,8 +5226,10 @@ export default function MenuPage() {
                       return null;
                     })()}
 
-                    {/* Row 1, Col 2: View Invoice Button */}
+                    {/* Row 1, Col 2: View Invoice Button - show from Order Placed (Pending/Confirmed) through Paid */}
                     {[
+                      "Pending",
+                      "Placed",
                       "Confirmed",
                       "Preparing",
                       "Ready",

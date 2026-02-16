@@ -11,7 +11,6 @@ import { HiSpeakerWave } from "react-icons/hi2";
 import { motion } from "framer-motion";
 import "./MenuPage.css";
 import { buildOrderPayload } from "../utils/orderUtils";
-import { addOnList } from "../data/addons";
 import ProcessOverlay from "../components/ProcessOverlay";
 import OrderStatus from "../components/OrderStatus";
 import { io } from "socket.io-client";
@@ -60,6 +59,7 @@ const CANCEL_ALLOWED_STATUSES = [
   "Completed",
 ];
 const RETURN_ALLOWED_STATUSES = ["Paid"];
+const TERMINAL_STATUSES_TO_PRESERVE = ["Paid", "Cancelled", "Returned"];
 
 const paiseToRupees = (value) => {
   if (value === undefined || value === null) return 0;
@@ -72,6 +72,12 @@ const formatMoney = (value) => {
   const num = Number(value);
   if (Number.isNaN(num)) return "0.00";
   return num.toFixed(2);
+};
+const sanitizeAddonName = (value) => {
+  const normalized = String(value || "")
+    .replace(/^\(\s*\+\s*\)\s*/u, "")
+    .trim();
+  return normalized || "Add-on";
 };
 
 const getAssignedStaffFromOrder = (order) => {
@@ -152,13 +158,14 @@ const aggregateOrderItems = (order) => {
   // Process Add-ons
   const addons = order.selectedAddons || [];
   addons.forEach((addon) => {
-    const name = `(+) ${addon.name}`;
+    const addonName = sanitizeAddonName(addon.name);
+    const addonKey = `addon:${addon.addonId || addon._id || addon.id || `${addonName}-${addon.price || 0}`}`;
     const quantity = 1;
     const unitPrice = Number(addon.price) || 0; // Addons are in Rupees
 
-    if (!map.has(name)) {
-      map.set(name, {
-        name,
+    if (!map.has(addonKey)) {
+      map.set(addonKey, {
+        name: addonName,
         unitPrice,
         activeQuantity: 0,
         returnedQuantity: 0,
@@ -167,7 +174,7 @@ const aggregateOrderItems = (order) => {
         returned: false,
       });
     }
-    const entry = map.get(name);
+    const entry = map.get(addonKey);
     entry.totalQuantity += quantity;
     entry.activeQuantity += quantity;
     entry.amount += unitPrice * quantity;
@@ -281,6 +288,7 @@ const TranslatedItem = ({ item, onAdd, onRemove, count, lang }) => {
   const [aiTranslation] = useAITranslation(item.name || "");
   const translatedName = staticTranslation || aiTranslation;
   const isAvailable = item.isAvailable !== false;
+  const isSpecial = item?.isFeatured === true;
 
   return (
     <motion.div
@@ -296,6 +304,11 @@ const TranslatedItem = ({ item, onAdd, onRemove, count, lang }) => {
           alt={item?.name || "Menu item"}
           className="item-image"
         />
+        {isSpecial && (
+          <span className="special-corner-badge" aria-label="Special item">
+            Special
+          </span>
+        )}
       </div>
 
       {/* Name and Price in Middle */}
@@ -493,12 +506,15 @@ export default function MenuPage() {
     const saved = localStorage.getItem("terra_cart");
     return saved ? JSON.parse(saved) : {};
   });
+  const cartRef = useRef(cart);
 
   useEffect(() => {
     localStorage.setItem("terra_cart", JSON.stringify(cart));
+    cartRef.current = cart;
   }, [cart]);
 
   const [recording, setRecording] = useState(false);
+  const [blindListening, setBlindListening] = useState(false);
   const [orderText, setOrderText] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
   const [reordering, setReordering] = useState(false);
@@ -557,6 +573,7 @@ export default function MenuPage() {
   }, [flatMenuItems, searchQuery]);
 
   const recognitionRef = useRef(null);
+  const blindRecognitionRef = useRef(null);
   const invoiceRef = useRef(null);
   const [activeOrderId, setActiveOrderId] = useState(() => {
     // Check service type specific order ID ONLY - never mix TAKEAWAY and DINE_IN orders
@@ -580,7 +597,8 @@ export default function MenuPage() {
       serviceType === "TAKEAWAY"
         ? localStorage.getItem("terra_orderStatus_TAKEAWAY") ||
           localStorage.getItem("terra_orderStatus")
-        : localStorage.getItem("terra_orderStatus");
+        : localStorage.getItem("terra_orderStatus_DINE_IN") ||
+          localStorage.getItem("terra_orderStatus");
     return stored || null;
   });
   const [orderStatusUpdatedAt, setOrderStatusUpdatedAt] = useState(() => {
@@ -590,7 +608,8 @@ export default function MenuPage() {
       serviceType === "TAKEAWAY"
         ? localStorage.getItem("terra_orderStatusUpdatedAt_TAKEAWAY") ||
           localStorage.getItem("terra_orderStatusUpdatedAt")
-        : localStorage.getItem("terra_orderStatusUpdatedAt");
+        : localStorage.getItem("terra_orderStatusUpdatedAt_DINE_IN") ||
+          localStorage.getItem("terra_orderStatusUpdatedAt");
     return stored || null;
   });
 
@@ -944,6 +963,11 @@ export default function MenuPage() {
     () => getAssignedStaffFromOrder(previousOrderDetail),
     [previousOrderDetail],
   );
+  const takeawayTokenForDisplay = useMemo(() => {
+    const token =
+      currentOrderDetail?.takeawayToken ?? previousOrderDetail?.takeawayToken;
+    return token !== undefined && token !== null && token !== "" ? token : null;
+  }, [currentOrderDetail, previousOrderDetail]);
 
   const menuHeading = t("manualEntry", "Menu");
   const smartServe = t("smartServe", "Smart Serve");
@@ -2110,7 +2134,7 @@ export default function MenuPage() {
 
   // REPLACE the whole handleContinue with this
   const handleContinue = async () => {
-    if (Object.keys(cart).length === 0) {
+    if (Object.keys(cartRef.current || {}).length === 0) {
       setProcessOpen(false); // Ensure overlay is closed if validation fails
       return alert(cartEmptyText);
     }
@@ -2428,10 +2452,7 @@ export default function MenuPage() {
       const globalAddons = JSON.parse(
         localStorage.getItem("terra_global_addons") || "[]",
       );
-      const addonLookupList =
-        Array.isArray(globalAddons) && globalAddons.length > 0
-          ? globalAddons
-          : addOnList;
+      const addonLookupList = Array.isArray(globalAddons) ? globalAddons : [];
 
       const resolvedAddons = savedAddOnsIDs
         .map((id) => {
@@ -2439,14 +2460,14 @@ export default function MenuPage() {
           return meta
             ? {
                 addonId: id,
-                name: meta.name,
+                name: sanitizeAddonName(meta.name),
                 price: meta.price,
               }
             : null;
         })
         .filter(Boolean);
 
-      const orderPayload = buildOrderPayload(cart, {
+      const orderPayload = buildOrderPayload(cartRef.current, {
         serviceType: orderType
           ? orderType === "PICKUP"
             ? "PICKUP"
@@ -3000,9 +3021,8 @@ export default function MenuPage() {
 
       recognition.continuous = false;
       recognition.interimResults = false;
-      const language = localStorage.getItem("language") || "en";
-      recognition.lang =
-        language === "en" ? "en-US" : language === "hi" ? "hi-IN" : "en-US";
+      recognition.maxAlternatives = 3;
+      recognition.lang = getVoiceRecognitionLang();
 
       recognition.onstart = () => {
         setRecording(true);
@@ -3010,43 +3030,22 @@ export default function MenuPage() {
         console.log("🎤 Voice recognition started");
       };
 
-      recognition.onresult = (event) => {
+      recognition.onresult = async (event) => {
         const transcript = event.results[0][0].transcript;
         console.log("📝 Transcribed:", transcript);
         setOrderText(transcript);
         setRecording(false);
 
         setIsProcessing(true);
-        if (!Array.isArray(flatMenuItems) || flatMenuItems.length === 0) {
-          console.warn("⚠️ Menu items not loaded yet, cannot add items to cart");
-          alert("Menu is still loading. Please wait a moment and try again.");
-          setIsProcessing(false);
-          return;
-        }
-
-        const { addedItems, notFound } = processVoiceOrder(transcript);
-        const addedCount = addedItems.length;
-
-        const formattedOrder = addedItems
-          .map(({ name, qty }) => `${qty}x ${name}`)
-          .join(", ");
-        if (formattedOrder) setOrderText(formattedOrder);
-
-        if (addedCount > 0) {
-          console.log(`✅ Voice order: added ${addedCount} item(s) to cart`);
-          if (notFound.length > 0) {
-            alert(
-              `✅ Added ${addedCount} item(s) to cart.\n⚠️ Not found in menu: ${notFound.join(", ")}`,
-            );
+        try {
+          await executeVoiceAction(transcript, { speakFeedback: false });
+        } catch (err) {
+          if (import.meta.env.DEV) {
+            console.error("[Menu] Voice action execution error:", err);
           }
-        } else if (addedItems.length === 0 && notFound.length > 0) {
-          alert(
-            `Could not find in menu: ${notFound.join(", ")}. Try saying item names as shown in the menu.`,
-          );
-        } else if (!transcript.trim()) {
-          setOrderText("");
+        } finally {
+          setIsProcessing(false);
         }
-        setIsProcessing(false);
       };
 
       recognition.onerror = (event) => {
@@ -3083,6 +3082,153 @@ export default function MenuPage() {
       setRecording(false);
     }
   };
+
+  const stopBlindListening = ({ silent = false } = {}) => {
+    if (blindRecognitionRef.current) {
+      try {
+        blindRecognitionRef.current.onresult = null;
+        blindRecognitionRef.current.onerror = null;
+        blindRecognitionRef.current.onend = null;
+        blindRecognitionRef.current.stop();
+      } catch (err) {
+        if (import.meta.env.DEV) {
+          console.warn("[Menu] Failed to stop blind recognition:", err);
+        }
+      }
+      blindRecognitionRef.current = null;
+    }
+    setBlindListening(false);
+    if (!silent) {
+      speakBlindFeedback("Blind assistant stopped.");
+    }
+  };
+
+  const handleBlindAssistantTap = async () => {
+    if (blindListening) {
+      stopBlindListening();
+      return;
+    }
+
+    if (
+      !("webkitSpeechRecognition" in window) &&
+      !("SpeechRecognition" in window)
+    ) {
+      const message =
+        "Your browser doesn't support voice input. Please use the menu buttons to order.";
+      alert(message);
+      speakBlindFeedback(message);
+      return;
+    }
+
+    try {
+      // Prevent overlap with the regular mic flow.
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+        recognitionRef.current = null;
+        setRecording(false);
+      }
+
+      const SpeechRecognition =
+        window.SpeechRecognition || window.webkitSpeechRecognition;
+      const recognition = new SpeechRecognition();
+      blindRecognitionRef.current = recognition;
+
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 3;
+      recognition.lang = getVoiceRecognitionLang();
+
+      recognition.onstart = () => {
+        setBlindListening(true);
+        setIsProcessing(true);
+      };
+
+      recognition.onresult = async (event) => {
+        const transcript = event.results?.[0]?.[0]?.transcript || "";
+        const cleanTranscript = transcript.trim();
+        if (!cleanTranscript) {
+          speakBlindFeedback("I did not hear anything. Please try again.");
+          return;
+        }
+        setOrderText(cleanTranscript);
+        const result = await executeVoiceAction(cleanTranscript, {
+          speakFeedback: true,
+          allowStop: true,
+        });
+        if (result?.type === "stop") {
+          stopBlindListening({ silent: true });
+        }
+      };
+
+      recognition.onerror = (event) => {
+        setBlindListening(false);
+        setIsProcessing(false);
+        blindRecognitionRef.current = null;
+        if (event.error === "not-allowed") {
+          const msg = "Microphone permission denied. Please allow microphone access.";
+          alert(msg);
+          speakBlindFeedback(msg);
+        } else if (event.error === "no-speech") {
+          speakBlindFeedback("No speech detected. Tap the blind assistant button and try again.");
+        } else if (event.error !== "aborted") {
+          const msg = "Voice recognition error. Please try again.";
+          alert(msg);
+          speakBlindFeedback(msg);
+        }
+      };
+
+      recognition.onend = () => {
+        setBlindListening(false);
+        setIsProcessing(false);
+        blindRecognitionRef.current = null;
+      };
+
+      speakBlindFeedback(
+        "Blind assistant is active. Speak now. You can say add two vada pav, place order, show cart, or clear cart.",
+        () => {
+          try {
+            recognition.start();
+          } catch (err) {
+            if (import.meta.env.DEV) {
+              console.error("[Menu] Failed to start blind recognition:", err);
+            }
+            setBlindListening(false);
+            setIsProcessing(false);
+            blindRecognitionRef.current = null;
+            alert("Failed to start blind assistant. Please try again.");
+          }
+        },
+      );
+    } catch (err) {
+      if (import.meta.env.DEV) {
+        console.error("[Menu] Blind assistant setup error:", err);
+      }
+      setBlindListening(false);
+      setIsProcessing(false);
+      blindRecognitionRef.current = null;
+      alert("Unable to start blind assistant. Please try again.");
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch {}
+        recognitionRef.current = null;
+      }
+      if (blindRecognitionRef.current) {
+        try {
+          blindRecognitionRef.current.stop();
+        } catch {}
+        blindRecognitionRef.current = null;
+      }
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
 
   const handleResetCart = () => {
     setCart({});
@@ -3521,16 +3667,26 @@ export default function MenuPage() {
           persistPreviousOrderDetail(updatedOrder);
         }
 
-        setOrderStatus(null);
-        setOrderStatusUpdatedAt(null);
+        setOrderStatus("Cancelled");
+        setOrderStatusUpdatedAt(updatedAt);
+        setCurrentOrderDetail(
+          updatedOrder || {
+            status: "Cancelled",
+            cancellationReason: reasonText,
+            updatedAt,
+            serviceType,
+          },
+        );
         setActiveOrderId(null);
 
         // Clear order data based on service type
         if (serviceType === "TAKEAWAY") {
           localStorage.removeItem("terra_orderId_TAKEAWAY");
-          localStorage.removeItem("terra_orderStatus_TAKEAWAY");
-          localStorage.removeItem("terra_orderStatusUpdatedAt_TAKEAWAY");
+          localStorage.setItem("terra_orderStatus_TAKEAWAY", "Cancelled");
+          localStorage.setItem("terra_orderStatusUpdatedAt_TAKEAWAY", updatedAt);
           localStorage.removeItem("terra_cart_TAKEAWAY");
+          localStorage.setItem("terra_orderStatus", "Cancelled");
+          localStorage.setItem("terra_orderStatusUpdatedAt", updatedAt);
 
           // CRITICAL: Clear takeaway customer data when order is cancelled
           localStorage.removeItem("terra_takeaway_customerName");
@@ -3541,15 +3697,16 @@ export default function MenuPage() {
           );
         } else {
           localStorage.removeItem("terra_orderId");
-          localStorage.removeItem("terra_orderStatus");
-          localStorage.removeItem("terra_orderStatusUpdatedAt");
+          localStorage.removeItem("terra_orderId_DINE_IN");
+          localStorage.setItem("terra_orderStatus", "Cancelled");
+          localStorage.setItem("terra_orderStatusUpdatedAt", updatedAt);
+          localStorage.setItem("terra_orderStatus_DINE_IN", "Cancelled");
+          localStorage.setItem("terra_orderStatusUpdatedAt_DINE_IN", updatedAt);
           localStorage.removeItem("terra_cart");
         }
 
-        // Also clear general order data
+        // Also clear general order id data
         localStorage.removeItem("terra_orderId");
-        localStorage.removeItem("terra_orderStatus");
-        localStorage.removeItem("terra_orderStatusUpdatedAt");
         localStorage.removeItem("terra_cart");
 
         // CRITICAL: If this is a takeaway order, clear waitlist state
@@ -3614,20 +3771,30 @@ export default function MenuPage() {
 
         setOrderStatus("Returned");
         setOrderStatusUpdatedAt(updatedAt);
+        setCurrentOrderDetail(
+          updatedOrder || {
+            status: "Returned",
+            cancellationReason: reasonText,
+            updatedAt,
+            serviceType,
+          },
+        );
         setActiveOrderId(null);
 
         // Clear order IDs based on service type
         if (serviceType === "TAKEAWAY") {
           localStorage.removeItem("terra_orderId_TAKEAWAY");
-          localStorage.removeItem("terra_orderStatus_TAKEAWAY");
-          localStorage.removeItem("terra_orderStatusUpdatedAt_TAKEAWAY");
+          localStorage.setItem("terra_orderStatus_TAKEAWAY", "Returned");
+          localStorage.setItem("terra_orderStatusUpdatedAt_TAKEAWAY", updatedAt);
+          localStorage.setItem("terra_orderStatus", "Returned");
+          localStorage.setItem("terra_orderStatusUpdatedAt", updatedAt);
         } else {
           localStorage.removeItem("terra_orderId");
           localStorage.removeItem("terra_orderId_DINE_IN");
-          localStorage.removeItem("terra_orderStatus");
-          localStorage.removeItem("terra_orderStatus_DINE_IN");
-          localStorage.removeItem("terra_orderStatusUpdatedAt");
-          localStorage.removeItem("terra_orderStatusUpdatedAt_DINE_IN");
+          localStorage.setItem("terra_orderStatus", "Returned");
+          localStorage.setItem("terra_orderStatusUpdatedAt", updatedAt);
+          localStorage.setItem("terra_orderStatus_DINE_IN", "Returned");
+          localStorage.setItem("terra_orderStatusUpdatedAt_DINE_IN", updatedAt);
         }
 
         localStorage.removeItem("terra_cart");
@@ -3986,13 +4153,69 @@ export default function MenuPage() {
     setShowInvoiceModal(true);
   }, [previousOrderDetail]);
 
+  const getVoiceRecognitionLang = () => {
+    const language = localStorage.getItem("language") || "en";
+    if (language === "hi") return "hi-IN";
+    if (language === "mr") return "mr-IN";
+    if (language === "gu") return "gu-IN";
+    return "en-IN";
+  };
+
+  const speakBlindFeedback = (text, onEnd) => {
+    if (!text || typeof window === "undefined" || !("speechSynthesis" in window)) {
+      if (typeof onEnd === "function") onEnd();
+      return;
+    }
+    try {
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = getVoiceRecognitionLang();
+      utterance.rate = 0.95;
+      utterance.pitch = 1;
+      utterance.onend = () => {
+        if (typeof onEnd === "function") onEnd();
+      };
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(utterance);
+    } catch (err) {
+      if (import.meta.env.DEV) {
+        console.warn("[Menu] Failed to speak blind feedback:", err);
+      }
+      if (typeof onEnd === "function") onEnd();
+    }
+  };
+
+  const normalizeVoiceText = (value) =>
+    (value || "")
+      .toLowerCase()
+      .replace(/[.,!?]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
   // Word-to-number for voice fallback parsing (e.g. "two chai" -> 2)
   const wordToNumber = (word) => {
     const map = {
-      one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
-      ek: 1, do: 2, teen: 3, char: 4, paanch: 5, che: 6, saat: 7, aath: 8, nau: 9, das: 10,
+      one: 1,
+      two: 2,
+      three: 3,
+      four: 4,
+      five: 5,
+      six: 6,
+      seven: 7,
+      eight: 8,
+      nine: 9,
+      ten: 10,
+      ek: 1,
+      do: 2,
+      teen: 3,
+      char: 4,
+      paanch: 5,
+      che: 6,
+      saat: 7,
+      aath: 8,
+      nau: 9,
+      das: 10,
     };
-    const w = (word || "").toLowerCase().trim();
+    const w = normalizeVoiceText(word);
     if (map[w] !== undefined) return map[w];
     const n = parseInt(w, 10);
     return Number.isNaN(n) ? 0 : n;
@@ -4001,27 +4224,40 @@ export default function MenuPage() {
   const processVoiceOrder = (text) => {
     const result = { addedItems: [], notFound: [] };
     if (!text) return result;
-    const updatedCart = { ...cart };
-    const itemsToMatch = Array.isArray(flatMenuItems) && flatMenuItems.length > 0
-      ? flatMenuItems
-      : Object.values(menuCatalog).length > 0
-        ? Object.values(menuCatalog)
-        : fallbackMenuItems.map((item) => ({ ...item, isAvailable: true }));
+
+    const updatedCart = { ...(cartRef.current || {}) };
+    const itemsToMatch =
+      Array.isArray(flatMenuItems) && flatMenuItems.length > 0
+        ? flatMenuItems
+        : Object.values(menuCatalog).length > 0
+          ? Object.values(menuCatalog)
+          : fallbackMenuItems.map((item) => ({ ...item, isAvailable: true }));
 
     const entries = text
-      .split(/[,;]/)
+      .replace(/\b(and|aur|plus|with)\b/gi, ",")
+      .replace(/[;|]/g, ",")
+      .split(",")
       .map((entry) => entry.trim())
       .filter(Boolean);
 
+    const normalizeName = (value) =>
+      normalizeVoiceText(value).replace(/[^a-z0-9\s]/g, "");
+
     entries.forEach((entry) => {
       let qty = 1;
-      let itemName = entry;
-      const numericMatch = entry.match(/^(\d+)\s+(.+)$/);
+      let itemName = entry
+        .replace(
+          /^(add|order|please add|please|i want|give me|mujhe|mala|mane)\s+/i,
+          "",
+        )
+        .trim();
+
+      const numericMatch = itemName.match(/^(\d+)\s*(x|times)?\s+(.+)$/i);
       if (numericMatch) {
         qty = parseInt(numericMatch[1], 10) || 1;
-        itemName = numericMatch[2].trim();
+        itemName = numericMatch[3].trim();
       } else {
-        const wordNumMatch = entry.match(
+        const wordNumMatch = itemName.match(
           /^(one|two|three|four|five|six|seven|eight|nine|ten|ek|do|teen|char|paanch|che|saat|aath|nau|das)\s+(.+)$/i,
         );
         if (wordNumMatch) {
@@ -4029,29 +4265,141 @@ export default function MenuPage() {
           itemName = wordNumMatch[2].trim();
         }
       }
+
       if (!itemName) return;
 
+      const normalizedRequested = normalizeName(itemName);
       const matchedItem =
         itemsToMatch.find(
           (item) =>
-            item?.name && item.name.toLowerCase() === itemName.toLowerCase(),
+            item?.name && normalizeName(item.name) === normalizedRequested,
         ) ||
-        itemsToMatch.find(
-          (item) =>
-            item?.name &&
-            (item.name.toLowerCase().includes(itemName.toLowerCase()) ||
-              itemName.toLowerCase().includes(item.name.toLowerCase())),
-        );
+        itemsToMatch.find((item) => {
+          if (!item?.name) return false;
+          const normalizedItemName = normalizeName(item.name);
+          return (
+            normalizedItemName.includes(normalizedRequested) ||
+            normalizedRequested.includes(normalizedItemName)
+          );
+        });
+
       if (matchedItem && matchedItem.isAvailable !== false) {
-        updatedCart[matchedItem.name] =
-          (updatedCart[matchedItem.name] || 0) + qty;
+        updatedCart[matchedItem.name] = (updatedCart[matchedItem.name] || 0) + qty;
         result.addedItems.push({ name: matchedItem.name, qty });
       } else {
         result.notFound.push(itemName);
       }
     });
+
+    cartRef.current = updatedCart;
     setCart(updatedCart);
     return result;
+  };
+
+  const executeVoiceAction = async (transcript, { speakFeedback = false, allowStop = false } = {}) => {
+    const normalized = normalizeVoiceText(transcript);
+    if (!normalized) {
+      if (speakFeedback) {
+        speakBlindFeedback("I could not hear you clearly. Please try again.");
+      }
+      return { type: "empty" };
+    }
+
+    const contains = (keywords) => keywords.some((keyword) => normalized.includes(keyword));
+    const stopKeywords = ["stop", "assistant stop", "close assistant", "stop listening"];
+    const placeOrderKeywords = [
+      "confirm order",
+      "place order",
+      "order now",
+      "checkout",
+      "submit order",
+      "confirm my order",
+      "ऑर्डर कन्फर्म",
+      "ऑर्डर करो",
+      "ऑर्डर प्लेस",
+      "ऑર્ડર कન્ફર્મ",
+      "ઓર્ડર મૂકો",
+    ];
+    const cartKeywords = ["open cart", "show cart", "go to cart", "cart kholo", "कार्ट", "કાર્ટ"];
+    const clearCartKeywords = [
+      "clear cart",
+      "empty cart",
+      "reset cart",
+      "remove all",
+      "cart clear",
+      "कार्ट खाली",
+      "કાર્ટ ખાલી",
+    ];
+
+    if (allowStop && contains(stopKeywords)) {
+      if (speakFeedback) {
+        speakBlindFeedback("Blind assistant stopped.");
+      }
+      return { type: "stop" };
+    }
+
+    if (contains(clearCartKeywords)) {
+      handleResetCart();
+      setOrderText("");
+      if (speakFeedback) {
+        speakBlindFeedback("Cart has been cleared.");
+      } else {
+        alert("Cart cleared.");
+      }
+      return { type: "clear" };
+    }
+
+    if (contains(cartKeywords)) {
+      if (speakFeedback) {
+        speakBlindFeedback("Opening cart.");
+      }
+      navigate("/cart");
+      return { type: "cart" };
+    }
+
+    if (contains(placeOrderKeywords)) {
+      if (Object.keys(cartRef.current || {}).length === 0) {
+        if (speakFeedback) {
+          speakBlindFeedback(cartEmptyText || "Your cart is empty.");
+        } else {
+          alert(cartEmptyText);
+        }
+        return { type: "place-empty" };
+      }
+      if (speakFeedback) {
+        speakBlindFeedback("Placing your order now.");
+      }
+      await handleContinue();
+      return { type: "place" };
+    }
+
+    const { addedItems, notFound } = processVoiceOrder(transcript);
+    const addedCount = addedItems.length;
+    const formattedOrder = addedItems
+      .map(({ name, qty }) => `${qty}x ${name}`)
+      .join(", ");
+    if (formattedOrder) setOrderText(formattedOrder);
+
+    if (addedCount > 0) {
+      if (speakFeedback) {
+        speakBlindFeedback(
+          `Added ${addedCount} item${addedCount > 1 ? "s" : ""} to your cart.`,
+        );
+      } else if (notFound.length > 0) {
+        alert(
+          `✅ Added ${addedCount} item(s) to cart.\n⚠️ Not found in menu: ${notFound.join(", ")}`,
+        );
+      }
+    } else if (notFound.length > 0) {
+      const message = `Could not find in menu: ${notFound.join(", ")}. Try saying item names as shown in the menu.`;
+      if (speakFeedback) {
+        speakBlindFeedback(message);
+      } else {
+        alert(message);
+      }
+    }
+
+    return { type: "items", addedItems, notFound };
   };
 
   const speakOrderSummary = () => {
@@ -4085,8 +4433,24 @@ export default function MenuPage() {
     }
 
     if (!orderId) {
-      setOrderStatus(null);
-      setOrderStatusUpdatedAt(null);
+      const storedStatus = isTakeaway
+        ? localStorage.getItem("terra_orderStatus_TAKEAWAY") ||
+          localStorage.getItem("terra_orderStatus")
+        : localStorage.getItem("terra_orderStatus_DINE_IN") ||
+          localStorage.getItem("terra_orderStatus");
+      const storedUpdatedAt = isTakeaway
+        ? localStorage.getItem("terra_orderStatusUpdatedAt_TAKEAWAY") ||
+          localStorage.getItem("terra_orderStatusUpdatedAt")
+        : localStorage.getItem("terra_orderStatusUpdatedAt_DINE_IN") ||
+          localStorage.getItem("terra_orderStatusUpdatedAt");
+
+      if (TERMINAL_STATUSES_TO_PRESERVE.includes(storedStatus || "")) {
+        setOrderStatus(storedStatus);
+        setOrderStatusUpdatedAt(storedUpdatedAt || null);
+      } else {
+        setOrderStatus(null);
+        setOrderStatusUpdatedAt(null);
+      }
       setCurrentOrderDetail(null);
       return;
     }
@@ -4621,11 +4985,14 @@ export default function MenuPage() {
           !["Paid", "Cancelled", "Returned", "Completed"].includes(
             existingOrderStatus,
           ));
+      const shouldPreserveTerminalStatus = TERMINAL_STATUSES_TO_PRESERVE.includes(
+        existingOrderStatus || "",
+      );
 
       if (updatedTable.status === "AVAILABLE") {
         // Only clear order data if user doesn't have an active order
         // This prevents clearing current customer's order when admin makes table available
-        if (!hasActiveOrder) {
+        if (!hasActiveOrder && !shouldPreserveTerminalStatus) {
           console.log(
             "[Menu] Table became AVAILABLE via socket - clearing waitlist state and order data (user has no active order)",
           );
@@ -4652,6 +5019,10 @@ export default function MenuPage() {
           setOrderStatus(null);
           setCurrentOrderDetail(null);
           console.log("[Menu] Cleared all order data for new customer");
+        } else if (shouldPreserveTerminalStatus) {
+          console.log(
+            "[Menu] Table became AVAILABLE but preserving final customer order status",
+          );
         } else {
           console.log(
             "[Menu] Table became AVAILABLE but user has active order - preserving order data",
@@ -4894,16 +5265,14 @@ export default function MenuPage() {
                   )}
                 </div>
                 {/* Prominent takeaway token badge for better UX */}
-                {serviceType === "TAKEAWAY" &&
-                  previousOrderDetail?.takeawayToken && (
+                {serviceType === "TAKEAWAY" && takeawayTokenForDisplay && (
                     <span className="token-badge">
                       {t("token", "Token")}:{" "}
-                      <strong>{previousOrderDetail.takeawayToken}</strong>
+                      <strong>{takeawayTokenForDisplay}</strong>
                     </span>
                   )}
               </div>
 
-              {/* Large Tap to Order Button */}
               <button
                 type="button"
                 onClick={handleVoiceOrder}
@@ -5097,13 +5466,12 @@ export default function MenuPage() {
                 <div className="order-status-card">
                   <h4 className="order-summary-title">Order Status</h4>
                   {/* Show takeaway token for takeaway orders */}
-                  {serviceType === "TAKEAWAY" &&
-                    previousOrderDetail?.takeawayToken && (
+                  {serviceType === "TAKEAWAY" && takeawayTokenForDisplay && (
                       <div className="mb-3 p-2 bg-blue-50 border border-blue-200 rounded-lg">
                         <div className="text-sm font-semibold text-blue-700">
                           Your Token:{" "}
                           <span className="text-lg font-bold">
-                            {previousOrderDetail.takeawayToken}
+                            {takeawayTokenForDisplay}
                           </span>
                         </div>
                         <div className="text-xs text-blue-600 mt-1">
@@ -5115,6 +5483,10 @@ export default function MenuPage() {
                     <OrderStatus
                       status={orderStatus}
                       updatedAt={orderStatusUpdatedAt}
+                      reason={
+                        currentOrderDetail?.cancellationReason ||
+                        previousOrderDetail?.cancellationReason
+                      }
                       serviceType={serviceType}
                       tableLabel={
                         serviceType === "DINE_IN" && tableInfo?.number
@@ -5724,7 +6096,7 @@ export default function MenuPage() {
           onClick={() => setShowReasonModal(false)}
         >
           <div
-            className="invoice-modal"
+            className="invoice-modal reason-modal"
             style={{ maxWidth: "24rem", maxHeight: "auto", height: "auto" }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -5741,9 +6113,10 @@ export default function MenuPage() {
                 ✕
               </button>
             </div>
-            <div>
+            <div style={{ paddingTop: "0.25rem" }}>
               <p
                 style={{
+                  marginTop: 0,
                   marginBottom: "0.5rem",
                   fontSize: "0.9rem",
                   color: "#666",

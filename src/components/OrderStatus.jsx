@@ -73,6 +73,7 @@ export default function OrderStatus({
   updatedAt,
   serviceType = "DINE_IN",
   tableLabel,
+  reason,
 }) {
   const orderedSteps = getOrderedSteps(serviceType);
   const safeStatus = status ?? "Pending";
@@ -81,6 +82,7 @@ export default function OrderStatus({
     ? new Date(updatedAt).toLocaleTimeString()
     : null;
   const isTerminal = ["Cancelled", "Returned"].includes(safeStatus);
+  const safeReason = typeof reason === "string" ? reason.trim() : "";
 
   if (isTerminal) {
     return (
@@ -93,6 +95,9 @@ export default function OrderStatus({
               <span className="order-status-step-meta">
                 Updated {updatedLabel}
               </span>
+            )}
+            {safeReason && (
+              <span className="order-status-step-meta">Reason: {safeReason}</span>
             )}
           </div>
         </div>

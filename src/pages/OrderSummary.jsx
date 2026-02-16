@@ -22,19 +22,28 @@ const paiseToRupees = (paise) => {
   if (Number.isNaN(num)) return 0;
   return num / 100;
 };
+const sanitizeAddonName = (value) => {
+  const normalized = String(value || "")
+    .replace(/^\(\s*\+\s*\)\s*/u, "")
+    .trim();
+  return normalized || "Add-on";
+};
 
-const mergeKotLines = (kotLines = []) => {
+const mergeOrderItems = (order = null) => {
   const collapsed = {};
+  const kotLines = Array.isArray(order?.kotLines) ? order.kotLines : [];
   kotLines.forEach((kot) => {
     (kot?.items || []).forEach((item) => {
       if (!item) return;
       const key = item.name || "Item";
+      const itemPrice = paiseToRupees(item.price || 0);
       if (!collapsed[key]) {
         collapsed[key] = {
           name: key,
           quantity: 0,
           returnedQuantity: 0,
-          price: item.price || 0, // Price in paise
+          unitPrice: itemPrice,
+          amount: 0,
           returned: false,
         };
       }
@@ -43,47 +52,70 @@ const mergeKotLines = (kotLines = []) => {
         entry.returnedQuantity += Number(item.quantity) || 0;
         entry.returned = true;
       } else {
-        entry.quantity += Number(item.quantity) || 0;
+        const qty = Number(item.quantity) || 0;
+        entry.quantity += qty;
+        entry.amount += itemPrice * qty;
       }
-      if (!entry.price && item.price) {
-        entry.price = item.price;
+      if (!entry.unitPrice && itemPrice) {
+        entry.unitPrice = itemPrice;
       }
     });
   });
+
+  // Add-ons are stored in rupees and should appear in summary + invoice
+  const selectedAddons = Array.isArray(order?.selectedAddons)
+    ? order.selectedAddons
+    : [];
+  selectedAddons.forEach((addon) => {
+    if (!addon) return;
+    const addonName = sanitizeAddonName(addon.name);
+    const key = `addon:${addon.addonId || addon._id || addon.id || `${addonName}-${addon.price || 0}`}`;
+    const qty = Number(addon.quantity) || 1;
+    const addonPrice = Number(addon.price) || 0;
+    if (!collapsed[key]) {
+      collapsed[key] = {
+        name: addonName,
+        quantity: 0,
+        returnedQuantity: 0,
+        unitPrice: addonPrice,
+        amount: 0,
+        returned: false,
+      };
+    }
+    const entry = collapsed[key];
+    entry.quantity += qty;
+    entry.amount += addonPrice * qty;
+  });
+
   return Object.values(collapsed);
 };
 
 // Calculate totals from actual items, not from KOT totals (to avoid rounding errors)
 const calculateTotalsFromItems = (mergedItems) => {
-  // Calculate subtotal from non-returned items (price is in paise)
-  const subtotalInPaise = mergedItems.reduce((sum, item) => {
-    const priceInPaise = Number(item.price) || 0;
-    const quantity = Number(item.quantity) || 0;
-    return sum + priceInPaise * quantity;
+  // Calculate subtotal from non-returned items (amount is already in rupees)
+  const subtotal = mergedItems.reduce((sum, item) => {
+    const amount = Number(item.amount) || 0;
+    return sum + amount;
   }, 0);
 
-  // Convert to rupees and round to 2 decimal places
-  const subtotal = Number((subtotalInPaise / 100).toFixed(2));
+  const subtotalRounded = Number(subtotal.toFixed(2));
 
   // No GST calculation
   const gst = 0;
 
   // Total amount equals subtotal (no GST added)
-  const totalAmount = subtotal;
+  const totalAmount = subtotalRounded;
 
   return {
-    subtotal,
+    subtotal: subtotalRounded,
     gst,
     totalAmount,
   };
 };
 
-const sumTotals = (kotLines = []) => {
-  // Merge all items from all KOTs
-  const mergedItems = mergeKotLines(kotLines);
-
-  // Calculate totals from actual items
-  return calculateTotalsFromItems(mergedItems);
+const sumTotals = (order = null, mergedItems = null) => {
+  const items = Array.isArray(mergedItems) ? mergedItems : mergeOrderItems(order);
+  return calculateTotalsFromItems(items);
 };
 
 const buildInvoiceId = (order) => {
@@ -181,6 +213,32 @@ export default function OrderSummary() {
   useEffect(() => {
     if (!orderId) return;
 
+    const persistTerminalOrderStatus = (orderData) => {
+      if (!orderData?.status) return;
+
+      const terminalServiceType =
+        orderData.serviceType || localStorage.getItem("terra_serviceType") || "DINE_IN";
+      const terminalStatus = orderData.status;
+      const updatedAt = orderData.updatedAt || new Date().toISOString();
+
+      localStorage.setItem("terra_orderStatus", terminalStatus);
+      localStorage.setItem("terra_orderStatusUpdatedAt", updatedAt);
+
+      if (terminalServiceType === "TAKEAWAY") {
+        localStorage.setItem("terra_orderStatus_TAKEAWAY", terminalStatus);
+        localStorage.setItem("terra_orderStatusUpdatedAt_TAKEAWAY", updatedAt);
+        localStorage.removeItem("terra_orderId_TAKEAWAY");
+        localStorage.removeItem("terra_cart_TAKEAWAY");
+      } else {
+        localStorage.setItem("terra_orderStatus_DINE_IN", terminalStatus);
+        localStorage.setItem("terra_orderStatusUpdatedAt_DINE_IN", updatedAt);
+        localStorage.removeItem("terra_orderId_DINE_IN");
+      }
+
+      localStorage.removeItem("terra_orderId");
+      localStorage.removeItem("terra_cart");
+    };
+
     // Initial order fetch
     const fetchOrder = async () => {
       try {
@@ -200,21 +258,9 @@ export default function OrderSummary() {
         }
         setOrder(data);
 
-        // If cancelled or returned, clear storage and redirect
+        // Keep terminal statuses visible on customer frontend
         if (data.status === "Cancelled" || data.status === "Returned") {
-          // Clear generic keys
-          localStorage.removeItem("terra_orderId");
-          localStorage.removeItem("terra_cart");
-          // Clear service-type-specific keys
-          localStorage.removeItem("terra_orderId_TAKEAWAY");
-          localStorage.removeItem("terra_orderId_DINE_IN");
-          alert(
-            data.status === "Returned"
-              ? "Order has been returned."
-              : translations[language]?.orderCancelled || "Order cancelled"
-          );
-          navigate("/menu");
-          return null;
+          persistTerminalOrderStatus(data);
         }
         return data;
       } catch (err) {
@@ -234,18 +280,7 @@ export default function OrderSummary() {
           updatedOrder.status === "Cancelled" ||
           updatedOrder.status === "Returned"
         ) {
-          // Clear generic keys
-          localStorage.removeItem("terra_orderId");
-          localStorage.removeItem("terra_cart");
-          // Clear service-type-specific keys
-          localStorage.removeItem("terra_orderId_TAKEAWAY");
-          localStorage.removeItem("terra_orderId_DINE_IN");
-          alert(
-            updatedOrder.status === "Returned"
-              ? "Order has been returned."
-              : translations[language]?.orderCancelled || "Order cancelled"
-          );
-          navigate("/menu");
+          persistTerminalOrderStatus(updatedOrder);
         }
       }
     };
@@ -360,8 +395,8 @@ export default function OrderSummary() {
     );
   }
 
-  const combinedItems = mergeKotLines(order.kotLines);
-  const totals = sumTotals(order.kotLines);
+  const combinedItems = mergeOrderItems(order);
+  const totals = sumTotals(order, combinedItems);
   const totalQty = combinedItems.reduce((n, i) => n + i.quantity, 0);
   const isTakeaway = order.serviceType === "TAKEAWAY";
   const baseTableNumber = order.table?.number ?? order.tableNumber ?? "—";
@@ -376,6 +411,10 @@ export default function OrderSummary() {
     order.assignedStaff?.role || order.acceptedBy?.employeeRole;
   const disabilitySupport =
     order.acceptedBy?.disability?.type || order.assignedStaff?.disability;
+  const terminalReason =
+    typeof order.cancellationReason === "string"
+      ? order.cancellationReason.trim()
+      : "";
 
   const handlePrintInvoice = () => {
     if (!invoiceRef.current || printing) return;
@@ -657,10 +696,21 @@ export default function OrderSummary() {
 
             {/* Order Status */}
             <div className="mb-6">
-              <OrderStatus status={order.status} serviceType={order.serviceType} className="mb-2" />
+              <OrderStatus
+                status={order.status}
+                serviceType={order.serviceType}
+                reason={terminalReason}
+                className="mb-2"
+              />
               <p className="text-lg text-center font-medium text-gray-700">
                 {statusMessages[order.status] || statusMessages.Pending}
               </p>
+              {(order.status === "Cancelled" || order.status === "Returned") &&
+                terminalReason && (
+                  <p className="text-sm text-center text-gray-600 mt-1">
+                    Reason: {terminalReason}
+                  </p>
+                )}
               {showTeamAssignmentMessage && (
                 <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg text-center">
                   <p className="text-green-800 font-medium">
@@ -689,8 +739,9 @@ export default function OrderSummary() {
 
             <div className="items-list">
               {combinedItems.map((it) => {
-                const unitPrice = (it.price || 0) / 100;
-                const amount = unitPrice * (it.quantity || 0);
+                const unitPrice = Number(it.unitPrice) || 0;
+                const amount =
+                  Number(it.amount) || unitPrice * (Number(it.quantity) || 0);
                 return (
                   <div key={it.name} className="item-row">
                     <span className="flex flex-wrap items-center gap-2">
@@ -888,8 +939,10 @@ export default function OrderSummary() {
                 <tbody>
                   {combinedItems.length > 0 ? (
                     combinedItems.map((it) => {
-                      const unitPrice = (it.price || 0) / 100;
-                      const amount = unitPrice * (it.quantity || 0);
+                      const unitPrice = Number(it.unitPrice) || 0;
+                      const amount =
+                        Number(it.amount) ||
+                        unitPrice * (Number(it.quantity) || 0);
                       return (
                         <tr key={it.name}>
                           <td>

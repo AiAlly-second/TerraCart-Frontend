@@ -3,7 +3,6 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import Header from "../components/Header";
 import { FiArrowLeft, FiMinus, FiPlus, FiTrash2 } from "react-icons/fi";
 import fallbackMenuItems from "../data/menuData";
-import { addOnList as staticAddOnList } from "../data/addons";
 import "./CartPage.css";
 import { buildOrderPayload } from "../utils/orderUtils";
 import { postWithRetry } from "../utils/fetchWithTimeout";
@@ -15,6 +14,12 @@ import { io } from "socket.io-client"; // Actually, we probably don't need socke
 const nodeApi = (
   import.meta.env.VITE_NODE_API_URL || "http://localhost:5001"
 ).replace(/\/$/, "");
+const sanitizeAddonName = (value) => {
+  const normalized = String(value || "")
+    .replace(/^\(\s*\+\s*\)\s*/u, "")
+    .trim();
+  return normalized || "Add-on";
+};
 
 function getImageUrl(imagePath) {
   if (!imagePath) return null;
@@ -203,10 +208,9 @@ export default function CartPage() {
         setAddonsLoading(true);
         const tableId = tableIdFromUrl || searchParams?.get("table") || "";
         if (!cartIdForAddons && !tableId) {
-          console.log(
-            "[CartPage] No cartId or tableId found, using static add-ons as fallback",
-          );
-          setAddonList(staticAddOnList);
+          console.log("[CartPage] No cartId or tableId found for add-ons");
+          setAddonList([]);
+          localStorage.removeItem("terra_global_addons");
           setAddonsLoading(false);
           return;
         }
@@ -244,9 +248,9 @@ export default function CartPage() {
 
             const list = (json.data || json || []).map((a) => ({
               id: (a._id || a.id || "").toString(),
-              name: a.name || "",
+              name: sanitizeAddonName(a.name),
               price: Number(a.price) || 0,
-              icon: a.icon || "➕",
+              icon: a.icon || "",
             }));
             console.log("[CartPage] Parsed add-ons list:", list);
 
@@ -294,13 +298,8 @@ export default function CartPage() {
               setAddonList([]);
               localStorage.removeItem("terra_global_addons");
             } else {
-              // Other errors - use static as fallback but log warning
-              console.warn(
-                "[CartPage] API failed:",
-                errorMsg,
-                "- Using static add-ons as fallback",
-              );
-              setAddonList(staticAddOnList);
+              console.warn("[CartPage] API failed:", errorMsg);
+              setAddonList([]);
               localStorage.removeItem("terra_global_addons");
             }
           }
@@ -311,9 +310,9 @@ export default function CartPage() {
             err,
           );
           console.warn(
-            "[CartPage] Using static add-ons as fallback due to network error",
+            "[CartPage] Using empty add-ons due to network error",
           );
-          setAddonList(staticAddOnList);
+          setAddonList([]);
           localStorage.removeItem("terra_global_addons");
         } finally {
           setAddonsLoading(false);
@@ -444,15 +443,12 @@ export default function CartPage() {
       const globalAddons = JSON.parse(
         localStorage.getItem("terra_global_addons") || "[]",
       );
-      const addonLookupList =
-        Array.isArray(globalAddons) && globalAddons.length > 0
-          ? globalAddons
-          : staticAddOnList;
+      const addonLookupList = Array.isArray(globalAddons) ? globalAddons : [];
       const resolvedAddons = selectedAddOns
         .map((id) => {
           const meta = addonLookupList.find((a) => a.id === id);
           return meta
-            ? { addonId: id, name: meta.name, price: meta.price }
+            ? { addonId: id, name: sanitizeAddonName(meta.name), price: meta.price }
             : null;
         })
         .filter(Boolean);
@@ -759,9 +755,9 @@ export default function CartPage() {
                   >
                     <div className="addon-info">
                       <div className="addon-text">
-                        <span className="addon-name">{addon.name}</span>
+                        <span className="addon-name">{sanitizeAddonName(addon.name)}</span>
                         {addon.price > 0 && (
-                          <span className="addon-price">+₹{addon.price}</span>
+                          <span className="addon-price">₹{addon.price}</span>
                         )}
                       </div>
                     </div>
@@ -771,7 +767,7 @@ export default function CartPage() {
                         className="addon-ctrl-btn"
                         onClick={() => removeAddOn(addon.id)}
                         disabled={qty === 0}
-                        aria-label={`Remove one ${addon.name}`}
+                        aria-label={`Remove one ${sanitizeAddonName(addon.name)}`}
                       >
                         {qty === 1 ? (
                           <FiTrash2 size={16} />
@@ -784,7 +780,7 @@ export default function CartPage() {
                         type="button"
                         className="addon-ctrl-btn"
                         onClick={() => addAddOn(addon.id)}
-                        aria-label={`Add one ${addon.name}`}
+                        aria-label={`Add one ${sanitizeAddonName(addon.name)}`}
                       >
                         <FiPlus size={18} />
                       </button>

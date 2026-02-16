@@ -1,3 +1,10 @@
+const sanitizeAddonName = (value) => {
+  const normalized = String(value || "")
+    .replace(/^\(\s*\+\s*\)\s*/u, "")
+    .trim();
+  return normalized || "Add-on";
+};
+
 export function buildOrderPayload(cart, options = {}) {
   const {
     serviceType = "DINE_IN",
@@ -84,7 +91,7 @@ export function buildOrderPayload(cart, options = {}) {
   if (Array.isArray(selectedAddons) && selectedAddons.length > 0) {
       validAddons = selectedAddons.map(addon => ({
           addonId: addon.addonId || addon._id || addon.id,
-          name: addon.name,
+          name: sanitizeAddonName(addon.name),
           price: Number(addon.price) || 0
       })).filter(a => a.name);
       

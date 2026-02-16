@@ -183,6 +183,7 @@ export default function SecondPage() {
   const [takeawayOnly, setTakeawayOnly] = useState(
     () => localStorage.getItem("terra_takeaway_only") === "true",
   );
+  const selectedCartRef = useRef(null);
 
   // Check if this is a normal link (not from QR scan)
   // Pickup/Delivery should only show on normal links, not QR scans
@@ -255,14 +256,57 @@ export default function SecondPage() {
 
   // Track if user manually closed the modal
   const hasUserClosedModal = useRef(false);
+  const cartFetchRunRef = useRef(0);
 
   // Normal link: Pickup/Delivery is shown on the page itself, not in a popup.
   // Do not auto-open the customer info modal; user selects order type on page then clicks Continue.
 
+  const syncSelectedCartWithList = useCallback((carts) => {
+    if (!Array.isArray(carts) || carts.length === 0) {
+      setSelectedCart(null);
+      selectedCartRef.current = null;
+      localStorage.removeItem("terra_selectedCartId");
+      return;
+    }
+
+    setSelectedCart((prevSelectedCart) => {
+      let nextSelectedCart = carts[0];
+      if (prevSelectedCart?._id) {
+        const stillAvailable = carts.some(
+          (cart) => String(cart?._id) === String(prevSelectedCart._id),
+        );
+        if (stillAvailable) {
+          nextSelectedCart = prevSelectedCart;
+        }
+      }
+      selectedCartRef.current = nextSelectedCart;
+      if (nextSelectedCart?._id) {
+        localStorage.setItem(
+          "terra_selectedCartId",
+          String(nextSelectedCart._id),
+        );
+      }
+      return nextSelectedCart;
+    });
+  }, []);
+
   // Fetch carts when order type and location are available
   useEffect(() => {
+    const fetchRunId = cartFetchRunRef.current + 1;
+    cartFetchRunRef.current = fetchRunId;
+    const isStaleRun = () => fetchRunId !== cartFetchRunRef.current;
+    const applyCartList = (carts) => {
+      if (isStaleRun()) return;
+      setNearbyCarts(carts);
+      syncSelectedCartWithList(carts);
+    };
+    const applyLoading = (isLoading) => {
+      if (isStaleRun()) return;
+      setLoadingCarts(isLoading);
+    };
+
     if (!orderType || !customerLocation) {
-      setNearbyCarts([]);
+      applyCartList([]);
       return;
     }
 
@@ -276,33 +320,31 @@ export default function SecondPage() {
         const addressValue = customerLocation.address.trim();
         const isPinCode = /^\d{6}$/.test(addressValue);
 
-        setLoadingCarts(true);
+        applyLoading(true);
 
         // If it's a pin code, fetch carts directly by pin code
         if (isPinCode) {
           console.log("[SecondPage] Fetching carts by pin code:", addressValue);
           getNearbyCarts(null, null, orderType, addressValue)
             .then((carts) => {
+              if (isStaleRun()) return;
               // All carts returned are already filtered by pin code match
-              setNearbyCarts(carts);
-              setLoadingCarts(false);
-              // Auto-select first available cart if none selected
-              if (carts.length > 0 && !selectedCart) {
-                setSelectedCart(carts[0]);
-              }
+              applyCartList(carts);
+              applyLoading(false);
             })
             .catch((error) => {
               console.error(
                 "[SecondPage] Error fetching carts by pin code:",
                 error,
               );
-              setLoadingCarts(false);
-              setNearbyCarts([]);
+              applyLoading(false);
+              applyCartList([]);
             });
         } else {
           // Not a pin code, try to geocode the address
           geocodeAddress(customerLocation.address)
             .then((coords) => {
+              if (isStaleRun()) return null;
               if (coords) {
                 // Update location with coordinates
                 const updatedLocation = {
@@ -318,38 +360,35 @@ export default function SecondPage() {
                   orderType,
                 );
               } else {
-                setLoadingCarts(false);
-                setNearbyCarts([]);
+                applyLoading(false);
+                applyCartList([]);
                 return Promise.resolve([]);
               }
             })
             .then((carts) => {
+              if (isStaleRun()) return;
               // Filter to only show carts that can deliver (within range)
-              const deliverableCarts = carts.filter((c) => c.canDeliver);
-              setNearbyCarts(deliverableCarts);
-              setLoadingCarts(false);
-              // Auto-select first available cart if none selected
-              if (deliverableCarts.length > 0 && !selectedCart) {
-                setSelectedCart(deliverableCarts[0]);
-              }
+              const deliverableCarts = (carts || []).filter((c) => c.canDeliver);
+              applyCartList(deliverableCarts);
+              applyLoading(false);
             })
             .catch((error) => {
               console.error(
                 "[SecondPage] Error geocoding or fetching carts:",
                 error,
               );
-              setLoadingCarts(false);
-              setNearbyCarts([]);
+              applyLoading(false);
+              applyCartList([]);
             });
         }
       } else {
         // No address provided yet - don't show any carts
-        setNearbyCarts([]);
+        applyCartList([]);
       }
       return;
     }
 
-    setLoadingCarts(true);
+    applyLoading(true);
 
     // If location has GPS coordinates, use location-based fetching
     if (customerLocation.latitude && customerLocation.longitude) {
@@ -359,6 +398,7 @@ export default function SecondPage() {
         orderType,
       )
         .then((carts) => {
+          if (isStaleRun()) return;
           // For DELIVERY, only show carts that can deliver (within range)
           // For PICKUP, show all carts with pickup enabled
           const filteredCarts =
@@ -366,20 +406,16 @@ export default function SecondPage() {
               ? carts.filter((c) => c.canDeliver)
               : carts.filter((c) => c.canPickup);
 
-          setNearbyCarts(filteredCarts);
-          setLoadingCarts(false);
-          // Auto-select first available cart if none selected
-          if (filteredCarts.length > 0 && !selectedCart) {
-            setSelectedCart(filteredCarts[0]);
-          }
+          applyCartList(filteredCarts);
+          applyLoading(false);
         })
         .catch((error) => {
           console.warn(
             "[SecondPage] Error fetching nearby carts:",
             error.message || error,
           );
-          setNearbyCarts([]);
-          setLoadingCarts(false);
+          applyCartList([]);
+          applyLoading(false);
         });
     } else {
       // Manual address entered (no GPS) - only for PICKUP
@@ -387,28 +423,25 @@ export default function SecondPage() {
       if (orderType === "PICKUP") {
         getAvailableCarts(orderType)
           .then((carts) => {
+            if (isStaleRun()) return;
             const pickupCarts = carts.filter((c) => c.canPickup);
-            setNearbyCarts(pickupCarts);
-            setLoadingCarts(false);
-            // Auto-select first available cart if none selected
-            if (pickupCarts.length > 0 && !selectedCart) {
-              setSelectedCart(pickupCarts[0]);
-            }
+            applyCartList(pickupCarts);
+            applyLoading(false);
           })
           .catch((error) => {
             console.warn(
               "[SecondPage] Error fetching available carts:",
               error.message || error,
             );
-            setNearbyCarts([]);
-            setLoadingCarts(false);
+            applyCartList([]);
+            applyLoading(false);
           });
       } else {
-        setNearbyCarts([]);
-        setLoadingCarts(false);
+        applyCartList([]);
+        applyLoading(false);
       }
     }
-  }, [orderType, customerLocation, selectedCart]);
+  }, [orderType, customerLocation, syncSelectedCartWithList]);
 
   // Geocode function to convert address or pin code to coordinates
   const geocodeAddress = async (addressOrPinCode) => {
@@ -514,6 +547,10 @@ export default function SecondPage() {
   // Note: For DELIVERY, carts are already filtered to only show those within range
   const handleCartChange = useCallback((cart) => {
     setSelectedCart(cart);
+    selectedCartRef.current = cart || null;
+    if (cart?._id) {
+      localStorage.setItem("terra_selectedCartId", String(cart._id));
+    }
   }, []);
 
   // Keep takeaway-only flag in sync with localStorage (set on Landing via QR params)
@@ -2024,6 +2061,41 @@ export default function SecondPage() {
     const hasScanToken = localStorage.getItem("terra_scanToken");
     const hasTableInfo = localStorage.getItem("terra_selectedTable");
     const isNormalLinkCheck = !hasTakeawayQR && !hasScanToken && !hasTableInfo;
+    const localSelectedCartId = localStorage.getItem("terra_selectedCartId");
+    let activeSelectedCart =
+      selectedCartRef.current ||
+      selectedCart ||
+      nearbyCarts.find(
+        (cart) =>
+          String(cart?._id || "") === String(localSelectedCartId || ""),
+      ) ||
+      (nearbyCarts.length === 1 ? nearbyCarts[0] : null);
+
+    // Final restore: if ID exists but selected cart got lost in state, fetch once.
+    if (
+      !activeSelectedCart &&
+      localSelectedCartId &&
+      (orderType === "PICKUP" || orderType === "DELIVERY")
+    ) {
+      try {
+        const restoredCart = await getCartById(
+          localSelectedCartId,
+          customerLocation?.latitude || null,
+          customerLocation?.longitude || null,
+          orderType,
+        );
+        if (restoredCart && restoredCart._id) {
+          activeSelectedCart = restoredCart;
+          setSelectedCart(restoredCart);
+          selectedCartRef.current = restoredCart;
+        }
+      } catch (restoreCartError) {
+        console.warn(
+          "[SecondPage] Unable to restore selected cart before submit:",
+          restoreCartError,
+        );
+      }
+    }
 
     // Save order type and location for PICKUP/DELIVERY (only for normal links)
     if (isNormalLinkCheck) {
@@ -2048,8 +2120,11 @@ export default function SecondPage() {
       localStorage.removeItem("terra_customerLocation");
     }
 
-    if (isNormalLinkCheck && selectedCart?._id) {
-      localStorage.setItem("terra_selectedCartId", selectedCart._id);
+    if (isNormalLinkCheck && activeSelectedCart?._id) {
+      localStorage.setItem(
+        "terra_selectedCartId",
+        String(activeSelectedCart._id),
+      );
     } else {
       localStorage.removeItem("terra_selectedCartId");
     }
@@ -2070,7 +2145,7 @@ export default function SecondPage() {
     // VALIDATION: Check delivery availability for DELIVERY orders
     if (isNormalLinkCheck && orderType === "DELIVERY") {
       // Validate that cart is selected
-      if (!selectedCart) {
+      if (!activeSelectedCart) {
         alert("Please select a store for delivery.");
         return;
       }
@@ -2105,7 +2180,7 @@ export default function SecondPage() {
 
       // Check delivery availability
       const deliveryCheck = checkDeliveryAvailability(
-        selectedCart,
+        activeSelectedCart,
         customerLat,
         customerLon,
       );
@@ -2174,6 +2249,7 @@ export default function SecondPage() {
     navigate,
     orderType,
     selectedCart,
+    nearbyCarts,
     customerLocation,
   ]);
 
@@ -2466,6 +2542,9 @@ export default function SecondPage() {
         return status || "";
     }
   };
+
+  const isPickupOrDeliverySelection =
+    isNormalLink && (orderType === "PICKUP" || orderType === "DELIVERY");
 
   return (
     <>
@@ -3069,38 +3148,40 @@ export default function SecondPage() {
         )}
       </div>
 
-      {/* Blind Support Button - Outside main-container to avoid overflow/clipping issues, same as Menu page */}
-      <motion.button
-        whileHover={{ scale: 1.1 }}
-        whileTap={{ scale: 0.9 }}
-        onClick={() => navigate("/blind-assistant")}
-        className="fixed rounded-full shadow-lg bg-orange-500 text-white hover:bg-orange-600 focus:outline-none blind-eye-btn"
-        style={{
-          position: "fixed",
-          bottom: "20px", // Same lower position as accessibility button
-          right: "20px", // Right side instead of left
-          width: "56px",
-          height: "56px",
-          display: "grid",
-          placeItems: "center",
-          border: "none",
-          cursor: "pointer",
-          boxShadow: "0 6px 18px rgba(0,0,0,0.25)",
-          transition:
-            "transform .2s ease, box-shadow .2s ease, background .2s ease",
-          zIndex: 9000, // Below modals (10000) but above content
-          pointerEvents: "auto",
-        }}
-        aria-label="Blind Support - Voice Assistant"
-      >
-        <img
-          src={blindEyeIcon}
-          alt="Blind Support"
-          width="24"
-          height="24"
-          style={{ objectFit: "contain", filter: "brightness(0) invert(1)" }}
-        />
-      </motion.button>
+      {/* Hide blind voice assistant during Pickup/Delivery selection flow */}
+      {!isPickupOrDeliverySelection && (
+        <motion.button
+          whileHover={{ scale: 1.1 }}
+          whileTap={{ scale: 0.9 }}
+          onClick={() => navigate("/blind-assistant")}
+          className="fixed rounded-full shadow-lg bg-orange-500 text-white hover:bg-orange-600 focus:outline-none blind-eye-btn"
+          style={{
+            position: "fixed",
+            bottom: "20px", // Same lower position as accessibility button
+            right: "20px", // Right side instead of left
+            width: "56px",
+            height: "56px",
+            display: "grid",
+            placeItems: "center",
+            border: "none",
+            cursor: "pointer",
+            boxShadow: "0 6px 18px rgba(0,0,0,0.25)",
+            transition:
+              "transform .2s ease, box-shadow .2s ease, background .2s ease",
+            zIndex: 9000, // Below modals (10000) but above content
+            pointerEvents: "auto",
+          }}
+          aria-label="Blind Support - Voice Assistant"
+        >
+          <img
+            src={blindEyeIcon}
+            alt="Blind Support"
+            width="24"
+            height="24"
+            style={{ objectFit: "contain", filter: "brightness(0) invert(1)" }}
+          />
+        </motion.button>
+      )}
     </>
   );
 }

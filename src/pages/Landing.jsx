@@ -970,122 +970,182 @@ export default function Landing() {
   };
 
   const recognitionRef = useRef(null);
-  const [shouldContinueListening, setShouldContinueListening] = useState(true);
+  const shouldContinueListeningRef = useRef(false);
 
-  const clickButtonByText = (text) => {
-    const buttons = document.querySelectorAll("button");
-    for (let btn of buttons) {
-      if (btn.innerText.trim().toLowerCase() === text.toLowerCase()) {
-        btn.click();
-
-        // ✅ Stop listening after clicking button
-        setShouldContinueListening(false);
-        if (recognitionRef.current) {
-          recognitionRef.current.onend = null; // prevent auto-restart
-          recognitionRef.current.stop();
-          recognitionRef.current = null;
-        }
-        return true;
+  const stopLanguageListening = () => {
+    shouldContinueListeningRef.current = false;
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.onresult = null;
+        recognitionRef.current.onerror = null;
+        recognitionRef.current.onend = null;
+        recognitionRef.current.stop();
+      } catch (err) {
+        console.warn("[Landing] Failed to stop recognition:", err);
       }
+      recognitionRef.current = null;
     }
-    return false;
+  };
+
+  const speakMessage = (message, onEnd) => {
+    if (
+      typeof window === "undefined" ||
+      !("speechSynthesis" in window) ||
+      !message
+    ) {
+      if (typeof onEnd === "function") onEnd();
+      return;
+    }
+    try {
+      const utterance = new SpeechSynthesisUtterance(message);
+      utterance.lang = "en-IN";
+      utterance.rate = 1;
+      utterance.pitch = 1;
+      utterance.onend = () => {
+        if (typeof onEnd === "function") onEnd();
+      };
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(utterance);
+    } catch (err) {
+      console.warn("[Landing] Failed to speak message:", err);
+      if (typeof onEnd === "function") onEnd();
+    }
+  };
+
+  const detectLanguageFromTranscript = (transcript) => {
+    const normalized = (transcript || "").toLowerCase().trim();
+    const checks = [
+      { code: "en", keywords: ["english", "inglish", "अंग्रेजी"] },
+      { code: "hi", keywords: ["hindi", "हिंदी", "हिन्दी"] },
+      { code: "mr", keywords: ["marathi", "मराठी"] },
+      { code: "gu", keywords: ["gujarati", "ગુજરાતી", "गुजराती"] },
+    ];
+    const match = checks.find((entry) =>
+      entry.keywords.some((keyword) => normalized.includes(keyword.toLowerCase())),
+    );
+    return match?.code || null;
   };
 
   const startListening = () => {
-    const recognition = new (
-      window.SpeechRecognition || window.webkitSpeechRecognition
-    )();
-    recognition.lang = "en-US";
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
+    const RecognitionCtor =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!RecognitionCtor) {
+      const message =
+        "Voice input is not supported on this browser. Please select language by tapping a button.";
+      alert(message);
+      speakMessage(message);
+      return;
+    }
 
-    recognition.onstart = () => {
-      console.log("Listening...");
-    };
+    stopLanguageListening();
+    shouldContinueListeningRef.current = true;
+
+    const recognition = new RecognitionCtor();
+    recognition.lang = "en-IN";
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 3;
+    recognition.continuous = true;
 
     recognition.onresult = (event) => {
-      const transcript = event.results[0][0].transcript.trim().toLowerCase();
-      console.log("User said:", transcript);
+      let transcript = "";
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const result = event.results[i];
+        if (result?.isFinal) {
+          transcript += ` ${result[0].transcript}`;
+        }
+      }
+      const finalTranscript = transcript.trim();
+      if (!finalTranscript) return;
 
-      let matched = false;
-
-      if (transcript.includes("english") || transcript.includes("इंग्लिश")) {
-        matched = clickButtonByText("English");
-      } else if (transcript.includes("hindi") || transcript.includes("हिंदी")) {
-        matched = clickButtonByText("हिन्दी");
-      } else if (
-        transcript.includes("marathi") ||
-        transcript.includes("मराठी")
-      ) {
-        matched = clickButtonByText("मराठी");
-      } else if (
-        transcript.includes("gujarati") ||
-        transcript.includes("ગુજરાતી")
-      ) {
-        matched = clickButtonByText("ગુજરાતી");
+      console.log("[Landing] Voice detected:", finalTranscript);
+      const detectedLanguage = detectLanguageFromTranscript(finalTranscript);
+      if (!detectedLanguage) {
+        speakMessage(
+          "I could not detect the language. Please say English, Hindi, Marathi, or Gujarati.",
+        );
+        return;
       }
 
-      if (matched) return;
+      stopLanguageListening();
+      speakMessage("Language selected.", () => {
+        handleLanguageSelect(detectedLanguage);
+      });
+    };
 
-      // If no match
-      const utterance = new SpeechSynthesisUtterance(
-        "Your voice was not clear, please repeat again.",
-      );
-      utterance.voice = window.speechSynthesis.getVoices()[0];
-      utterance.onend = () => {
-        if (shouldContinueListening && recognitionRef.current) {
-          recognitionRef.current.start();
-        }
-      };
-      window.speechSynthesis.speak(utterance);
+    recognition.onerror = (event) => {
+      if (event.error === "not-allowed") {
+        const message =
+          "Microphone permission denied. Please allow microphone access and try again.";
+        alert(message);
+        speakMessage(message);
+        stopLanguageListening();
+        return;
+      }
+      if (event.error === "no-speech") {
+        speakMessage("I did not hear anything. Please say your language again.");
+        return;
+      }
+      if (event.error !== "aborted") {
+        speakMessage("Voice recognition error. Please try again.");
+      }
     };
 
     recognition.onend = () => {
-      if (shouldContinueListening && !window.speechSynthesis.speaking) {
+      if (!shouldContinueListeningRef.current) return;
+      try {
         recognition.start();
+      } catch {
+        stopLanguageListening();
       }
     };
 
-    recognitionRef.current = recognition; // ✅ save to ref
-    recognition.start();
+    recognitionRef.current = recognition;
+    try {
+      recognition.start();
+    } catch (err) {
+      console.error("[Landing] Failed to start recognition:", err);
+      stopLanguageListening();
+      speakMessage("Unable to start voice input. Please try again.");
+    }
   };
-  // 🔊 Read Page Aloud + then Listen
+
+  // 🔊 Read Page Aloud + then listen for language choice.
   const readPageAloud = () => {
-    window.speechSynthesis.cancel();
+    stopLanguageListening();
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+      startListening();
+      return;
+    }
 
     const texts = [
-      "Welcome to Terra Cart!",
+      "Welcome to Terra Cart.",
       "Please select your language.",
-      "Option 1: English",
-      "Option 2: हिंदी",
-      "Option 3: मराठी",
-      "Option 4: ગુજરાતી",
+      "Option one English.",
+      "Option two Hindi.",
+      "Option three Marathi.",
+      "Option four Gujarati.",
       "Now please say your choice.",
     ];
 
+    shouldContinueListeningRef.current = true;
+    window.speechSynthesis.cancel();
     const voices = window.speechSynthesis.getVoices();
-
-    // 🔹 Fix a single voice
-    let fixedVoice =
-      voices.find((v) => v.name.includes("Google हिन्दी")) ||
-      voices.find((v) => v.name.includes("Google US English")) ||
-      voices[0];
+    const preferredVoice =
+      voices.find((voice) => voice.lang?.startsWith("en")) || voices[0];
 
     const speakWithPause = (index) => {
       if (index >= texts.length) {
-        // ✅ Start listening once all text is spoken
         startListening();
         return;
       }
 
       const utterance = new SpeechSynthesisUtterance(texts[index]);
-      utterance.voice = fixedVoice;
-      utterance.lang = fixedVoice?.lang || "en-US";
+      utterance.voice = preferredVoice || null;
+      utterance.lang = preferredVoice?.lang || "en-IN";
       utterance.rate = 1;
       utterance.pitch = 1;
-
       utterance.onend = () => {
-        setTimeout(() => speakWithPause(index + 1), 50); // pause
+        setTimeout(() => speakWithPause(index + 1), 80);
       };
 
       window.speechSynthesis.speak(utterance);
@@ -1093,6 +1153,15 @@ export default function Landing() {
 
     speakWithPause(0);
   };
+
+  useEffect(() => {
+    return () => {
+      stopLanguageListening();
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
 
   return (
     <div className={accessibilityMode ? "bg-white" : "bg-gray-100"}>

@@ -12,6 +12,10 @@ import Footer from "./components/Footer";
 import Loader from "./components/Loader";
 import AppLoader from "./components/AppLoader";
 import { useTablePersistence } from "./hooks/useTablePersistence";
+import {
+  getCurrentLanguage,
+  subscribeToLanguageChanges,
+} from "./utils/language";
 
 // Lazy load heavy components for better performance
 const Menu = lazy(() => import("./pages/Menu"));
@@ -29,6 +33,7 @@ const BlindAssistantPage = lazy(() => import("./pages/BlindAssistantPage"));
 export default function App() {
   const [activeModal, setActiveModal] = useState(null); // "pdf" | "sign" | null
   const [isAppReady, setIsAppReady] = useState(false);
+  const [currentLanguage, setCurrentLanguage] = useState(getCurrentLanguage());
   
   // Maintain table parameter across navigation
   useTablePersistence();
@@ -84,6 +89,13 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const unsubscribe = subscribeToLanguageChanges((language) => {
+      setCurrentLanguage(language);
+    });
+    return unsubscribe;
+  }, []);
+
   return (
     <>
       {/* App Loader with smooth exit animation - overlays on top with z-50 */}
@@ -110,104 +122,106 @@ export default function App() {
           setActiveModal={setActiveModal}
         /> */}
 
-            <Routes>
-              <Route path="/" element={<Landing />} />
-              <Route path="/secondpage" element={<SecondPage />} />
-              <Route
-                path="/menu"
-                element={
-                  <Suspense fallback={<Loader />}>
-                    <Menu />
-                  </Suspense>
-                }
-              />
-              <Route
-                path="/cart"
-                element={
-                  <Suspense fallback={<Loader />}>
-                    <CartPage />
-                  </Suspense>
-                }
-              />
-              <Route
-                path="/order-summary"
-                element={
-                  <Suspense fallback={<Loader />}>
-                    <OrderSummary />
-                  </Suspense>
-                }
-              />
-              <Route
-                path="/order-confirmed"
-                element={
-                  <Suspense fallback={<Loader />}>
-                    <OrderConfirmed />
-                  </Suspense>
-                }
-              />
-              <Route
-                path="/billing"
-                element={
-                  <Suspense fallback={<Loader />}>
-                    <Billing />
-                  </Suspense>
-                }
-              />
-              <Route
-                path="/payment"
-                element={
-                  <Suspense fallback={<Loader />}>
-                    <Payment />
-                  </Suspense>
-                }
-              />
-              <Route
-                path="/takeaway"
-                element={
-                  <Suspense fallback={<Loader />}>
-                    <Takeaway />
-                  </Suspense>
-                }
-              />
-              <Route
-                path="/feedback"
-                element={
-                  <Suspense fallback={<Loader />}>
-                    <FeedbackPage />
-                  </Suspense>
-                }
-              />
-              <Route
-                path="/sign-name"
-                element={
-                  <Suspense fallback={<Loader />}>
-                    <SignName />
-                  </Suspense>
-                }
-              />
-              <Route
-                path="/sign-language"
-                element={
-                  <Suspense fallback={<Loader />}>
-                    <SignLanguage />
-                  </Suspense>
-                }
-              />
-              <Route
-                path="/blind-assistant"
-                element={
-                  <Suspense fallback={<Loader />}>
-                    <BlindAssistantPage />
-                  </Suspense>
-                }
-              />
-            </Routes>
+            <div key={`lang-${currentLanguage}`}>
+              <Routes>
+                <Route path="/" element={<Landing />} />
+                <Route path="/secondpage" element={<SecondPage />} />
+                <Route
+                  path="/menu"
+                  element={
+                    <Suspense fallback={<Loader />}>
+                      <Menu />
+                    </Suspense>
+                  }
+                />
+                <Route
+                  path="/cart"
+                  element={
+                    <Suspense fallback={<Loader />}>
+                      <CartPage />
+                    </Suspense>
+                  }
+                />
+                <Route
+                  path="/order-summary"
+                  element={
+                    <Suspense fallback={<Loader />}>
+                      <OrderSummary />
+                    </Suspense>
+                  }
+                />
+                <Route
+                  path="/order-confirmed"
+                  element={
+                    <Suspense fallback={<Loader />}>
+                      <OrderConfirmed />
+                    </Suspense>
+                  }
+                />
+                <Route
+                  path="/billing"
+                  element={
+                    <Suspense fallback={<Loader />}>
+                      <Billing />
+                    </Suspense>
+                  }
+                />
+                <Route
+                  path="/payment"
+                  element={
+                    <Suspense fallback={<Loader />}>
+                      <Payment />
+                    </Suspense>
+                  }
+                />
+                <Route
+                  path="/takeaway"
+                  element={
+                    <Suspense fallback={<Loader />}>
+                      <Takeaway />
+                    </Suspense>
+                  }
+                />
+                <Route
+                  path="/feedback"
+                  element={
+                    <Suspense fallback={<Loader />}>
+                      <FeedbackPage />
+                    </Suspense>
+                  }
+                />
+                <Route
+                  path="/sign-name"
+                  element={
+                    <Suspense fallback={<Loader />}>
+                      <SignName />
+                    </Suspense>
+                  }
+                />
+                <Route
+                  path="/sign-language"
+                  element={
+                    <Suspense fallback={<Loader />}>
+                      <SignLanguage />
+                    </Suspense>
+                  }
+                />
+                <Route
+                  path="/blind-assistant"
+                  element={
+                    <Suspense fallback={<Loader />}>
+                      <BlindAssistantPage />
+                    </Suspense>
+                  }
+                />
+              </Routes>
 
-            {/* Accessibility Tools - appears on all pages */}
-            <AccessibilityTools />
+              {/* Accessibility Tools - appears on all pages */}
+              <AccessibilityTools />
 
-            {/* Footer */}
-            <Footer />
+              {/* Footer */}
+              <Footer />
+            </div>
           </>
         </ConfirmProvider>
       </AlertProvider>

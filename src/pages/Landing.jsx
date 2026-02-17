@@ -5,13 +5,13 @@ import { motion } from "framer-motion";
 import restaurantBg from "../assets/images/restaurant-img.jpg";
 import blindEyeIcon from "../assets/images/blind-eye-sign.png";
 import { getWithRetry } from "../utils/fetchWithTimeout";
-
-const languages = [
-  { code: "en", label: "English" },
-  { code: "hi", label: "हिन्दी" },
-  { code: "mr", label: "मराठी" },
-  { code: "gu", label: "ગુજરાતી" },
-];
+import landingTranslations from "../data/translations/landing.json";
+import {
+  getCurrentLanguage,
+  LANGUAGE_OPTIONS,
+  setCurrentLanguage,
+  subscribeToLanguageChanges,
+} from "../utils/language";
 
 const nodeApi = (
   import.meta.env.VITE_NODE_API_URL || "http://localhost:5001"
@@ -66,13 +66,25 @@ function updateSessionToken(newToken, oldToken) {
 
 export default function Landing() {
   const navigate = useNavigate();
+  const [language, setLanguage] = useState(getCurrentLanguage());
   const [accessibilityMode, setAccessibilityMode] = useState(
     localStorage.getItem("accessibilityMode") === "true",
   );
-  const language = localStorage.getItem("language") || "en";
+  const t = (key) =>
+    landingTranslations[language]?.[key] ||
+    landingTranslations.en?.[key] ||
+    key;
+  const formatText = (key, params = {}) => {
+    let message = t(key);
+    Object.entries(params).forEach(([token, value]) => {
+      message = message.replace(new RegExp(`\\{${token}\\}`, "g"), String(value));
+    });
+    return message;
+  };
 
   const handleLanguageSelect = (langCode) => {
-    localStorage.setItem("language", langCode);
+    const selectedLanguage = setCurrentLanguage(langCode);
+    setLanguage(selectedLanguage);
     // Global takeaway link only: skip SecondPage and go directly to menu
     const isGlobalTakeaway = localStorage.getItem("terra_takeaway_only") === "true";
     if (isGlobalTakeaway) {
@@ -105,7 +117,8 @@ export default function Landing() {
     // If there's a table or takeaway parameter, auto-set language and continue
     if (tableParam || takeawayParam) {
       if (!localStorage.getItem("language")) {
-        localStorage.setItem("language", "en");
+        setCurrentLanguage("en");
+        setLanguage("en");
       }
       console.log("[Landing] QR scan detected, auto-setting default language");
       // Don't redirect - let the table lookup logic handle it
@@ -115,6 +128,13 @@ export default function Landing() {
     // For normal links, do nothing - show language selection
     console.log("[Landing] Normal link - showing language selection");
   }, [navigate]);
+
+  useEffect(() => {
+    const unsubscribe = subscribeToLanguageChanges((lang) => {
+      setLanguage(lang);
+    });
+    return unsubscribe;
+  }, []);
 
   const [isLoading, setIsLoading] = useState(true);
 
@@ -371,7 +391,7 @@ export default function Landing() {
         const validSlug = slug.trim();
         if (validSlug.length < 5) {
           console.error("[Landing] Invalid slug (too short):", validSlug);
-          alert("Invalid table QR code. Please scan the table QR code again.");
+          alert(t("invalidTableQr"));
           return;
         }
 
@@ -514,7 +534,7 @@ export default function Landing() {
             // Table is merged - show special message
             alert(
               payload.message ||
-                "This table has been merged with another table. Please scan the primary table's QR code.",
+                t("mergedTableMessage"),
             );
             throw new Error(payload.message || "Table is merged");
           }
@@ -894,13 +914,13 @@ export default function Landing() {
               const position = payload.waitlist?.position || 1;
               alert(
                 payload?.message ||
-                  `Table is currently occupied. You are #${position} in the waitlist.`,
+                  formatText("tableOccupiedWaitlist", { position }),
               );
             } else {
               // No waitlist entry - user must join manually
               alert(
                 payload?.message ||
-                  "This table is currently occupied. You will be asked to join the waitlist on the next page.",
+                  t("tableOccupiedJoinWaitlist"),
               );
               // Clear any old waitlist token
               localStorage.removeItem("terra_waitToken");
@@ -922,7 +942,7 @@ export default function Landing() {
           }
           localStorage.removeItem("terra_scanToken");
           alert(
-            "This table is currently occupied. Please ask the staff for assistance.",
+            t("tableOccupiedAskStaff"),
           );
         } else if (err.message && err.message.includes("merged")) {
           // Table is merged - message already shown in the check above
@@ -940,11 +960,11 @@ export default function Landing() {
             // Check if it's a 404 error (table not found)
             if (err.message && err.message.includes("Table not found")) {
               alert(
-                "Table not found. The QR code may be invalid or the table may have been removed. Please scan the table QR code again or contact staff for assistance.",
+                t("tableNotFoundScanAgain"),
               );
             } else {
               alert(
-                "We couldn't detect your table. Please rescan the table QR or contact staff.",
+                t("detectTableFailed"),
               );
             }
           }
@@ -1030,8 +1050,7 @@ export default function Landing() {
     const RecognitionCtor =
       window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!RecognitionCtor) {
-      const message =
-        "Voice input is not supported on this browser. Please select language by tapping a button.";
+      const message = t("voiceNotSupported");
       alert(message);
       speakMessage(message);
       return;
@@ -1060,33 +1079,30 @@ export default function Landing() {
       console.log("[Landing] Voice detected:", finalTranscript);
       const detectedLanguage = detectLanguageFromTranscript(finalTranscript);
       if (!detectedLanguage) {
-        speakMessage(
-          "I could not detect the language. Please say English, Hindi, Marathi, or Gujarati.",
-        );
+        speakMessage(t("voiceCannotDetect"));
         return;
       }
 
       stopLanguageListening();
-      speakMessage("Language selected.", () => {
+      speakMessage(t("languageSelected"), () => {
         handleLanguageSelect(detectedLanguage);
       });
     };
 
     recognition.onerror = (event) => {
       if (event.error === "not-allowed") {
-        const message =
-          "Microphone permission denied. Please allow microphone access and try again.";
+        const message = t("micPermissionDenied");
         alert(message);
         speakMessage(message);
         stopLanguageListening();
         return;
       }
       if (event.error === "no-speech") {
-        speakMessage("I did not hear anything. Please say your language again.");
+        speakMessage(t("voiceNoSpeech"));
         return;
       }
       if (event.error !== "aborted") {
-        speakMessage("Voice recognition error. Please try again.");
+        speakMessage(t("voiceRecognitionError"));
       }
     };
 
@@ -1105,7 +1121,7 @@ export default function Landing() {
     } catch (err) {
       console.error("[Landing] Failed to start recognition:", err);
       stopLanguageListening();
-      speakMessage("Unable to start voice input. Please try again.");
+      speakMessage(t("unableStartVoice"));
     }
   };
 
@@ -1118,13 +1134,13 @@ export default function Landing() {
     }
 
     const texts = [
-      "Welcome to Terra Cart.",
-      "Please select your language.",
-      "Option one English.",
-      "Option two Hindi.",
-      "Option three Marathi.",
-      "Option four Gujarati.",
-      "Now please say your choice.",
+      t("voiceReadWelcome"),
+      t("voiceReadSelectLanguage"),
+      t("voiceOptionEnglish"),
+      t("voiceOptionHindi"),
+      t("voiceOptionMarathi"),
+      t("voiceOptionGujarati"),
+      t("voiceNowSayChoice"),
     ];
 
     shouldContinueListeningRef.current = true;
@@ -1183,7 +1199,7 @@ export default function Landing() {
                 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-extrabold leading-snug"
                 style={{ color: "#1B1212" }}
               >
-                <span className="block">Welcome&nbsp;!</span>
+                <span className="block">{t("welcomeTitle")}</span>
               </h1>
             </div>
           </div>
@@ -1192,7 +1208,7 @@ export default function Landing() {
           {isLoading ? (
             <div className="flex flex-col items-center justify-center">
               <div className="w-12 h-12 border-4 border-orange-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-              <p className="text-lg font-semibold text-gray-700">Loading...</p>
+              <p className="text-lg font-semibold text-gray-700">{t("loading")}</p>
             </div>
           ) : (
             <motion.div
@@ -1212,10 +1228,10 @@ export default function Landing() {
                 `}
                 style={{ color: "#1B1212" }}
               >
-                Please select your preferred language
+                {t("selectPreferredLanguage")}
               </p>
               <div className="grid grid-cols-1 gap-4">
-                {languages.map((lang) => (
+                {LANGUAGE_OPTIONS.map((lang) => (
                   <motion.button
                     key={lang.code}
                     whileTap={{ scale: 0.95 }}
@@ -1268,11 +1284,11 @@ export default function Landing() {
           zIndex: 10001, // Higher than footer (z-40) to ensure it's on top
           pointerEvents: "auto",
         }}
-        aria-label="Blind Support - Read Page Aloud"
+        aria-label={t("blindSupportAria")}
       >
         <img
           src={blindEyeIcon}
-          alt="Blind Support"
+          alt={t("blindSupportAria")}
           width="24"
           height="24"
           style={{ objectFit: "contain", filter: "brightness(0) invert(1)" }}
@@ -1281,3 +1297,4 @@ export default function Landing() {
     </div>
   );
 }
+

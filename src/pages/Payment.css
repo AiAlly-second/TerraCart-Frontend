@@ -192,6 +192,105 @@
   gap: 12px;
 }
 
+.receipt-ocr-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 12px;
+  text-align: left;
+  background-color: #fff;
+}
+
+.receipt-ocr-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.receipt-ocr-subtitle {
+  margin: 0;
+  font-size: 0.82rem;
+  color: #64748b;
+  line-height: 1.4;
+}
+
+.receipt-file-input {
+  width: 100%;
+  font-size: 0.82rem;
+  color: #334155;
+}
+
+.receipt-preview-image {
+  width: 100%;
+  max-height: 240px;
+  object-fit: contain;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  background-color: #f8fafc;
+}
+
+.receipt-ocr-error {
+  margin: 0;
+  font-size: 0.82rem;
+  color: #b91c1c;
+}
+
+.receipt-ocr-result {
+  border-radius: 10px;
+  padding: 10px;
+  border: 1px solid #e2e8f0;
+  background-color: #f8fafc;
+}
+
+.receipt-ocr-result.valid {
+  border-color: #86efac;
+  background-color: #f0fdf4;
+}
+
+.receipt-ocr-result.review {
+  border-color: #fdba74;
+  background-color: #fff7ed;
+}
+
+.receipt-ocr-result-title {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.receipt-ocr-checks p {
+  margin: 6px 0;
+  font-size: 0.8rem;
+  color: #334155;
+}
+
+.receipt-ocr-text-block {
+  margin-top: 8px;
+  font-size: 0.78rem;
+}
+
+.receipt-ocr-text-block summary {
+  cursor: pointer;
+  color: #334155;
+  font-weight: 600;
+}
+
+.receipt-ocr-text-block pre {
+  margin: 8px 0 0;
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px;
+  color: #334155;
+}
+
 .payment-options {
   display: flex;
   flex-direction: column;
@@ -304,6 +403,5 @@
     font-size: 0.85rem;
   }
 }
-
 
 

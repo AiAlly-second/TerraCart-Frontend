@@ -2055,12 +2055,10 @@ export default function SecondPage() {
       localStorage.removeItem("terra_takeaway_customerEmail");
     }
 
-    // Check if this is a normal link (not from QR scan)
-    const hasTakeawayQR =
-      localStorage.getItem("terra_takeaway_only") === "true";
-    const hasScanToken = localStorage.getItem("terra_scanToken");
-    const hasTableInfo = localStorage.getItem("terra_selectedTable");
-    const isNormalLinkCheck = !hasTakeawayQR && !hasScanToken && !hasTableInfo;
+    // Treat explicit PICKUP/DELIVERY selection as normal-link flow
+    const isPickupOrDeliveryFlow =
+      orderType === "PICKUP" || orderType === "DELIVERY";
+    const isNormalLinkCheck = isPickupOrDeliveryFlow || isNormalLink;
     const localSelectedCartId = localStorage.getItem("terra_selectedCartId");
     let activeSelectedCart =
       selectedCartRef.current ||
@@ -2097,17 +2095,13 @@ export default function SecondPage() {
       }
     }
 
-    // Save order type and location for PICKUP/DELIVERY (only for normal links)
-    if (isNormalLinkCheck) {
-      if (orderType) {
-        localStorage.setItem("terra_orderType", orderType);
-      } else {
-        // If normal link but no specific order type selected (shouldn't happen with UI enforcement, but safe fallback)
-        localStorage.removeItem("terra_orderType");
-      }
+    // Persist explicit PICKUP/DELIVERY type
+    if (isPickupOrDeliveryFlow) {
+      localStorage.setItem("terra_orderType", orderType);
+    } else if (isNormalLinkCheck) {
+      localStorage.removeItem("terra_orderType");
     } else {
-      // CLEAR order type for QR scans (Takeaway QR / Restaurant Counter)
-      // This ensures they are treated as standard TAKEAWAY, not PICKUP or DELIVERY
+      // QR scans (table/global takeaway) remain standard TAKEAWAY
       localStorage.removeItem("terra_orderType");
     }
 
@@ -2222,10 +2216,10 @@ export default function SecondPage() {
     // Save takeaway session token
     localStorage.setItem("terra_takeaway_sessionToken", takeawaySessionToken);
 
-    // Set serviceType based on order type (only for normal links)
-    if (isNormalLinkCheck && orderType === "PICKUP") {
+    // Set serviceType based on order type
+    if (orderType === "PICKUP") {
       localStorage.setItem("terra_serviceType", "PICKUP");
-    } else if (isNormalLinkCheck && orderType === "DELIVERY") {
+    } else if (orderType === "DELIVERY") {
       localStorage.setItem("terra_serviceType", "DELIVERY");
     } else {
       // Regular takeaway (for QR scans or no order type)
@@ -2241,7 +2235,11 @@ export default function SecondPage() {
 
     // Close modal and navigate to menu
     setShowCustomerInfoModal(false);
-    navigate("/menu", { state: { serviceType: "TAKEAWAY" } });
+    navigate("/menu", {
+      state: {
+        serviceType: isPickupOrDeliveryFlow ? orderType : "TAKEAWAY",
+      },
+    });
   }, [
     customerName,
     customerMobile,
@@ -2251,6 +2249,7 @@ export default function SecondPage() {
     selectedCart,
     nearbyCarts,
     customerLocation,
+    isNormalLink,
   ]);
 
   // Handle skip/cancel customer info

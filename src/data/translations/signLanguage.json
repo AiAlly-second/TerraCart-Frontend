@@ -1,0 +1,26 @@
+{
+  "en": {
+    "goBack": "Go Back",
+    "previousPage": "Previous Page",
+    "nextPage": "Next Page",
+    "pageAlt": "Page"
+  },
+  "hi": {
+    "goBack": "Wapas Jao",
+    "previousPage": "Pichhla Page",
+    "nextPage": "Agla Page",
+    "pageAlt": "Page"
+  },
+  "mr": {
+    "goBack": "Mage Ja",
+    "previousPage": "Magil Page",
+    "nextPage": "Pudhil Page",
+    "pageAlt": "Page"
+  },
+  "gu": {
+    "goBack": "Pachha Jao",
+    "previousPage": "Pehlo Page",
+    "nextPage": "Aagal nu Page",
+    "pageAlt": "Page"
+  }
+}

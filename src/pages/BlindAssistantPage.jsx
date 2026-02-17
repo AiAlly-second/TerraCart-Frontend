@@ -1,22 +1,27 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import blindEyeIcon from "../assets/images/disabled-sign.png";
+import blindAssistantTranslations from "../data/translations/blindAssistant.json";
+import {
+  getCurrentLanguage,
+  subscribeToLanguageChanges,
+} from "../utils/language";
 
 const langSpeechMap = {
   hi: { recognition: "hi-IN", speech: "hi-IN" },
-  mr: { recognition: "hi-IN", speech: "hi-IN" },
-  gu: { recognition: "gu-IN", speech: "hi-IN" },
+  mr: { recognition: "mr-IN", speech: "mr-IN" },
+  gu: { recognition: "gu-IN", speech: "gu-IN" },
   en: { recognition: "en-IN", speech: "en-IN" },
 };
 
 const pageStyle = {
   minHeight: "100vh",
-  background: "#f1f5f9", // Slate-100
+  background: "#f1f5f9",
   display: "flex",
   flexDirection: "column",
   alignItems: "center",
   padding: "20px",
-  paddingTop: "80px", // clearance for header if any, or just spacing
+  paddingTop: "80px",
 };
 
 const panelStyle = {
@@ -83,6 +88,7 @@ const buttonClass = (variant = "secondary") => {
 
 const speakMessage = (text, speechLang = "en-IN") => {
   if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+  if (!text) return;
   const utter = new SpeechSynthesisUtterance(text);
   utter.lang = speechLang;
   utter.rate = 0.95;
@@ -96,14 +102,27 @@ export default function BlindAssistantPage() {
   const [entries, setEntries] = useState([]);
   const [listening, setListening] = useState(false);
   const [error, setError] = useState("");
+  const [language, setLanguage] = useState(getCurrentLanguage());
+  const t = (key) =>
+    blindAssistantTranslations[language]?.[key] ||
+    blindAssistantTranslations.en?.[key] ||
+    key;
+
   const transcriptEndRef = useRef(null);
   const recognitionRef = useRef(null);
   const restartRef = useRef(false);
 
-  // Read language and table info
-  const language = useMemo(() => localStorage.getItem("language") || "en", []);
-  const { recognition: recognitionLang, speech: speechLang } =
-    langSpeechMap[language] || langSpeechMap.en;
+  useEffect(() => {
+    const unsubscribe = subscribeToLanguageChanges((lang) => {
+      setLanguage(lang);
+    });
+    return unsubscribe;
+  }, []);
+
+  const { recognition: recognitionLang, speech: speechLang } = useMemo(
+    () => langSpeechMap[language] || langSpeechMap.en,
+    [language],
+  );
 
   const tableInfo = useMemo(() => {
     try {
@@ -139,13 +158,11 @@ export default function BlindAssistantPage() {
     const RecognitionCtor =
       window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!RecognitionCtor) {
-      setError("Voice recognition is not supported on this device.");
-      speakMessage(
-        "Voice recognition is not available on this device.",
-        speechLang
-      );
+      setError(t("voiceNotSupported"));
+      speakMessage(t("voiceNotAvailable"), speechLang);
       return;
     }
+
     setError("");
     const recognizer = new RecognitionCtor();
     recognizer.lang = recognitionLang;
@@ -156,7 +173,7 @@ export default function BlindAssistantPage() {
 
     recognizer.onresult = (event) => {
       let transcript = "";
-      for (let i = event.resultIndex; i < event.results.length; i++) {
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
         const result = event.results[i];
         if (result.isFinal) {
           transcript = result[0].transcript.trim();
@@ -168,7 +185,7 @@ export default function BlindAssistantPage() {
           ...prev,
           { id: Date.now(), text: transcript, timestamp },
         ]);
-        speakMessage("Noted.", speechLang);
+        speakMessage(t("noted"), speechLang);
       }
     };
 
@@ -176,15 +193,13 @@ export default function BlindAssistantPage() {
       console.error("Voice assistant error", event.error);
       setError(
         event.error === "not-allowed"
-          ? "Microphone permission denied. Please allow microphone access."
-          : "We couldn't capture your voice. Please try again."
+          ? t("micPermissionDenied")
+          : t("voiceCaptureFailed"),
       );
       setListening(false);
     };
 
-    let silenceTimer;
     recognizer.onend = () => {
-      if (silenceTimer) clearTimeout(silenceTimer);
       setListening(false);
     };
 
@@ -195,24 +210,18 @@ export default function BlindAssistantPage() {
       recognitionRef.current = recognizer;
     } catch (err) {
       console.error("Voice assistant start error", err);
-      setError("Unable to start listening. Please try again.");
+      setError(t("unableStartListening"));
       setListening(false);
     }
-  }, [recognitionLang, speechLang]);
+  }, [recognitionLang, speechLang, t]);
 
-  // Initial greeting and setup on mount
   useEffect(() => {
-    speakMessage(
-      "Voice assistant activated. Press the start listening button and speak slowly. Your words will appear on the screen for staff to read.",
-      speechLang
-    );
-    // Cleanup on unmount
+    speakMessage(t("initialGreeting"), speechLang);
     return () => {
       stopRecognition();
     };
-  }, [speechLang, stopRecognition]);
+  }, [speechLang, stopRecognition, t]);
 
-  // Scroll to bottom
   useEffect(() => {
     if (transcriptEndRef.current) {
       transcriptEndRef.current.scrollIntoView({ behavior: "smooth" });
@@ -221,7 +230,7 @@ export default function BlindAssistantPage() {
 
   const handleClose = () => {
     stopRecognition();
-    navigate(-1); // Go back
+    navigate(-1);
   };
 
   const handleCopy = async () => {
@@ -229,25 +238,25 @@ export default function BlindAssistantPage() {
       const text = entries.map((entry) => entry.text).join("\n");
       if (!text) return;
       await navigator.clipboard.writeText(text);
-      speakMessage("Copied to clipboard.", speechLang);
-      alert("Copied to clipboard.");
+      speakMessage(t("copied"), speechLang);
+      alert(t("copiedAlert"));
     } catch (err) {
-      alert("Unable to copy. Please copy manually.");
+      alert(t("copyFailed"));
     }
   };
 
   const handleClear = () => {
     setEntries([]);
-    speakMessage("Cleared notes.", speechLang);
+    speakMessage(t("clearedNotes"), speechLang);
   };
 
   const handlePauseResume = () => {
     if (listening) {
       stopRecognition();
-      speakMessage("Listening paused.", speechLang);
+      speakMessage(t("listeningPaused"), speechLang);
     } else {
       startRecognition();
-      speakMessage("Listening resumed.", speechLang);
+      speakMessage(t("listeningResumed"), speechLang);
     }
   };
 
@@ -256,31 +265,36 @@ export default function BlindAssistantPage() {
       <div style={panelStyle}>
         <div style={headerStyle}>
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-            <img 
-              src={blindEyeIcon} 
-              alt="Blind Support" 
+            <img
+              src={blindEyeIcon}
+              alt={t("blindSupportAlt")}
               style={{ width: "32px", height: "32px", objectFit: "contain" }}
             />
             <div>
               <h1 className="text-2xl font-bold text-slate-900">
-                Voice Assistant
+                {t("voiceAssistantTitle")}
               </h1>
-              <p className="text-sm text-slate-500">
-                Blind Support Mode
-              </p>
+              <p className="text-sm text-slate-500">{t("blindSupportMode")}</p>
             </div>
           </div>
           <button
             className={buttonClass("danger")}
             onClick={handleClose}
-            aria-label="Close voice assistant"
+            aria-label={t("closeAria")}
             style={{ padding: "8px 16px", fontSize: "0.9rem" }}
           >
-            Close / Exit
+            {t("closeExit")}
           </button>
         </div>
 
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginBottom: "16px" }}>
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "8px",
+            marginBottom: "16px",
+          }}
+        >
           <div style={chipStyle}>
             <span
               style={{
@@ -291,11 +305,11 @@ export default function BlindAssistantPage() {
                 display: "inline-block",
               }}
             />
-            {listening ? "Listening..." : "Paused"}
+            {listening ? t("listening") : t("paused")}
           </div>
           {tableInfo?.number && (
             <div style={{ ...chipStyle, background: "#ecfeff", color: "#0e7490" }}>
-              Table {tableInfo.number}
+              {t("tableLabel")} {tableInfo.number}
             </div>
           )}
         </div>
@@ -309,13 +323,13 @@ export default function BlindAssistantPage() {
         <div
           style={transcriptBoxStyle}
           aria-live="polite"
-          aria-label="Voice to text transcripts"
+          aria-label={t("transcriptAria")}
         >
           {entries.length === 0 && (
             <div className="h-full flex flex-col items-center justify-center text-slate-400 text-center p-4">
-               <p className="mb-2 text-3xl">🎙️</p>
-               <p>Tap "Start Listening" and speak.</p>
-               <p className="text-sm mt-2">Your voice will be converted to text.</p>
+              <p className="mb-2 text-3xl">MIC</p>
+              <p>{t("emptyPromptLine1")}</p>
+              <p className="text-sm mt-2">{t("emptyPromptLine2")}</p>
             </div>
           )}
           {entries.map((entry) => (
@@ -338,27 +352,27 @@ export default function BlindAssistantPage() {
             onClick={handlePauseResume}
             style={{ minWidth: "160px" }}
           >
-            {listening ? "Pause Listening" : "Start Listening"}
+            {listening ? t("pauseListening") : t("startListening")}
           </button>
           <button
             className={buttonClass()}
             onClick={handleCopy}
             disabled={!entries.length}
           >
-            Copy Notes
+            {t("copyNotes")}
           </button>
           <button
             className={buttonClass()}
             onClick={handleClear}
             disabled={!entries.length}
           >
-            Clear Notes
+            {t("clearNotes")}
           </button>
         </div>
       </div>
-      
+
       <p className="text-slate-500 text-sm mt-8 text-center max-w-md">
-        This tool converts speech to text to assist with communication.
+        {t("footerNote")}
       </p>
     </div>
   );

@@ -5,6 +5,10 @@ import { FiMic, FiMicOff, FiArrowLeft, FiShoppingCart } from "react-icons/fi";
 import logo from "../assets/images/logo_new.png";
 import translations from "../data/translations/Header.json";
 import NavigationTabs from "./NavigationTabs";
+import {
+  getCurrentLanguage,
+  subscribeToLanguageChanges,
+} from "../utils/language";
 
 // CHANGE 1: Add the 'isFixed' prop with a default value of 'true'
 export default function Header({
@@ -16,9 +20,7 @@ export default function Header({
   const navigate = useNavigate();
   const location = useLocation();
 
-  const [language, setLanguage] = useState(
-    localStorage.getItem("language") || "en",
-  );
+  const [language, setLanguage] = useState(getCurrentLanguage());
   const t = translations[language];
   const [showCard, setShowCard] = useState(false);
   const [recording, setRecording] = useState(false);
@@ -36,10 +38,17 @@ export default function Header({
       setAccessibilityMode(
         localStorage.getItem("accessibilityMode") === "true",
       );
-      setLanguage(localStorage.getItem("language") || "en");
     };
+    const unsubscribeLanguage = subscribeToLanguageChanges((lang) => {
+      setLanguage(lang);
+    });
     window.addEventListener("storage", handleStorageChange);
-    return () => window.removeEventListener("storage", handleStorageChange);
+    window.addEventListener("language-change", handleStorageChange);
+    return () => {
+      unsubscribeLanguage();
+      window.removeEventListener("storage", handleStorageChange);
+      window.removeEventListener("language-change", handleStorageChange);
+    };
   }, []);
 
   const bgHeader = accessibilityMode
@@ -93,26 +102,28 @@ export default function Header({
             </button>
           )}
           <img src={logo} alt="Logo" className="h-12 object-contain" />
-          {onClickCart && (
-            <button
-              onClick={onClickCart}
-              className={`absolute right-4 p-2 rounded-full transition ${
-                accessibilityMode
-                  ? "text-white hover:text-blue-400"
-                  : "text-[#4a2e1f] hover:text-[#d86d2a]"
-              }`}
-              aria-label="View Cart"
-            >
-              <div className="relative">
-                <FiShoppingCart size={24} />
-                {cartCount > 0 && (
-                  <span className="absolute -top-1.5 -right-1.5 bg-red-600 text-white text-[10px] font-bold rounded-full h-4 w-4 flex items-center justify-center">
-                    {cartCount}
-                  </span>
-                )}
-              </div>
-            </button>
-          )}
+          <div className="absolute right-4 flex items-center gap-2">
+            {onClickCart && (
+              <button
+                onClick={onClickCart}
+                className={`p-2 rounded-full transition ${
+                  accessibilityMode
+                    ? "text-white hover:text-blue-400"
+                    : "text-[#4a2e1f] hover:text-[#d86d2a]"
+                }`}
+                aria-label="View Cart"
+              >
+                <div className="relative">
+                  <FiShoppingCart size={24} />
+                  {cartCount > 0 && (
+                    <span className="absolute -top-1.5 -right-1.5 bg-red-600 text-white text-[10px] font-bold rounded-full h-4 w-4 flex items-center justify-center">
+                      {cartCount}
+                    </span>
+                  )}
+                </div>
+              </button>
+            )}
+          </div>
         </div>
 
         {showNavigationTabs && (

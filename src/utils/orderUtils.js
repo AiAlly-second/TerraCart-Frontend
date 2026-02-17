@@ -111,6 +111,11 @@ export function buildOrderPayload(cart, options = {}) {
     totalAmount,
   };
 
+  // Include special instructions for all service types
+  if (specialInstructions && specialInstructions.trim()) {
+    payload.specialInstructions = specialInstructions.trim();
+  }
+
   // For TAKEAWAY/PICKUP/DELIVERY orders, don't include tableId, tableNumber
   if (serviceType === "DINE_IN") {
     if (tableId) payload.tableId = tableId;
@@ -143,11 +148,19 @@ export function buildOrderPayload(cart, options = {}) {
     serviceType === "DELIVERY"
   ) {
     // PICKUP/DELIVERY orders don't need table information
-    // Set serviceType and orderType
-    // CRITICAL: Only process orderType if serviceType is TAKEAWAY/PICKUP/DELIVERY, not DINE_IN
-    if (orderType === "PICKUP" || orderType === "DELIVERY") {
-      payload.serviceType = orderType === "PICKUP" ? "PICKUP" : "DELIVERY";
-      payload.orderType = orderType;
+    // Set serviceType and orderType.
+    // Fallback: if orderType is missing but serviceType is PICKUP/DELIVERY, preserve subtype from serviceType.
+    const normalizedOrderType =
+      orderType === "PICKUP" || orderType === "DELIVERY"
+        ? orderType
+        : serviceType === "PICKUP" || serviceType === "DELIVERY"
+          ? serviceType
+          : null;
+
+    if (normalizedOrderType) {
+      payload.serviceType =
+        normalizedOrderType === "PICKUP" ? "PICKUP" : "DELIVERY";
+      payload.orderType = normalizedOrderType;
     } else {
       payload.serviceType = "TAKEAWAY"; // Legacy support
     }
@@ -164,11 +177,6 @@ export function buildOrderPayload(cart, options = {}) {
         longitude: customerLocation.longitude,
         address: customerLocation.address || customerLocation.fullAddress || "",
       };
-    }
-
-    // Include special instructions
-    if (specialInstructions && specialInstructions.trim()) {
-      payload.specialInstructions = specialInstructions.trim();
     }
 
     // Include sessionToken to isolate each customer session

@@ -38,6 +38,7 @@ const getImageUrl = (imagePath) => {
 
 const SERVICE_TYPE_KEY = "terra_serviceType";
 const TABLE_SELECTION_KEY = "terra_selectedTable";
+const FEEDBACK_SUBMITTED_ORDERS_KEY = "terra_feedbackSubmittedOrders";
 const REORDER_ALLOWED_STATUSES = [
   "Pending",
   "Confirmed",
@@ -73,6 +74,47 @@ const formatMoney = (value) => {
   if (Number.isNaN(num)) return "0.00";
   return num.toFixed(2);
 };
+
+const INVOICE_EXPORT_WIDTH = 760;
+
+const getInvoiceCaptureScale = () => {
+  if (typeof window === "undefined") return 2;
+  const deviceScale = Number(window.devicePixelRatio) || 1;
+  return Math.min(Math.max(deviceScale, 1.5), 2);
+};
+
+const isIOSLikeBrowser = () => {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent || "";
+  const isiOSDevice = /iPad|iPhone|iPod/i.test(ua);
+  const isIPadOSDesktopMode =
+    navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1;
+  return isiOSDevice || isIPadOSDesktopMode;
+};
+
+const saveInvoicePdf = (pdf, fileName) => {
+  if (!isIOSLikeBrowser()) {
+    pdf.save(fileName);
+    return;
+  }
+
+  const pdfBlob = pdf.output("blob");
+  const blobUrl = URL.createObjectURL(pdfBlob);
+  const opened = window.open(blobUrl, "_blank", "noopener,noreferrer");
+
+  if (!opened) {
+    const link = document.createElement("a");
+    link.href = blobUrl;
+    link.download = fileName;
+    link.rel = "noopener";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+
+  window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+};
+
 const sanitizeAddonName = (value) => {
   const normalized = String(value || "")
     .replace(/^\(\s*\+\s*\)\s*/u, "")
@@ -228,6 +270,27 @@ const resolveOrderTimestamp = (order) => {
   return Number.isNaN(date.getTime()) ? null : date;
 };
 
+const getSubmittedFeedbackOrderIds = () => {
+  try {
+    const raw = localStorage.getItem(FEEDBACK_SUBMITTED_ORDERS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((id) => (id === null || id === undefined ? "" : String(id).trim()))
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+};
+
+const hasSubmittedFeedbackForOrder = (orderId) => {
+  if (!orderId) return false;
+  const normalizedOrderId = String(orderId).trim();
+  if (!normalizedOrderId) return false;
+  return getSubmittedFeedbackOrderIds().includes(normalizedOrderId);
+};
+
 const buildCategoriesFromFlatItems = (items) => {
   if (!Array.isArray(items) || items.length === 0) return [];
   const grouped = items.reduce((acc, item) => {
@@ -266,6 +329,20 @@ const buildCatalogFromCategories = (categories) => {
   return catalog;
 };
 
+const SPICE_LEVEL_LABELS = {
+  MILD: "Mild",
+  MEDIUM: "Medium",
+  HOT: "Hot",
+  EXTREME: "Extreme",
+};
+
+const getSpiceLevelValue = (item) => {
+  const level = String(item?.spiceLevel || "")
+    .trim()
+    .toUpperCase();
+  return SPICE_LEVEL_LABELS[level] ? level : "";
+};
+
 const TranslatedItem = ({ item, onAdd, onRemove, count, lang }) => {
   if (!item) return null;
 
@@ -289,6 +366,8 @@ const TranslatedItem = ({ item, onAdd, onRemove, count, lang }) => {
   const translatedName = staticTranslation || aiTranslation;
   const isAvailable = item.isAvailable !== false;
   const isSpecial = item?.isFeatured === true;
+  const spiceLevel = getSpiceLevelValue(item);
+  const spiceLabel = spiceLevel ? SPICE_LEVEL_LABELS[spiceLevel] : "";
 
   return (
     <motion.div
@@ -311,14 +390,27 @@ const TranslatedItem = ({ item, onAdd, onRemove, count, lang }) => {
         )}
       </div>
 
-      {/* Name and Price in Middle */}
+      {/* Name, Price and Spice in Middle */}
       <div className="item-info-section">
         <h4 className="item-name">
           {translatedName || item?.name || "Unnamed Item"}
         </h4>
-        <p className="item-price">₹{item?.price || 0}</p>
+        <div className="item-price-row">
+          <p className="item-price">{"\u20B9"}{item?.price || 0}</p>
+          {spiceLevel && (
+            <span
+              className={`item-spice-badge spice-${spiceLevel.toLowerCase()}`}
+              title={`Spice level: ${spiceLabel} Spicy`}
+            >
+              <span className="item-spice-primary">{spiceLabel}</span>
+              <span className="item-spice-secondary">Spicy</span>
+            </span>
+          )}
+        </div>
         {!isAvailable && (
-          <span className="item-status-badge unavailable">Not available</span>
+          <div className="item-meta-row">
+            <span className="item-status-badge unavailable">Not available</span>
+          </div>
         )}
       </div>
 
@@ -2286,10 +2378,21 @@ export default function MenuPage() {
       // Get order type and location for PICKUP/DELIVERY (only for non-DINE_IN orders)
       // CRITICAL: Only read orderType for TAKEAWAY/PICKUP/DELIVERY, not for DINE_IN
       // This prevents leftover orderType values from previous orders affecting DINE_IN orders
-      const orderType =
+      const storedOrderType =
         serviceType !== "DINE_IN"
           ? localStorage.getItem("terra_orderType") || null
           : null; // PICKUP or DELIVERY (only for non-DINE_IN)
+      const isPickupOrDeliveryServiceType =
+        serviceType === "PICKUP" || serviceType === "DELIVERY";
+      // Robust fallback: preserve subtype from serviceType if localStorage orderType is missing.
+      const effectiveOrderType =
+        storedOrderType === "PICKUP" || storedOrderType === "DELIVERY"
+          ? storedOrderType
+          : isPickupOrDeliveryServiceType
+            ? serviceType
+            : null;
+      const isTakeawayServiceMode =
+        serviceType === "TAKEAWAY" || isPickupOrDeliveryServiceType;
       const customerLocationStr =
         serviceType !== "DINE_IN"
           ? localStorage.getItem("terra_customerLocation")
@@ -2311,9 +2414,9 @@ export default function MenuPage() {
       // CRITICAL: Check for both serviceType === "TAKEAWAY" AND orderType === "PICKUP"/"DELIVERY"
       // CRITICAL: For DINE_IN orders, isTakeawayType should always be false
       const isTakeawayType =
-        serviceType === "TAKEAWAY" ||
-        orderType === "PICKUP" ||
-        orderType === "DELIVERY";
+        isTakeawayServiceMode ||
+        effectiveOrderType === "PICKUP" ||
+        effectiveOrderType === "DELIVERY";
       const storedCustomerName = isTakeawayType
         ? localStorage.getItem("terra_takeaway_customerName") ||
           localStorage.getItem("terra_customerName") ||
@@ -2334,7 +2437,7 @@ export default function MenuPage() {
       // 1) Prefer explicit cartId from takeaway QR (terra_takeaway_cartId)
       // 2) Fallback to cartId/cafeId from table selection if available
       let cartId = null;
-      if (serviceType === "TAKEAWAY") {
+      if (isTakeawayServiceMode) {
         const qrCartId = localStorage.getItem("terra_takeaway_cartId");
         if (qrCartId) {
           cartId = qrCartId;
@@ -2373,7 +2476,7 @@ export default function MenuPage() {
       // Get sessionToken from localStorage - unified approach for both table QR and takeaway-only QR
       // CRITICAL: Both takeaway flows (table QR and takeaway-only QR) must use the same sessionToken logic
       let finalSessionToken = null;
-      if (serviceType === "TAKEAWAY") {
+      if (isTakeawayServiceMode) {
         // For TAKEAWAY: Always use takeaway-specific sessionToken (works for both table QR and takeaway-only QR)
         // This ensures both flows work identically - same sessionToken generation and usage
         finalSessionToken = localStorage.getItem("terra_takeaway_sessionToken");
@@ -2468,16 +2571,16 @@ export default function MenuPage() {
         .filter(Boolean);
 
       const orderPayload = buildOrderPayload(cartRef.current, {
-        serviceType: orderType
-          ? orderType === "PICKUP"
+        serviceType: effectiveOrderType
+          ? effectiveOrderType === "PICKUP"
             ? "PICKUP"
             : "DELIVERY"
           : serviceType,
         // CRITICAL: Only pass orderType if it's actually PICKUP or DELIVERY
         // For regular TAKEAWAY orders, orderType should be undefined to prevent validation errors
         orderType:
-          orderType === "PICKUP" || orderType === "DELIVERY"
-            ? orderType
+          effectiveOrderType === "PICKUP" || effectiveOrderType === "DELIVERY"
+            ? effectiveOrderType
             : undefined,
         tableId:
           refreshedTableInfo?.id ||
@@ -2507,7 +2610,7 @@ export default function MenuPage() {
             : undefined,
         // Include cartId for takeaway/pickup/delivery orders
         cartId:
-          serviceType === "TAKEAWAY" || orderType
+          isTakeawayType || effectiveOrderType
             ? selectedCartId || cartId
             : undefined,
         // Include customer location for PICKUP/DELIVERY
@@ -2876,7 +2979,7 @@ export default function MenuPage() {
 
       // Persist & clear cart
       // CRITICAL: Store order ID in service-type-specific keys ONLY to prevent mixing TAKEAWAY and DINE_IN orders
-      if (serviceType === "TAKEAWAY") {
+      if (isTakeawayServiceMode) {
         // For TAKEAWAY: Only set takeaway-specific key, do NOT set generic terra_orderId
         localStorage.setItem("terra_orderId_TAKEAWAY", data._id);
         // Clear any DINE_IN order data to prevent confusion
@@ -2917,7 +3020,7 @@ export default function MenuPage() {
       setCurrentOrderDetail(data);
 
       // Store status in service-type-specific keys
-      if (serviceType === "TAKEAWAY") {
+      if (isTakeawayServiceMode) {
         localStorage.setItem(
           "terra_orderStatus_TAKEAWAY",
           data.status || "Confirmed",
@@ -2962,7 +3065,7 @@ export default function MenuPage() {
               ? localStorage.getItem("terra_orderId_DINE_IN")
               : null,
           takeaway:
-            serviceType === "TAKEAWAY"
+            isTakeawayServiceMode
               ? localStorage.getItem("terra_orderId_TAKEAWAY")
               : null,
         },
@@ -3723,18 +3826,51 @@ export default function MenuPage() {
         setCancelling(false);
       } else if (reasonAction === "Return") {
         setReturning(true);
-        const sessionToken = localStorage.getItem("terra_sessionToken");
+        const orderId =
+          serviceType === "TAKEAWAY"
+            ? activeOrderId ||
+              localStorage.getItem("terra_orderId_TAKEAWAY") ||
+              localStorage.getItem("terra_orderId")
+            : activeOrderId || localStorage.getItem("terra_orderId");
+
+        let sessionToken = null;
+        if (serviceType === "TAKEAWAY") {
+          sessionToken =
+            localStorage.getItem("terra_takeaway_sessionToken") ||
+            localStorage.getItem("terra_sessionToken");
+
+          if (!sessionToken && orderId) {
+            try {
+              const orderRes = await fetch(`${nodeApi}/api/orders/${orderId}`);
+              if (orderRes.ok) {
+                const orderData = await orderRes.json();
+                if (orderData?.sessionToken) {
+                  sessionToken = orderData.sessionToken;
+                  localStorage.setItem(
+                    "terra_takeaway_sessionToken",
+                    sessionToken,
+                  );
+                }
+              }
+            } catch (err) {
+              console.warn(
+                "[Menu] Failed to fetch order to get sessionToken for return:",
+                err,
+              );
+            }
+          }
+        } else {
+          sessionToken = localStorage.getItem("terra_sessionToken");
+        }
+
         const res = await fetch(
-          `${nodeApi}/api/orders/${activeOrderId}/customer-status`,
+          `${nodeApi}/api/orders/${orderId}/customer-status`,
           {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               status: "Returned",
-              sessionToken:
-                serviceType === "DINE_IN"
-                  ? sessionToken || undefined
-                  : undefined,
+              sessionToken: sessionToken || undefined,
               reason: reasonText,
             }),
           },
@@ -4057,13 +4193,58 @@ export default function MenuPage() {
   const handleDownloadInvoice = useCallback(async () => {
     if (!invoiceRef.current || !invoiceOrder || downloadingInvoice) return;
     setDownloadingInvoice(true);
+    let exportContainer = null;
     try {
-      const canvas = await html2canvas(invoiceRef.current, {
-        scale: window.devicePixelRatio || 2,
+      exportContainer = document.createElement("div");
+      exportContainer.style.position = "fixed";
+      exportContainer.style.left = "-10000px";
+      exportContainer.style.top = "0";
+      exportContainer.style.width = `${INVOICE_EXPORT_WIDTH}px`;
+      exportContainer.style.background = "#ffffff";
+      exportContainer.style.padding = "0";
+      exportContainer.style.margin = "0";
+      exportContainer.style.pointerEvents = "none";
+      exportContainer.style.opacity = "0";
+      exportContainer.style.zIndex = "-1";
+
+      const exportInvoiceNode = invoiceRef.current.cloneNode(true);
+      exportInvoiceNode.style.width = "100%";
+      exportInvoiceNode.style.maxWidth = "100%";
+      exportInvoiceNode.style.margin = "0";
+      exportInvoiceNode.style.borderRadius = "0";
+      exportInvoiceNode.style.boxShadow = "none";
+
+      exportContainer.appendChild(exportInvoiceNode);
+      document.body.appendChild(exportContainer);
+
+      await new Promise((resolve) => {
+        window.requestAnimationFrame(() => resolve());
+      });
+
+      const captureWidth =
+        exportInvoiceNode.scrollWidth ||
+        exportContainer.scrollWidth ||
+        INVOICE_EXPORT_WIDTH;
+      const captureHeight = Math.max(
+        exportInvoiceNode.scrollHeight || exportContainer.scrollHeight || 1,
+        1,
+      );
+
+      const canvas = await html2canvas(exportInvoiceNode, {
+        scale: getInvoiceCaptureScale(),
         useCORS: true,
+        logging: false,
         backgroundColor: "#ffffff",
+        scrollX: 0,
+        scrollY: 0,
+        windowWidth: captureWidth,
+        windowHeight: captureHeight,
+        width: captureWidth,
+        height: captureHeight,
         onclone: (clonedDoc) => {
-          const allElements = clonedDoc.querySelectorAll("*");
+          const allElements = clonedDoc.querySelectorAll(
+            ".invoice-preview, .invoice-preview *",
+          );
           allElements.forEach((el) => {
             const computedStyle = window.getComputedStyle(el);
             ["color", "backgroundColor", "borderColor"].forEach((prop) => {
@@ -4108,11 +4289,14 @@ export default function MenuPage() {
         heightLeft -= pdfHeight - margin * 2;
       }
 
-      pdf.save(`${invoiceId || "invoice"}.pdf`);
+      saveInvoicePdf(pdf, `${invoiceId || "invoice"}.pdf`);
     } catch (err) {
       console.error("Invoice download failed", err);
       alert("Failed to generate invoice PDF. Please try again.");
     } finally {
+      if (exportContainer && document.body.contains(exportContainer)) {
+        document.body.removeChild(exportContainer);
+      }
       setDownloadingInvoice(false);
     }
   }, [invoiceId, invoiceOrder, downloadingInvoice]);
@@ -5633,14 +5817,17 @@ export default function MenuPage() {
                       }
                       // For paid/completed orders: show Share Feedback
                       if (["paid", "completed"].includes(statusLower)) {
+                        const orderId =
+                          activeOrderId ||
+                          localStorage.getItem("terra_orderId") ||
+                          localStorage.getItem("terra_lastPaidOrderId");
+                        if (hasSubmittedFeedbackForOrder(orderId)) {
+                          return null;
+                        }
                         return (
                           <button
                             className="feedback-button"
                             onClick={() => {
-                              const orderId =
-                                activeOrderId ||
-                                localStorage.getItem("terra_orderId") ||
-                                localStorage.getItem("terra_lastPaidOrderId");
                               navigate("/feedback", { state: { orderId } });
                             }}
                           >
@@ -5754,7 +5941,8 @@ export default function MenuPage() {
                       View Invoice
                     </button>
                     {/* Always allow feedback for last order, regardless of final status */}
-                    {previousOrderDetail._id && (
+                    {previousOrderDetail._id &&
+                      !hasSubmittedFeedbackForOrder(previousOrderDetail._id) && (
                       <button
                         className="feedback-button w-full sm:w-auto"
                         onClick={() => {

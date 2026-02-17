@@ -9,6 +9,11 @@ import { postWithRetry } from "../utils/fetchWithTimeout";
 import ProcessOverlay from "../components/ProcessOverlay";
 import restaurantBg from "../assets/images/restaurant-img.jpg"; // reuse if needed or use transparent
 import { io } from "socket.io-client"; // Actually, we probably don't need socket here if we just POST
+import cartTranslations from "../data/translations/cartPage.json";
+import {
+  getCurrentLanguage,
+  subscribeToLanguageChanges,
+} from "../utils/language";
 // But let's keep imports minimal
 
 const nodeApi = (
@@ -127,6 +132,16 @@ async function getCartId(searchParams) {
 export default function CartPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const [language, setLanguage] = useState(getCurrentLanguage());
+  const t = (key) =>
+    cartTranslations[language]?.[key] || cartTranslations.en?.[key] || key;
+  const formatText = (key, params = {}) => {
+    let message = t(key);
+    Object.entries(params).forEach(([token, value]) => {
+      message = message.replace(new RegExp(`\\{${token}\\}`, "g"), String(value));
+    });
+    return message;
+  };
   const [cart, setCart] = useState({});
   const [menuCatalog, setMenuCatalog] = useState(
     fallbackMenuItems.map((i) => ({ ...i, price: i.price * 100 })) || [],
@@ -141,12 +156,12 @@ export default function CartPage() {
   const [cartId, setCartId] = useState(""); // Current cart id – add-ons are scoped per cart
 
   // Process Overlay State
-  const initialProcessSteps = [
-    { label: "Checking your order", state: "pending" },
-    { label: "Confirming items & price", state: "pending" },
-    { label: "Placing your order", state: "pending" },
-    { label: "Sending to kitchen", state: "pending" },
-    { label: "Preparing order details", state: "pending" },
+  const initialProcessSteps = () => [
+    { label: t("stepCheckingOrder"), state: "pending" },
+    { label: t("stepConfirmingItems"), state: "pending" },
+    { label: t("stepPlacingOrder"), state: "pending" },
+    { label: t("stepSendingKitchen"), state: "pending" },
+    { label: t("stepPreparingDetails"), state: "pending" },
   ];
   const [processOpen, setProcessOpen] = useState(false);
   const [processSteps, setProcessSteps] = useState(initialProcessSteps);
@@ -164,6 +179,18 @@ export default function CartPage() {
     kitchen: 1500,
     error: 2000,
   };
+
+  useEffect(() => {
+    const unsubscribe = subscribeToLanguageChanges((lang) => {
+      setLanguage(lang);
+    });
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    setProcessSteps(initialProcessSteps());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [language]);
 
   useEffect(() => {
     // Load Cart (add-ons are loaded below, scoped by cartId)
@@ -373,7 +400,7 @@ export default function CartPage() {
   };
 
   const handleReset = () => {
-    if (window.confirm("Clear cart?")) {
+    if (window.confirm(t("clearCartConfirm"))) {
       updateCart({});
       setSelectedAddOns([]);
       clearAddonsForCart();
@@ -381,13 +408,13 @@ export default function CartPage() {
   };
 
   const handleConfirm = async () => {
-    if (Object.keys(cart).length === 0) return alert("Cart is empty");
+    if (Object.keys(cart).length === 0) return alert(t("cartEmpty"));
 
     saveAddonsForCart(selectedAddOns);
 
     // Reset Steps
     setProcessSteps(
-      initialProcessSteps.map((s) => ({ ...s, state: "pending" })),
+      initialProcessSteps().map((step) => ({ ...step, state: "pending" })),
     );
     setProcessOpen(true);
 
@@ -409,17 +436,28 @@ export default function CartPage() {
       // --- AGGREGATE ORDER CONTEXT ---
       const serviceType =
         localStorage.getItem("terra_serviceType") || "DINE_IN";
+      const storedOrderType = localStorage.getItem("terra_orderType");
+      const isPickupOrDeliveryServiceType =
+        serviceType === "PICKUP" || serviceType === "DELIVERY";
+      const effectiveOrderType =
+        storedOrderType === "PICKUP" || storedOrderType === "DELIVERY"
+          ? storedOrderType
+          : isPickupOrDeliveryServiceType
+            ? serviceType
+            : undefined;
+      const isTakeawayLike =
+        serviceType === "TAKEAWAY" || isPickupOrDeliveryServiceType;
       const tableInfo = JSON.parse(
         localStorage.getItem("terra_selectedTable") || "{}",
       );
       const activeOrderId =
-        serviceType === "TAKEAWAY"
+        isTakeawayLike
           ? localStorage.getItem("terra_orderId_TAKEAWAY")
           : localStorage.getItem("terra_orderId_DINE_IN") ||
             localStorage.getItem("terra_orderId");
 
       let sessionToken = "";
-      if (serviceType === "TAKEAWAY") {
+      if (isTakeawayLike) {
         sessionToken = localStorage.getItem("terra_takeaway_sessionToken");
         if (!sessionToken) {
           sessionToken = `TAKEAWAY-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -439,6 +477,22 @@ export default function CartPage() {
         }
       }
 
+      let customerLocation = null;
+      const customerLocationStr = isTakeawayLike
+        ? localStorage.getItem("terra_customerLocation")
+        : null;
+      if (customerLocationStr) {
+        try {
+          customerLocation = JSON.parse(customerLocationStr);
+        } catch (parseError) {
+          console.warn(
+            "[CartPage] Failed to parse terra_customerLocation:",
+            parseError,
+          );
+          customerLocation = null;
+        }
+      }
+
       // Prepare Add-ons
       const globalAddons = JSON.parse(
         localStorage.getItem("terra_global_addons") || "[]",
@@ -455,33 +509,82 @@ export default function CartPage() {
 
       // CartId
       const cartId = await getCartId(searchParams);
+      const effectiveSpecialInstructions =
+        specialInstructions?.trim() ||
+        localStorage.getItem("terra_specialInstructions") ||
+        "";
 
       const orderPayload = buildOrderPayload(cart, {
-        serviceType: serviceType,
+        serviceType:
+          effectiveOrderType === "PICKUP" || effectiveOrderType === "DELIVERY"
+            ? effectiveOrderType
+            : serviceType,
+        orderType:
+          effectiveOrderType === "PICKUP" || effectiveOrderType === "DELIVERY"
+            ? effectiveOrderType
+            : undefined,
         tableId: tableInfo.id || tableInfo._id,
         tableNumber: tableInfo.number || tableInfo.tableNumber,
         menuCatalog,
         sessionToken: sessionToken,
-        // Optional fields for Takeaway/Pickup (limited support on CartPage simple flow)
+        // Customer fields (required for PICKUP/DELIVERY)
         customerName:
           localStorage.getItem("terra_takeaway_customerName") ||
           localStorage.getItem("terra_customerName"),
         customerMobile:
           localStorage.getItem("terra_takeaway_customerMobile") ||
           localStorage.getItem("terra_customerMobile"),
+        customerLocation: customerLocation,
         cartId: cartId,
-        specialInstructions: specialInstructions,
+        specialInstructions: effectiveSpecialInstructions,
         selectedAddons: resolvedAddons,
       });
 
       // Simple Validation
       if (!orderPayload.items || orderPayload.items.length === 0) {
-        throw new Error("Cart is empty or invalid items.");
+        throw new Error(t("cartInvalidItems"));
+      }
+
+      const isPickupOrDeliveryOrder =
+        orderPayload.serviceType === "PICKUP" ||
+        orderPayload.serviceType === "DELIVERY" ||
+        orderPayload.orderType === "PICKUP" ||
+        orderPayload.orderType === "DELIVERY";
+      const isDeliveryOrder =
+        orderPayload.serviceType === "DELIVERY" ||
+        orderPayload.orderType === "DELIVERY";
+
+      if (isPickupOrDeliveryOrder) {
+        if (!orderPayload.customerName || !orderPayload.customerName.trim()) {
+          throw new Error(t("customerNameRequired"));
+        }
+        if (
+          !orderPayload.customerMobile ||
+          !orderPayload.customerMobile.trim()
+        ) {
+          throw new Error(t("customerMobileRequired"));
+        }
+        if (!orderPayload.cartId) {
+          throw new Error(t("storeSelectionMissing"));
+        }
+      }
+
+      if (isDeliveryOrder) {
+        const lat = Number(orderPayload?.customerLocation?.latitude);
+        const lon = Number(orderPayload?.customerLocation?.longitude);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+          throw new Error(t("deliveryLocationMissing"));
+        }
+        orderPayload.customerLocation = {
+          ...orderPayload.customerLocation,
+          latitude: lat,
+          longitude: lon,
+        };
       }
 
       // Check if existing order is finalized/paid - if so, start new order
       const activeOrderStatus =
-        serviceType === "TAKEAWAY"
+        isTakeawayLike
           ? localStorage.getItem("terra_orderStatus_TAKEAWAY")
           : localStorage.getItem("terra_orderStatus_DINE_IN") ||
             localStorage.getItem("terra_orderStatus");
@@ -525,7 +628,7 @@ export default function CartPage() {
       }
 
       if (!res.ok) {
-        const msg = data.message || data.error || "Failed to create order";
+        const msg = data.message || data.error || t("failedCreateOrder");
         throw new Error(msg);
       }
 
@@ -539,7 +642,7 @@ export default function CartPage() {
 
       // Update LocalStorage to reflect new order state for Menu.jsx
       if (data._id) {
-        if (serviceType === "TAKEAWAY") {
+        if (isTakeawayLike) {
           localStorage.setItem("terra_orderId_TAKEAWAY", data._id);
           localStorage.setItem(
             "terra_orderStatus_TAKEAWAY",
@@ -577,7 +680,7 @@ export default function CartPage() {
       console.error("Order processing failed:", err);
       setStepState(2, "error");
       await wait(DUR.error);
-      alert(`❌ ${err.message}`);
+      alert(`${t("errorPrefix")} ${err.message}`);
       setProcessOpen(false);
     }
   };
@@ -640,24 +743,22 @@ export default function CartPage() {
           <button onClick={() => navigate("/menu")} className="back-btn">
             <FiArrowLeft size={24} />
           </button>
-          <h2>Your Cart</h2>
+          <h2>{t("yourCart")}</h2>
         </div>
 
         <div className="cart-list">
           {cartItemsParams.length === 0 ? (
             <div className="empty-msg">
-              Your cart is empty. <br />
+              {t("cartEmptyMessage")} <br />
               <span
                 onClick={() => navigate("/menu")}
                 style={{ color: "#fc8019", cursor: "pointer" }}
               >
-                Go to Menu
+                {t("goToMenu")}
               </span>
               {selectedAddOns.length > 0 && (
                 <div style={{ marginTop: "10px", color: "#888", fontSize: 12 }}>
-                  Add-ons are extras and can only be ordered with at least one
-                  menu item. Please add an item from the menu to place the
-                  order.
+                  {t("addonsRequireMenuItem")}
                 </div>
               )}
             </div>
@@ -705,15 +806,15 @@ export default function CartPage() {
           <div className="cart-footer">
             <div className="cart-footer-content">
               <div className="total-row final-total-row">
-                <span>Total</span>
+                <span>{t("total")}</span>
                 <span>₹{finalTotal.toFixed(2)}</span>
               </div>
               <div className="action-buttons">
                 <button onClick={handleReset} className="reset-btn">
-                  Reset
+                  {t("reset")}
                 </button>
                 <button onClick={handleConfirm} className="confirm-btn">
-                  Confirm Order
+                  {t("confirmOrder")}
                 </button>
               </div>
             </div>
@@ -722,7 +823,7 @@ export default function CartPage() {
 
         {/* Keep add-ons visible even if cart is empty (user may want to add/remove add-ons first). */}
         <div className="addons-section">
-          <h3>Customizations & Extras</h3>
+          <h3>{t("customizationsExtras")}</h3>
           {addonsLoading ? (
             <div
               style={{
@@ -731,7 +832,7 @@ export default function CartPage() {
                 color: "#666",
               }}
             >
-              Loading add-ons...
+              {t("loadingAddons")}
             </div>
           ) : addonList.length === 0 ? (
             <div
@@ -742,7 +843,7 @@ export default function CartPage() {
                 fontSize: "14px",
               }}
             >
-              No add-ons available
+              {t("noAddonsAvailable")}
             </div>
           ) : (
             <div className="addons-grid">
@@ -767,7 +868,9 @@ export default function CartPage() {
                         className="addon-ctrl-btn"
                         onClick={() => removeAddOn(addon.id)}
                         disabled={qty === 0}
-                        aria-label={`Remove one ${sanitizeAddonName(addon.name)}`}
+                        aria-label={formatText("removeAddonAria", {
+                          name: sanitizeAddonName(addon.name),
+                        })}
                       >
                         {qty === 1 ? (
                           <FiTrash2 size={16} />
@@ -780,7 +883,9 @@ export default function CartPage() {
                         type="button"
                         className="addon-ctrl-btn"
                         onClick={() => addAddOn(addon.id)}
-                        aria-label={`Add one ${sanitizeAddonName(addon.name)}`}
+                        aria-label={formatText("addAddonAria", {
+                          name: sanitizeAddonName(addon.name),
+                        })}
                       >
                         <FiPlus size={18} />
                       </button>
@@ -803,10 +908,10 @@ export default function CartPage() {
               color: "#333",
             }}
           >
-            Special Instructions / Extra Items
+            {t("specialInstructionsTitle")}
           </h3>
           <textarea
-            placeholder="Type any extra requirements or items here..."
+            placeholder={t("specialInstructionsPlaceholder")}
             value={specialInstructions}
             onChange={(e) => {
               setSpecialInstructions(e.target.value);
@@ -828,8 +933,9 @@ export default function CartPage() {
       <ProcessOverlay
         open={processOpen}
         steps={processSteps}
-        title="Processing your order"
+        title={t("processOrderTitle")}
       />
     </div>
   );
 }
+

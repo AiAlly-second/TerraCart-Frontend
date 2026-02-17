@@ -11,6 +11,95 @@ const nodeApi = (
   import.meta.env.VITE_NODE_API_URL || "http://localhost:5001"
 ).replace(/\/$/, "");
 
+const extractUpiIdFromPayload = (payload) => {
+  if (!payload || typeof payload !== "string") return "";
+  const match = payload.match(/[?&]pa=([^&]+)/i);
+  return match ? decodeURIComponent(match[1]) : "";
+};
+
+const parseAmountCandidates = (text) => {
+  if (!text) return [];
+  const matches = text.match(/\d+(?:[.,]\d{1,2})?/g) || [];
+  const values = matches
+    .map((value) => Number(value.replace(/,/g, "")))
+    .filter((value) => Number.isFinite(value) && value > 0 && value < 1000000);
+  return [...new Set(values)];
+};
+
+const extractReferenceId = (text) => {
+  if (!text) return "";
+  const patterns = [
+    /utr[\s:.-]*([a-z0-9]{8,})/i,
+    /upi[\s]*(?:ref(?:erence)?|id)?[\s:.-]*([a-z0-9]{8,})/i,
+    /txn[\s]*(?:id|no|number)?[\s:.-]*([a-z0-9]{8,})/i,
+    /ref(?:erence)?[\s]*(?:id|no|number)?[\s:.-]*([a-z0-9]{8,})/i,
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) return match[1].toUpperCase();
+  }
+
+  const longDigit = text.match(/\b\d{10,18}\b/);
+  return longDigit ? longDigit[0] : "";
+};
+
+const validateReceiptText = ({ rawText, amount, upiId, orderId }) => {
+  const normalizedText = String(rawText || "").toLowerCase();
+  const expectedAmount = Number(amount || 0);
+  const amountCandidates = parseAmountCandidates(normalizedText);
+  const amountMatch = amountCandidates.find(
+    (candidate) => Math.abs(candidate - expectedAmount) <= 1
+  );
+
+  const successKeywords = [
+    "success",
+    "successful",
+    "paid",
+    "completed",
+    "debited",
+    "credited",
+    "transaction",
+    "upi",
+  ];
+  const failureKeywords = ["failed", "failure", "reversed", "declined", "pending"];
+
+  const successCount = successKeywords.reduce(
+    (count, keyword) => count + (normalizedText.includes(keyword) ? 1 : 0),
+    0
+  );
+  const hasFailureKeyword = failureKeywords.some((keyword) =>
+    normalizedText.includes(keyword)
+  );
+
+  const expectedUpiId = String(upiId || "").trim().toLowerCase();
+  const upiMatched =
+    expectedUpiId.length > 0 && normalizedText.includes(expectedUpiId);
+
+  const referenceId = extractReferenceId(normalizedText);
+  const orderTail = String(orderId || "").slice(-5).toLowerCase();
+  const orderHintMatched =
+    orderTail.length >= 4 ? normalizedText.includes(orderTail) : false;
+
+  let score = 0;
+  if (amountMatch) score += 2;
+  if (referenceId) score += 1;
+  if (upiMatched) score += 1;
+  if (successCount > 0) score += 1;
+  if (orderHintMatched) score += 1;
+  if (hasFailureKeyword) score -= 2;
+
+  return {
+    amountMatched: Boolean(amountMatch),
+    detectedAmount: amountMatch || null,
+    referenceId,
+    upiMatched,
+    successCount,
+    hasFailureKeyword,
+    orderHintMatched,
+    isValid: Boolean(amountMatch) && score >= 3 && !hasFailureKeyword,
+  };
+};
+
 export default function Payment() {
   const navigate = useNavigate();
   const [creating, setCreating] = useState(false);
@@ -23,6 +112,11 @@ export default function Payment() {
   );
   // Track if we've already handled payment completion to prevent re-render loops
   const [hasHandledPayment, setHasHandledPayment] = useState(false);
+  const [receiptFile, setReceiptFile] = useState(null);
+  const [receiptPreview, setReceiptPreview] = useState("");
+  const [ocrLoading, setOcrLoading] = useState(false);
+  const [ocrError, setOcrError] = useState("");
+  const [ocrResult, setOcrResult] = useState(null);
 
   // Memoize language and translation function to prevent re-renders
   const language = useMemo(
@@ -53,6 +147,10 @@ export default function Payment() {
       payment.status &&
       ["PENDING", "PROCESSING", "CASH_PENDING"].includes(payment.status),
     [payment]
+  );
+  const expectedUpiId = useMemo(
+    () => uploadedQR?.upiId || extractUpiIdFromPayload(payment?.upiPayload),
+    [uploadedQR?.upiId, payment?.upiPayload]
   );
 
   const fetchLatestPayment = useCallback(async () => {
@@ -87,9 +185,39 @@ export default function Payment() {
     }
   }, [orderId]);
 
+  const resolveCartScopeId = useCallback(() => {
+    const selectedCartId = localStorage.getItem("terra_selectedCartId");
+    if (selectedCartId) return selectedCartId;
+
+    const takeawayCartId = localStorage.getItem("terra_takeaway_cartId");
+    if (takeawayCartId) return takeawayCartId;
+
+    const selectedTableRaw =
+      localStorage.getItem("terra_selectedTable") ||
+      localStorage.getItem("tableSelection");
+    if (selectedTableRaw) {
+      try {
+        const selectedTable = JSON.parse(selectedTableRaw);
+        return selectedTable?.cartId || selectedTable?.cafeId || null;
+      } catch (_err) {
+        return null;
+      }
+    }
+
+    return null;
+  }, []);
+
   const fetchUploadedQR = useCallback(async () => {
     try {
-      const res = await fetch(`${nodeApi}/api/payment-qr/active`);
+      const queryParams = new URLSearchParams();
+      if (orderId) queryParams.set("orderId", orderId);
+      const cartScopeId = resolveCartScopeId();
+      if (cartScopeId) queryParams.set("cartId", cartScopeId);
+      const activeQrUrl = `${nodeApi}/api/payment-qr/active${
+        queryParams.toString() ? `?${queryParams.toString()}` : ""
+      }`;
+
+      const res = await fetch(activeQrUrl);
       // Handle both 200 (with null) and 404 gracefully - both mean no QR code exists yet
       if (res.status === 404) {
         setUploadedQR(null);
@@ -106,7 +234,7 @@ export default function Payment() {
       // Silently handle expected "not found" scenarios - no uploaded QR is okay
       setUploadedQR(null);
     }
-  }, []);
+  }, [orderId, resolveCartScopeId]);
 
   const handleCompleteAndRedirect = useCallback(() => {
     // Prevent multiple calls
@@ -199,6 +327,21 @@ export default function Payment() {
     }
   }, [payment?.status, handleCompleteAndRedirect, hasHandledPayment]);
 
+  useEffect(() => {
+    return () => {
+      if (receiptPreview) {
+        URL.revokeObjectURL(receiptPreview);
+      }
+    };
+  }, [receiptPreview]);
+
+  useEffect(() => {
+    setReceiptFile(null);
+    setReceiptPreview("");
+    setOcrError("");
+    setOcrResult(null);
+  }, [payment?.id]);
+
   const createPaymentIntent = async (method) => {
     if (!orderId) return;
     setCreating(true);
@@ -249,6 +392,60 @@ export default function Payment() {
     }
   };
 
+  const handleReceiptFileChange = (event) => {
+    const file = event.target.files?.[0] || null;
+    if (receiptPreview) {
+      URL.revokeObjectURL(receiptPreview);
+    }
+    setReceiptFile(file);
+    setOcrResult(null);
+    setOcrError("");
+    if (!file) {
+      setReceiptPreview("");
+      return;
+    }
+    setReceiptPreview(URL.createObjectURL(file));
+  };
+
+  const handleScanReceipt = async () => {
+    if (!receiptFile || !payment) {
+      setOcrError("Please upload a receipt image first.");
+      return;
+    }
+
+    setOcrLoading(true);
+    setOcrError("");
+    try {
+      const Tesseract = await import("tesseract.js");
+      const result = await Tesseract.recognize(receiptFile, "eng", {
+        logger: () => {},
+      });
+      const rawText = String(result?.data?.text || "").trim();
+      if (!rawText) {
+        throw new Error("No readable text found in receipt image.");
+      }
+
+      const validation = validateReceiptText({
+        rawText,
+        amount: payment.amount,
+        upiId: expectedUpiId,
+        orderId,
+      });
+      setOcrResult({
+        ...validation,
+        rawText,
+      });
+    } catch (err) {
+      setOcrResult(null);
+      setOcrError(
+        err?.message ||
+          "Could not scan receipt. Please upload a clear screenshot."
+      );
+    } finally {
+      setOcrLoading(false);
+    }
+  };
+
   const renderPaymentStatus = () => {
     if (!payment) return null;
 
@@ -287,6 +484,9 @@ export default function Payment() {
     const showOnline = payment?.method === "ONLINE";
     const showCash =
       payment?.method === "CASH" || payment?.status === "CASH_PENDING";
+    const shouldShowQrSection = showOnline || showCash;
+    const hasUploadedQr = Boolean(uploadedQR?.qrImageUrl);
+    const hasGeneratedUpiQr = Boolean(payment?.upiPayload);
 
     return (
       <div className="payment-status-card">
@@ -297,10 +497,10 @@ export default function Payment() {
           {showCash ? t("cashInstructions") : t("onlineInstructions")}
         </p>
 
-        {showOnline && (
+        {shouldShowQrSection && (hasUploadedQr || hasGeneratedUpiQr) && (
           <div className="payment-qr-wrapper">
-            {uploadedQR ? (
-              // Show uploaded QR code image
+            {hasUploadedQr ? (
+              // Show QR code uploaded from cart admin payment panel
               <>
                 <img
                   src={`${nodeApi}${uploadedQR.qrImageUrl}`}
@@ -317,7 +517,7 @@ export default function Payment() {
                     UPI ID: <strong>{uploadedQR.upiId}</strong>
                   </p>
                 )}
-                {payment?.upiPayload && (
+                {showOnline && payment?.upiPayload && (
                   <>
                     <textarea
                       className="payment-qr-text"
@@ -337,8 +537,8 @@ export default function Payment() {
                   </>
                 )}
               </>
-            ) : payment?.upiPayload ? (
-              // Fallback to generated QR code from UPI payload
+            ) : showOnline && payment?.upiPayload ? (
+              // Fallback to generated QR code from UPI payload for online method
               <>
                 <QRCode value={payment.upiPayload} size={180} />
                 <textarea
@@ -358,6 +558,83 @@ export default function Payment() {
                 </button>
               </>
             ) : null}
+          </div>
+        )}
+
+        {showOnline && (
+          <div className="receipt-ocr-wrapper">
+            <p className="receipt-ocr-title">Receipt Validation (OCR)</p>
+            <p className="receipt-ocr-subtitle">
+              Upload your UPI payment receipt screenshot to auto-check if it
+              looks valid.
+            </p>
+
+            <input
+              type="file"
+              accept="image/*"
+              onChange={handleReceiptFileChange}
+              className="receipt-file-input"
+            />
+
+            {receiptPreview && (
+              <img
+                src={receiptPreview}
+                alt="Uploaded receipt preview"
+                className="receipt-preview-image"
+              />
+            )}
+
+            <button
+              type="button"
+              onClick={handleScanReceipt}
+              disabled={!receiptFile || ocrLoading}
+              className={`payment-button secondary ${
+                !receiptFile || ocrLoading ? "disabled" : ""
+              }`}
+            >
+              {ocrLoading ? "Scanning receipt..." : "Scan receipt"}
+            </button>
+
+            {ocrError && <p className="receipt-ocr-error">{ocrError}</p>}
+
+            {ocrResult && (
+              <div
+                className={`receipt-ocr-result ${
+                  ocrResult.isValid ? "valid" : "review"
+                }`}
+              >
+                <p className="receipt-ocr-result-title">
+                  {ocrResult.isValid
+                    ? "Receipt looks valid"
+                    : "Receipt needs manual review"}
+                </p>
+                <div className="receipt-ocr-checks">
+                  <p>
+                    Amount match:{" "}
+                    <strong>
+                      {ocrResult.amountMatched
+                        ? `Yes (Rs ${Number(
+                            ocrResult.detectedAmount || 0
+                          ).toFixed(2)})`
+                        : "No"}
+                    </strong>
+                  </p>
+                  <p>
+                    Transaction reference:{" "}
+                    <strong>{ocrResult.referenceId || "Not found"}</strong>
+                  </p>
+                  <p>
+                    UPI ID match:{" "}
+                    <strong>{ocrResult.upiMatched ? "Yes" : "No"}</strong>
+                  </p>
+                </div>
+
+                <details className="receipt-ocr-text-block">
+                  <summary>View extracted text</summary>
+                  <pre>{ocrResult.rawText}</pre>
+                </details>
+              </div>
+            )}
           </div>
         )}
 

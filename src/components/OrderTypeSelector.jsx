@@ -29,6 +29,29 @@ const OrderTypeSelector = ({
     return resolvedName || "Store";
   };
 
+  const isPickupEnabled = (cart) => {
+    if (typeof cart?.pickupEnabled === "boolean") return cart.pickupEnabled;
+    if (typeof cart?.canPickup === "boolean") return cart.canPickup;
+    return true;
+  };
+
+  const isDeliveryEnabled = (cart) => {
+    if (typeof cart?.canDeliver === "boolean") return cart.canDeliver;
+    if (typeof cart?.deliveryEnabled === "boolean") return cart.deliveryEnabled;
+    return true;
+  };
+
+  const hasLocationCoordinates =
+    typeof customerLocation?.latitude === "number" &&
+    typeof customerLocation?.longitude === "number";
+  const hasAddressInput = Boolean(
+    customerLocation?.address?.trim() || manualAddress.trim(),
+  );
+  const showDeliveryStoreSelector =
+    selectedType === "DELIVERY" && (hasLocationCoordinates || hasAddressInput);
+  const deliveryCarts = nearbyCarts.filter(isDeliveryEnabled);
+  const pickupCarts = nearbyCarts.filter(isPickupEnabled);
+
   const reverseGeocode = async (latitude, longitude) => {
     try {
       setFetchingAddress(true);
@@ -142,10 +165,9 @@ const OrderTypeSelector = ({
   };
 
   useEffect(() => {
-    if (customerLocation?.latitude && customerLocation?.longitude) {
-      // handled by parent component
-    }
-  }, [customerLocation]);
+    const nextAddress = customerLocation?.address || "";
+    setManualAddress((prev) => (prev === nextAddress ? prev : nextAddress));
+  }, [customerLocation?.address]);
 
   return (
     <div className="order-type-selector">
@@ -260,17 +282,14 @@ const OrderTypeSelector = ({
         </div>
       )}
 
-      {selectedType === "DELIVERY" &&
-        customerLocation &&
-        customerLocation.latitude &&
-        customerLocation.longitude && (
+      {showDeliveryStoreSelector && (
           <div className="nearby-carts-section">
             <h4 className="section-title">Available Stores</h4>
             {loading ? (
               <p className="status-message status-neutral">
                 Loading nearby stores...
               </p>
-            ) : nearbyCarts.length === 0 ? (
+            ) : deliveryCarts.length === 0 ? (
               <div className="status-message status-danger">
                 <p className="status-title">
                   No stores available for delivery in your area
@@ -284,7 +303,7 @@ const OrderTypeSelector = ({
               </div>
             ) : (
               <div className="carts-list">
-                {nearbyCarts.map((cart) => (
+                {deliveryCarts.map((cart) => (
                   <label
                     key={cart._id}
                     className={`cart-option ${
@@ -327,7 +346,7 @@ const OrderTypeSelector = ({
           <h4 className="section-title">Select Store</h4>
           {loading ? (
             <p className="status-message status-neutral">Loading stores...</p>
-          ) : nearbyCarts.length === 0 ? (
+          ) : pickupCarts.length === 0 ? (
             <div className="status-message status-warn">
               <p className="status-title">No stores available</p>
               <p className="status-note">Please ensure:</p>
@@ -339,9 +358,7 @@ const OrderTypeSelector = ({
             </div>
           ) : (
             <div className="carts-list">
-              {nearbyCarts
-                .filter((cart) => cart.pickupEnabled)
-                .map((cart) => (
+              {pickupCarts.map((cart) => (
                   <label
                     key={cart._id}
                     className={`cart-option ${

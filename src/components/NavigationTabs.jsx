@@ -26,11 +26,11 @@ export default function NavigationTabs({
   // Internal state for Table Service popup
   const [showCard, setShowCard] = useState(false);
 
-  // Hide Assistance tab for takeaway/pickup/delivery (no table service)
+  // Keep Assistance visible for takeaway, but hide for pickup/delivery.
   const hideAssistanceTab = useMemo(() => {
     try {
       const st = localStorage.getItem("terra_serviceType") || "DINE_IN";
-      return ["TAKEAWAY", "PICKUP", "DELIVERY"].includes(st);
+      return ["PICKUP", "DELIVERY"].includes(st);
     } catch {
       return false;
     }
@@ -75,7 +75,7 @@ export default function NavigationTabs({
         </button>
         */}
 
-        {/* Table Service / Assistance - hidden for takeaway, pickup, delivery */}
+        {/* Table Service / Assistance */}
         {!hideAssistanceTab && (
           <button
             className={`flex-1 py-2 text-xs sm:text-sm md:text-base font-medium transition-colors border-r border-orange-500 ${

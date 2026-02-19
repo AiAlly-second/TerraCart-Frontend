@@ -39,6 +39,7 @@ const getImageUrl = (imagePath) => {
 const SERVICE_TYPE_KEY = "terra_serviceType";
 const TABLE_SELECTION_KEY = "terra_selectedTable";
 const FEEDBACK_SUBMITTED_ORDERS_KEY = "terra_feedbackSubmittedOrders";
+const TAKEAWAY_TOKEN_PREVIEW_KEY = "terra_takeaway_token_preview";
 const REORDER_ALLOWED_STATUSES = [
   "Pending",
   "Confirmed",
@@ -875,6 +876,86 @@ export default function MenuPage() {
     }
   }, [serviceType, activeOrderId]);
 
+  useEffect(() => {
+    if (serviceType !== "TAKEAWAY") {
+      setTakeawayTokenPreview(null);
+      return;
+    }
+
+    if (activeOrderId) {
+      setTakeawayTokenPreview(null);
+      localStorage.removeItem(TAKEAWAY_TOKEN_PREVIEW_KEY);
+      return;
+    }
+
+    const resolveTakeawayCartId = () => {
+      const selectedCartId = localStorage.getItem("terra_selectedCartId");
+      if (selectedCartId) return selectedCartId;
+
+      const takeawayCartId = localStorage.getItem("terra_takeaway_cartId");
+      if (takeawayCartId) return takeawayCartId;
+
+      try {
+        const tableData = JSON.parse(
+          localStorage.getItem(TABLE_SELECTION_KEY) || "{}",
+        );
+        const rawCartId = tableData.cartId || tableData.cafeId || null;
+        if (!rawCartId) return null;
+        if (typeof rawCartId === "string") return rawCartId;
+        if (typeof rawCartId === "object") {
+          const nestedId = rawCartId._id || rawCartId.id;
+          return nestedId ? String(nestedId) : null;
+        }
+        return String(rawCartId);
+      } catch {
+        return null;
+      }
+    };
+
+    const cartId = resolveTakeawayCartId();
+    if (!cartId) return;
+
+    let takeawaySessionToken =
+      localStorage.getItem("terra_takeaway_sessionToken");
+    if (!takeawaySessionToken) {
+      takeawaySessionToken = `TAKEAWAY-${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2, 11)}`;
+      localStorage.setItem("terra_takeaway_sessionToken", takeawaySessionToken);
+    }
+
+    let cancelled = false;
+
+    const fetchTakeawayTokenPreview = async () => {
+      try {
+        const params = new URLSearchParams({ cartId });
+        if (takeawaySessionToken) {
+          params.set("sessionToken", takeawaySessionToken);
+        }
+
+        const res = await fetch(
+          `${nodeApi}/api/orders/takeaway-token/next?${params.toString()}`,
+        );
+        if (!res.ok) return;
+
+        const payload = await res.json();
+        const token = Number(payload?.token);
+        if (!cancelled && Number.isInteger(token) && token > 0) {
+          setTakeawayTokenPreview(token);
+          localStorage.setItem(TAKEAWAY_TOKEN_PREVIEW_KEY, String(token));
+        }
+      } catch (err) {
+        console.warn("[Menu] Failed to fetch takeaway token preview:", err);
+      }
+    };
+
+    fetchTakeawayTokenPreview();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [serviceType, activeOrderId]);
+
   // Customer name form removed for all takeaway flows (global takeaway, normal link, table takeaway) – no redirect
   useEffect(() => {
     if (serviceType === "DINE_IN") return;
@@ -912,6 +993,10 @@ export default function MenuPage() {
     }
   });
   const [currentOrderDetail, setCurrentOrderDetail] = useState(null);
+  const [takeawayTokenPreview, setTakeawayTokenPreview] = useState(() => {
+    const stored = Number(localStorage.getItem(TAKEAWAY_TOKEN_PREVIEW_KEY));
+    return Number.isInteger(stored) && stored > 0 ? stored : null;
+  });
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
   const [invoiceOrder, setInvoiceOrder] = useState(null);
   const [invoiceLoading, setInvoiceLoading] = useState(false);
@@ -1057,9 +1142,11 @@ export default function MenuPage() {
   );
   const takeawayTokenForDisplay = useMemo(() => {
     const token =
-      currentOrderDetail?.takeawayToken ?? previousOrderDetail?.takeawayToken;
+      currentOrderDetail?.takeawayToken ??
+      previousOrderDetail?.takeawayToken ??
+      takeawayTokenPreview;
     return token !== undefined && token !== null && token !== "" ? token : null;
-  }, [currentOrderDetail, previousOrderDetail]);
+  }, [currentOrderDetail, previousOrderDetail, takeawayTokenPreview]);
 
   const menuHeading = t("manualEntry", "Menu");
   const smartServe = t("smartServe", "Smart Serve");
@@ -2417,20 +2504,16 @@ export default function MenuPage() {
         isTakeawayServiceMode ||
         effectiveOrderType === "PICKUP" ||
         effectiveOrderType === "DELIVERY";
+      const shouldIncludeCustomerInfo =
+        effectiveOrderType === "PICKUP" || effectiveOrderType === "DELIVERY";
       const storedCustomerName = isTakeawayType
-        ? localStorage.getItem("terra_takeaway_customerName") ||
-          localStorage.getItem("terra_customerName") ||
-          ""
+        ? localStorage.getItem("terra_takeaway_customerName") || ""
         : "";
       const storedCustomerMobile = isTakeawayType
-        ? localStorage.getItem("terra_takeaway_customerMobile") ||
-          localStorage.getItem("terra_customerMobile") ||
-          ""
+        ? localStorage.getItem("terra_takeaway_customerMobile") || ""
         : "";
       const storedCustomerEmail = isTakeawayType
-        ? localStorage.getItem("terra_takeaway_customerEmail") ||
-          localStorage.getItem("terra_customerEmail") ||
-          ""
+        ? localStorage.getItem("terra_takeaway_customerEmail") || ""
         : "";
 
       // Get cartId for takeaway orders:
@@ -2597,15 +2680,15 @@ export default function MenuPage() {
         sessionToken: finalSessionToken,
         // Customer info - required for PICKUP/DELIVERY
         customerName:
-          isTakeawayType && storedCustomerName?.trim()
+          shouldIncludeCustomerInfo && storedCustomerName?.trim()
             ? storedCustomerName.trim()
             : undefined,
         customerMobile:
-          isTakeawayType && storedCustomerMobile?.trim()
+          shouldIncludeCustomerInfo && storedCustomerMobile?.trim()
             ? storedCustomerMobile.trim()
             : undefined,
         customerEmail:
-          isTakeawayType && storedCustomerEmail?.trim()
+          shouldIncludeCustomerInfo && storedCustomerEmail?.trim()
             ? storedCustomerEmail.trim()
             : undefined,
         // Include cartId for takeaway/pickup/delivery orders
@@ -2619,6 +2702,19 @@ export default function MenuPage() {
         specialInstructions: specialInstructions,
         selectedAddons: resolvedAddons,
       });
+
+      const previewTakeawayToken = Number(
+        localStorage.getItem(TAKEAWAY_TOKEN_PREVIEW_KEY),
+      );
+      if (
+        isTakeawayServiceMode &&
+        effectiveOrderType !== "DELIVERY" &&
+        !existingId &&
+        Number.isInteger(previewTakeawayToken) &&
+        previewTakeawayToken > 0
+      ) {
+        orderPayload.takeawayToken = previewTakeawayToken;
+      }
 
       // Addons handled by buildOrderPayload logic now
 
@@ -2982,6 +3078,8 @@ export default function MenuPage() {
       if (isTakeawayServiceMode) {
         // For TAKEAWAY: Only set takeaway-specific key, do NOT set generic terra_orderId
         localStorage.setItem("terra_orderId_TAKEAWAY", data._id);
+        localStorage.removeItem(TAKEAWAY_TOKEN_PREVIEW_KEY);
+        setTakeawayTokenPreview(null);
         // Clear any DINE_IN order data to prevent confusion
         localStorage.removeItem("terra_orderId");
         localStorage.removeItem("terra_orderId_DINE_IN");

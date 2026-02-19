@@ -19,6 +19,7 @@ import {
 const nodeApi = (
   import.meta.env.VITE_NODE_API_URL || "http://localhost:5001"
 ).replace(/\/$/, "");
+const TAKEAWAY_TOKEN_PREVIEW_KEY = "terra_takeaway_token_preview";
 const sanitizeAddonName = (value) => {
   const normalized = String(value || "")
     .replace(/^\(\s*\+\s*\)\s*/u, "")
@@ -445,6 +446,9 @@ export default function CartPage() {
           : isPickupOrDeliveryServiceType
             ? serviceType
             : undefined;
+      const shouldIncludeCustomerInfo =
+        effectiveOrderType === "PICKUP" ||
+        effectiveOrderType === "DELIVERY";
       const isTakeawayLike =
         serviceType === "TAKEAWAY" || isPickupOrDeliveryServiceType;
       const tableInfo = JSON.parse(
@@ -528,12 +532,12 @@ export default function CartPage() {
         menuCatalog,
         sessionToken: sessionToken,
         // Customer fields (required for PICKUP/DELIVERY)
-        customerName:
-          localStorage.getItem("terra_takeaway_customerName") ||
-          localStorage.getItem("terra_customerName"),
-        customerMobile:
-          localStorage.getItem("terra_takeaway_customerMobile") ||
-          localStorage.getItem("terra_customerMobile"),
+        customerName: shouldIncludeCustomerInfo
+          ? localStorage.getItem("terra_takeaway_customerName")
+          : undefined,
+        customerMobile: shouldIncludeCustomerInfo
+          ? localStorage.getItem("terra_takeaway_customerMobile")
+          : undefined,
         customerLocation: customerLocation,
         cartId: cartId,
         specialInstructions: effectiveSpecialInstructions,
@@ -607,6 +611,19 @@ export default function CartPage() {
         finalActiveOrderId = null;
       }
 
+      const previewTakeawayToken = Number(
+        localStorage.getItem(TAKEAWAY_TOKEN_PREVIEW_KEY),
+      );
+      if (
+        isTakeawayLike &&
+        effectiveOrderType !== "DELIVERY" &&
+        !finalActiveOrderId &&
+        Number.isInteger(previewTakeawayToken) &&
+        previewTakeawayToken > 0
+      ) {
+        orderPayload.takeawayToken = previewTakeawayToken;
+      }
+
       // API Call
       const url = finalActiveOrderId
         ? `${nodeApi}/api/orders/${finalActiveOrderId}/kot`
@@ -644,6 +661,7 @@ export default function CartPage() {
       if (data._id) {
         if (isTakeawayLike) {
           localStorage.setItem("terra_orderId_TAKEAWAY", data._id);
+          localStorage.removeItem(TAKEAWAY_TOKEN_PREVIEW_KEY);
           localStorage.setItem(
             "terra_orderStatus_TAKEAWAY",
             data.status || "Confirmed",

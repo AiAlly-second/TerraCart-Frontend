@@ -92,6 +92,10 @@ export default function Landing() {
       // Menu.jsx prioritizes terra_selectedCartId over terra_takeaway_cartId.
       localStorage.removeItem("terra_selectedCartId");
       localStorage.removeItem("terra_waitToken");
+      // CRITICAL: Fresh global takeaway session must not reuse previous customer details
+      localStorage.removeItem("terra_takeaway_customerName");
+      localStorage.removeItem("terra_takeaway_customerMobile");
+      localStorage.removeItem("terra_takeaway_customerEmail");
       localStorage.setItem("terra_serviceType", "TAKEAWAY");
       const takeawaySessionToken = `TAKEAWAY-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       localStorage.setItem("terra_takeaway_sessionToken", takeawaySessionToken);

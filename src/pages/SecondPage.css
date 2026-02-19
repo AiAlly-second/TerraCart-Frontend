@@ -97,6 +97,17 @@
   gap: 2rem;
 }
 
+.content-wrapper.order-type-flow {
+  justify-content: flex-start;
+  align-items: stretch;
+  padding-top: 5.25rem;
+  padding-bottom: 2rem;
+}
+
+.content-wrapper.order-type-flow .spacer {
+  height: 0;
+}
+
 /* Back button */
 .back-btn {
   position: absolute;
@@ -401,6 +412,11 @@
     min-height: calc(100vh - 80px);
   }
 
+  .content-wrapper.order-type-flow {
+    padding-top: 74px;
+    padding-bottom: 1.5rem;
+  }
+
   .nav-btn {
     width: 100%;
     max-width: 100%;
@@ -450,6 +466,11 @@
 @media (max-width: 480px) {
   .content-wrapper {
     padding: 70px 8px 4rem 8px;
+  }
+
+  .content-wrapper.order-type-flow {
+    padding-top: 68px;
+    padding-bottom: 1.25rem;
   }
 
   .nav-btn {

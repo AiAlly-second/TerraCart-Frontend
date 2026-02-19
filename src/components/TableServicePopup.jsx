@@ -12,6 +12,17 @@ export default function TableServicePopup({ showCard, setShowCard, currentTable,
     }
   })();
   const t = translations[language] || translations.en;
+  const serviceType = React.useMemo(() => {
+    try {
+      return localStorage.getItem("terra_serviceType") || "DINE_IN";
+    } catch {
+      return "DINE_IN";
+    }
+  }, [showCard]);
+  const isTakeawayMode =
+    serviceType === "TAKEAWAY" ||
+    serviceType === "PICKUP" ||
+    serviceType === "DELIVERY";
 
   // Initialize selectedTable from currentTable or localStorage
   const [selectedTable, setSelectedTable] = useState(() => {
@@ -49,10 +60,10 @@ export default function TableServicePopup({ showCard, setShowCard, currentTable,
       }
     };
 
-    if (showCard) {
+    if (showCard && !isTakeawayMode) {
       fetchTables();
     }
-  }, [showCard]);
+  }, [showCard, isTakeawayMode]);
 
   // Available table numbers (customize as needed)
   const tables = Array.from({ length: 20 }, (_, i) => String(i + 1));
@@ -98,66 +109,148 @@ export default function TableServicePopup({ showCard, setShowCard, currentTable,
     return mapping[serviceKey] || "assistance";
   };
 
+  const getStoredCartId = () => {
+    const selectedCartId = localStorage.getItem("terra_selectedCartId");
+    if (selectedCartId) return selectedCartId;
+
+    const takeawayCartId = localStorage.getItem("terra_takeaway_cartId");
+    if (takeawayCartId) return takeawayCartId;
+
+    const tableDataStr = localStorage.getItem("terra_selectedTable");
+    if (!tableDataStr) return null;
+    try {
+      const tableData = JSON.parse(tableDataStr);
+      const rawCartId = tableData.cartId || tableData.cafeId || null;
+      if (!rawCartId) return null;
+      if (typeof rawCartId === "string") return rawCartId;
+      if (typeof rawCartId === "object") {
+        const nestedId = rawCartId._id || rawCartId.id;
+        return nestedId ? String(nestedId) : null;
+      }
+      return String(rawCartId);
+    } catch {
+      return null;
+    }
+  };
+
+  const getTakeawayToken = () => {
+    const previewToken = Number(localStorage.getItem("terra_takeaway_token_preview"));
+    if (Number.isInteger(previewToken) && previewToken > 0) {
+      return previewToken;
+    }
+
+    try {
+      const previousOrderRaw = localStorage.getItem("terra_previousOrderDetail");
+      if (!previousOrderRaw) return null;
+      const previousOrder = JSON.parse(previousOrderRaw);
+      const storedToken = Number(previousOrder?.takeawayToken);
+      if (Number.isInteger(storedToken) && storedToken > 0) {
+        return storedToken;
+      }
+    } catch {
+      return null;
+    }
+
+    return null;
+  };
+
+  const takeawayTokenForDisplay = React.useMemo(() => {
+    if (!isTakeawayMode) return null;
+    return getTakeawayToken();
+  }, [isTakeawayMode, showCard]);
+
+  const getRequestContext = () => {
+    const tableDataStr = localStorage.getItem("terra_selectedTable");
+    const tableData = tableDataStr ? JSON.parse(tableDataStr) : {};
+    let tableId = tableData.id || tableData._id;
+    const tableNumber =
+      tableData.number || tableData.tableNumber || currentTable || selectedTable;
+
+    if (!isTakeawayMode && !tableId && tableNumber) {
+      const found = availableTables.find(
+        (table) => String(table.number) === String(tableNumber),
+      );
+      if (found) {
+        tableId = found._id;
+      }
+    }
+
+    const orderId = isTakeawayMode
+      ? localStorage.getItem("terra_orderId_TAKEAWAY") ||
+        localStorage.getItem("terra_orderId") ||
+        null
+      : localStorage.getItem("terra_orderId_DINE_IN") ||
+        localStorage.getItem("terra_orderId") ||
+        null;
+    const cartId = getStoredCartId();
+    const tokenNumber = isTakeawayMode ? getTakeawayToken() : null;
+
+    if (!isTakeawayMode && !tableId) {
+      throw new Error(
+        t.alerts.selectTable ||
+          "Please select a valid table first so we know where to send the waiter.",
+      );
+    }
+
+    if (isTakeawayMode && !cartId) {
+      throw new Error("Unable to identify takeaway cart. Please scan the takeaway QR again.");
+    }
+
+    return { tableId, tableNumber, orderId, cartId, tokenNumber };
+  };
+
+  const sendCustomerRequest = async ({ requestType, customerNotes }) => {
+    const context = getRequestContext();
+    const nodeApi = (import.meta.env.VITE_NODE_API_URL || "http://localhost:5001").replace(/\/$/, "");
+
+    const requestData = {
+      requestType,
+      customerNotes:
+        isTakeawayMode && context.tokenNumber
+          ? `[Token ${context.tokenNumber}] ${customerNotes}`
+          : customerNotes,
+      ...(context.orderId && { orderId: context.orderId }),
+      ...(context.cartId && { cartId: context.cartId }),
+      ...(!isTakeawayMode && context.tableId && { tableId: context.tableId }),
+    };
+
+    const response = await fetch(`${nodeApi}/api/customer-requests`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(requestData),
+    });
+
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.message || "Failed to send request");
+    }
+
+    return context;
+  };
+
   const handleServiceRequest = async (serviceKey) => {
-    if (isSendingRequest) return; // Prevent multiple clicks
-    
+    if (isSendingRequest) return;
+
     try {
       setIsSendingRequest(true);
-      
-      // Get table info from localStorage
-      const tableDataStr = localStorage.getItem('terra_selectedTable');
-      const tableData = tableDataStr ? JSON.parse(tableDataStr) : {};
-      let tableId = tableData.id || tableData._id;
-      let tableNumber = tableData.number || tableData.tableNumber || currentTable || selectedTable;
-
-      // If missing tableId (e.g. manual selection), try to find it in availableTables
-      if (!tableId && tableNumber) {
-        const found = availableTables.find(t => String(t.number) === String(tableNumber));
-        if (found) {
-          tableId = found._id;
-        }
-      }
-
-      if (!tableId) {
-        alert(t.alerts.selectTable || "Please select a valid table first so we know where to send the waiter.");
-        return;
-      }
-
-      // Get order ID if available
-      const orderId = localStorage.getItem('terra_orderId') || null;
-
-      // Get API URL
-      const nodeApi = (import.meta.env.VITE_NODE_API_URL || "http://localhost:5001").replace(/\/$/, "");
-
-      // Prepare request data
-      const requestData = {
-        tableId: tableId,
+      const serviceLabel = t.services[serviceKey] || serviceKey;
+      const context = await sendCustomerRequest({
         requestType: getRequestType(serviceKey),
-        customerNotes: t.services[serviceKey] || serviceKey,
-        ...(orderId && { orderId: orderId }),
-      };
-
-      // Send request to backend
-      const response = await fetch(`${nodeApi}/api/customer-requests`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(requestData),
+        customerNotes: serviceLabel,
       });
 
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.message || "Failed to send request");
-      }
-
-      // Success
-      alert(`✅ ${t.alerts.requestSentPrefix || "Request sent"}: ${t.services[serviceKey]} - Table ${tableNumber}`);
+      const destinationSuffix = isTakeawayMode
+        ? context.tokenNumber
+          ? ` - Token ${context.tokenNumber}`
+          : " - Takeaway"
+        : ` - Table ${context.tableNumber}`;
+      alert(`${t.alerts.requestSentPrefix || "Request sent"}: ${serviceLabel}${destinationSuffix}`);
       setShowCard(false);
     } catch (error) {
       console.error("Error sending service request:", error);
-      alert(`❌ Failed to send request: ${error.message}`);
+      alert(`Failed to send request: ${error.message}`);
     } finally {
       setIsSendingRequest(false);
     }
@@ -169,66 +262,26 @@ export default function TableServicePopup({ showCard, setShowCard, currentTable,
       return;
     }
 
-    if (isSendingRequest) return; // Prevent multiple clicks
+    if (isSendingRequest) return;
 
     try {
       setIsSendingRequest(true);
-      
-      // Get table info from localStorage
-      const tableDataStr = localStorage.getItem('terra_selectedTable');
-      const tableData = tableDataStr ? JSON.parse(tableDataStr) : {};
-      let tableId = tableData.id || tableData._id;
-      let tableNumber = tableData.number || tableData.tableNumber || currentTable || selectedTable;
-
-      // If missing tableId (e.g. manual selection), try to find it in availableTables
-      if (!tableId && tableNumber) {
-        const found = availableTables.find(t => String(t.number) === String(tableNumber));
-        if (found) {
-          tableId = found._id;
-        }
-      }
-
-      if (!tableId) {
-        alert(t.alerts.selectTable || "Please select a valid table first so we know where to send the waiter.");
-        return;
-      }
-
-      // Get order ID if available
-      const orderId = localStorage.getItem('terra_orderId') || null;
-
-      // Get API URL
-      const nodeApi = (import.meta.env.VITE_NODE_API_URL || "http://localhost:5001").replace(/\/$/, "");
-
-      // Prepare request data
-      const requestData = {
-        tableId: tableId,
+      const context = await sendCustomerRequest({
         requestType: "assistance",
         customerNotes: customRequest.trim(),
-        ...(orderId && { orderId: orderId }),
-      };
-
-      // Send request to backend
-      const response = await fetch(`${nodeApi}/api/customer-requests`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(requestData),
       });
 
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.message || "Failed to send request");
-      }
-
-      // Success
-      alert(`✅ ${t.alerts.requestSentPrefix || "Request sent"}: ${customRequest.trim()}`);
+      const destinationSuffix = isTakeawayMode
+        ? context.tokenNumber
+          ? ` - Token ${context.tokenNumber}`
+          : " - Takeaway"
+        : ` - Table ${context.tableNumber}`;
+      alert(`${t.alerts.requestSentPrefix || "Request sent"}: ${customRequest.trim()}${destinationSuffix}`);
       setCustomRequest("");
       setShowCard(false);
     } catch (error) {
       console.error("Error sending custom request:", error);
-      alert(`❌ Failed to send request: ${error.message}`);
+      alert(`Failed to send request: ${error.message}`);
     } finally {
       setIsSendingRequest(false);
     }
@@ -236,69 +289,32 @@ export default function TableServicePopup({ showCard, setShowCard, currentTable,
 
   const handleUrgentCall = async () => {
     if (isSendingRequest) return;
-    
+
     try {
       setIsSendingRequest(true);
-      
-      // Get table info from localStorage
-      const tableDataStr = localStorage.getItem('terra_selectedTable');
-      const tableData = tableDataStr ? JSON.parse(tableDataStr) : {};
-      let tableId = tableData.id || tableData._id;
-      let tableNumber = tableData.number || tableData.tableNumber || currentTable || selectedTable;
-
-      // If missing tableId (e.g. manual selection), try to find it in availableTables
-      if (!tableId && tableNumber) {
-        const found = availableTables.find(t => String(t.number) === String(tableNumber));
-        if (found) {
-          tableId = found._id;
-        }
-      }
-
-      if (!tableId) {
-        alert(t.alerts.selectTable || "Please select a valid table first so we know where to send the waiter.");
-        return;
-      }
-
-      // Get order ID if available
-      const orderId = localStorage.getItem('terra_orderId') || null;
-
-      // Get API URL
-      const nodeApi = (import.meta.env.VITE_NODE_API_URL || "http://localhost:5001").replace(/\/$/, "");
-
-      // Prepare urgent request data
-      const requestData = {
-        tableId: tableId,
+      const context = await sendCustomerRequest({
         requestType: "assistance",
         customerNotes: "URGENT: Call waiter immediately",
-        ...(orderId && { orderId: orderId }),
-      };
-
-      // Send request to backend
-      const response = await fetch(`${nodeApi}/api/customer-requests`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(requestData),
       });
 
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.message || "Failed to send urgent request");
-      }
-
-      // Success
-      alert(t.alerts.urgentCalled || "✅ Urgent request sent! A waiter will be with you shortly.");
+      const destinationSuffix = isTakeawayMode
+        ? context.tokenNumber
+          ? ` (Token ${context.tokenNumber})`
+          : " (Takeaway)"
+        : ` (Table ${context.tableNumber})`;
+      alert(
+        (t.alerts.urgentCalled ||
+          "Urgent request sent! A waiter will be with you shortly.") +
+          destinationSuffix,
+      );
       setShowCard(false);
     } catch (error) {
       console.error("Error sending urgent request:", error);
-      alert(`❌ Failed to send urgent request: ${error.message}`);
+      alert(`Failed to send urgent request: ${error.message}`);
     } finally {
       setIsSendingRequest(false);
     }
   };
-
   const stopRecordingCleanup = () => {
     try {
       if (recognitionRef.current) {
@@ -470,7 +486,14 @@ export default function TableServicePopup({ showCard, setShowCard, currentTable,
               margin: 0
             }}
           >
-            {t.header} {selectedTable ? `- Table ${selectedTable}` : ''}
+            {t.header}{" "}
+            {isTakeawayMode
+              ? takeawayTokenForDisplay
+                ? `- Token ${takeawayTokenForDisplay}`
+                : "- Takeaway"
+              : selectedTable
+                ? `- Table ${selectedTable}`
+                : ""}
           </h3>
           <button
             onClick={() => {
@@ -491,53 +514,81 @@ export default function TableServicePopup({ showCard, setShowCard, currentTable,
           </button>
         </div>
 
-        {/* Table Selection */}
+        {/* Table/Token Context */}
         <div style={{ padding: 16, borderBottom: "1px solid #e5e7eb" }}>
-          <p style={{ fontSize: 14, marginBottom: 8, fontWeight: 500 }}>
-            {currentTable ? "Assigned Table" : "Select Table:"}
-          </p>
-          {currentTable ? (
-            <div
-              style={{
-                padding: 12,
-                borderRadius: 8,
-                border: "1px solid #dbeafe",
-                backgroundColor: "#eff6ff",
-                color: "#1d4ed8",
-                fontWeight: 600,
-                textAlign: "center",
-              }}
-            >
-              Table {currentTable}
-            </div>
+          {isTakeawayMode ? (
+            <>
+              <p style={{ fontSize: 14, marginBottom: 8, fontWeight: 500 }}>
+                Takeaway Assistance
+              </p>
+              <div
+                style={{
+                  padding: 12,
+                  borderRadius: 8,
+                  border: "1px solid #fde68a",
+                  backgroundColor: "#fffbeb",
+                  color: "#92400e",
+                  fontWeight: 600,
+                  textAlign: "center",
+                }}
+              >
+                {takeawayTokenForDisplay
+                  ? `Token ${takeawayTokenForDisplay}`
+                  : "Token will be assigned"}
+              </div>
+            </>
           ) : (
-            <div style={{ 
-              display: "grid", 
-              gridTemplateColumns: "repeat(5, 1fr)", 
-              gap: 8 
-            }}>
-              {tables.map((table) => (
-                <button
-                  key={table}
-                  onClick={() => {
-                    setSelectedTable(table);
-                    localStorage.setItem('selectedTable', table);
-                    if (onTableSelect) onTableSelect(table);
-                  }}
+            <>
+              <p style={{ fontSize: 14, marginBottom: 8, fontWeight: 500 }}>
+                {currentTable ? "Assigned Table" : "Select Table:"}
+              </p>
+              {currentTable ? (
+                <div
                   style={{
-                    padding: 8,
-                    borderRadius: 6,
-                    border: "1px solid #e5e7eb",
-                    backgroundColor: selectedTable === table ? "#16a34a" : "white",
-                    color: selectedTable === table ? "white" : "#374151",
-                    cursor: "pointer",
-                    fontWeight: "500"
+                    padding: 12,
+                    borderRadius: 8,
+                    border: "1px solid #dbeafe",
+                    backgroundColor: "#eff6ff",
+                    color: "#1d4ed8",
+                    fontWeight: 600,
+                    textAlign: "center",
                   }}
                 >
-                  {table}
-                </button>
-              ))}
-            </div>
+                  Table {currentTable}
+                </div>
+              ) : (
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(5, 1fr)",
+                    gap: 8,
+                  }}
+                >
+                  {tables.map((table) => (
+                    <button
+                      key={table}
+                      onClick={() => {
+                        setSelectedTable(table);
+                        localStorage.setItem("selectedTable", table);
+                        if (onTableSelect) onTableSelect(table);
+                      }}
+                      style={{
+                        padding: 8,
+                        borderRadius: 6,
+                        border: "1px solid #e5e7eb",
+                        backgroundColor:
+                          selectedTable === table ? "#16a34a" : "white",
+                        color: selectedTable === table ? "white" : "#374151",
+                        cursor: "pointer",
+                        fontWeight: "500",
+                      }}
+                    >
+                      {table}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </div>
 

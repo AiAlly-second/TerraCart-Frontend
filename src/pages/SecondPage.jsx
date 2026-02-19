@@ -175,7 +175,6 @@ export default function SecondPage() {
   const [selectedCart, setSelectedCart] = useState(null);
   const [nearbyCarts, setNearbyCarts] = useState([]);
   const [loadingCarts, setLoadingCarts] = useState(false);
-  const [checkingDelivery, setCheckingDelivery] = useState(false);
   const [specialInstructions, setSpecialInstructions] = useState("");
   const [showWaitlistInfoModal, setShowWaitlistInfoModal] = useState(false);
   const [waitlistGuestName, setWaitlistGuestName] = useState("");
@@ -1956,6 +1955,12 @@ export default function SecondPage() {
     setIsTableOccupied(false);
     localStorage.setItem("terra_serviceType", "TAKEAWAY");
 
+    // CRITICAL: Fresh takeaway flow must not reuse previous customer's identity
+    // This prevents stale name/mobile/email from appearing on new takeaway orders.
+    localStorage.removeItem("terra_takeaway_customerName");
+    localStorage.removeItem("terra_takeaway_customerMobile");
+    localStorage.removeItem("terra_takeaway_customerEmail");
+
     // Skip Customer Information form for all takeaway: table takeaway, normal takeaway link, and global takeaway (takeaway-only QR)
     const takeawaySessionToken = `TAKEAWAY-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     localStorage.setItem("terra_takeaway_sessionToken", takeawaySessionToken);
@@ -2038,14 +2043,6 @@ export default function SecondPage() {
     localStorage.setItem("terra_takeaway_customerMobile", mobileVal);
 
     // Email is optional
-    if (customerEmail && customerEmail.trim()) {
-      localStorage.setItem(
-        "terra_takeaway_customerEmail",
-        customerEmail.trim(),
-      );
-    } else {
-      localStorage.removeItem("terra_takeaway_customerEmail");
-    }
     if (customerEmail && customerEmail.trim()) {
       localStorage.setItem(
         "terra_takeaway_customerEmail",
@@ -2563,7 +2560,9 @@ export default function SecondPage() {
           <div className="overlay" />
         </div>
 
-        <div className="content-wrapper">
+        <div
+          className={`content-wrapper ${isNormalLink ? "order-type-flow" : ""}`}
+        >
           {/* Pickup/Delivery on the page for normal link (no popup) */}
           {isNormalLink && (
             <div className="order-type-page-section">
@@ -2588,6 +2587,10 @@ export default function SecondPage() {
                 type="button"
                 className="order-type-continue-btn"
                 onClick={() => {
+                  if (loadingCarts) {
+                    alert(t("loadingStores") || "Please wait while stores are loading.");
+                    return;
+                  }
                   if (!orderType) {
                     alert(t("pleaseSelectOrderType") || "Please select Pickup or Delivery.");
                     return;
@@ -2614,6 +2617,7 @@ export default function SecondPage() {
                   setShowCustomerInfoModal(true);
                 }}
                 disabled={
+                  loadingCarts ||
                   !orderType ||
                   !customerLocation ||
                   !selectedCart ||

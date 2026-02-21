@@ -4761,10 +4761,17 @@ export default function MenuPage() {
     let connectionErrorLogged = false;
     let joinedCartId = null;
 
+    const normalizeCartId = (cartId) => {
+      if (cartId == null) return null;
+      if (typeof cartId === "string") return cartId;
+      if (typeof cartId === "object" && cartId._id) return String(cartId._id);
+      return String(cartId);
+    };
+
     const joinCartRoom = (cartId) => {
-      if (!socket || !cartId) return;
-      const normalizedCartId = String(cartId);
-      if (joinedCartId === normalizedCartId) return;
+      if (!socket || cartId == null) return;
+      const normalizedCartId = normalizeCartId(cartId);
+      if (!normalizedCartId || joinedCartId === normalizedCartId) return;
       socket.emit("join:cart", normalizedCartId);
       joinedCartId = normalizedCartId;
     };
@@ -4964,10 +4971,9 @@ export default function MenuPage() {
       }
     };
 
-    // Use polling + socket for both DINE_IN and TAKEAWAY so
-    // customer status always stays in sync with admin actions.
+    // Use polling + socket so customer status stays in sync with admin in real time
     fetchStatus();
-    timer = setInterval(fetchStatus, 20000);
+    timer = setInterval(fetchStatus, 10000);
 
     // Create socket connection with proper error handling
     try {
@@ -5327,9 +5333,10 @@ export default function MenuPage() {
       }
     };
 
-    // Register event listeners only if socket is connected
+    // Register event listeners only if socket is connected (listen to both event names for real-time status)
     if (socket) {
       socket.on("orderUpdated", handleOrderUpdated);
+      socket.on("order:status:updated", handleOrderUpdated);
       socket.on("ORDER_ACCEPTED", handleOrderAccepted);
       socket.on("orderDeleted", handleOrderDeleted);
       socket.on("table:status:updated", handleTableStatusUpdated);
@@ -5342,6 +5349,7 @@ export default function MenuPage() {
       // Remove event listeners before disconnecting
       if (socket) {
         socket.off("orderUpdated", handleOrderUpdated);
+        socket.off("order:status:updated", handleOrderUpdated);
         socket.off("ORDER_ACCEPTED", handleOrderAccepted);
         socket.off("orderDeleted", handleOrderDeleted);
         socket.off("table:status:updated", handleTableStatusUpdated);

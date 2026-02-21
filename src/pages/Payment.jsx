@@ -58,7 +58,11 @@ export default function Payment() {
   );
   const orderId = useMemo(() => {
     const currentServiceType = localStorage.getItem("terra_serviceType") || "DINE_IN";
-    return currentServiceType === "TAKEAWAY"
+    const isTakeawayLike =
+      currentServiceType === "TAKEAWAY" ||
+      currentServiceType === "PICKUP" ||
+      currentServiceType === "DELIVERY";
+    return isTakeawayLike
       ? localStorage.getItem("terra_orderId_TAKEAWAY") ||
         localStorage.getItem("terra_orderId")
       : localStorage.getItem("terra_orderId");
@@ -635,18 +639,21 @@ export default function Payment() {
                 {creating ? "Starting..." : t("createOnline")}
               </motion.button>
 
-              <motion.button
-                whileHover={{ scale: creating ? 1 : 1.03 }}
-                whileTap={{ scale: creating ? 1 : 0.97 }}
-                onClick={() => createPaymentIntent("CASH")}
-                disabled={creating}
-                className={`payment-button ${
-                  accessibilityMode ? "accessibility-mode" : ""
-                }`}
-              >
-                <FaMoneyBillWave size={20} />
-                {creating ? "Starting..." : t("createCash")}
-              </motion.button>
+              {/* Show "Pay with cash" only for DINE_IN and TAKEAWAY; hide for PICKUP and DELIVERY */}
+              {serviceType !== "PICKUP" && serviceType !== "DELIVERY" && (
+                <motion.button
+                  whileHover={{ scale: creating ? 1 : 1.03 }}
+                  whileTap={{ scale: creating ? 1 : 0.97 }}
+                  onClick={() => createPaymentIntent("CASH")}
+                  disabled={creating}
+                  className={`payment-button ${
+                    accessibilityMode ? "accessibility-mode" : ""
+                  }`}
+                >
+                  <FaMoneyBillWave size={20} />
+                  {creating ? "Starting..." : t("createCash")}
+                </motion.button>
+              )}
             </div>
           </div>
         )}

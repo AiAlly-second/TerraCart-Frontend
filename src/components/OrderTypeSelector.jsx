@@ -29,6 +29,57 @@ const OrderTypeSelector = ({
     return resolvedName || "Store";
   };
 
+  const getCartAddress = (cart) => {
+    if (!cart) return null;
+
+    if (typeof cart.address === "string" && cart.address.trim()) {
+      return cart.address.trim();
+    }
+
+    if (cart.address && typeof cart.address === "object") {
+      if (
+        typeof cart.address.fullAddress === "string" &&
+        cart.address.fullAddress.trim()
+      ) {
+        return cart.address.fullAddress.trim();
+      }
+
+      const structuredAddress = [
+        cart.address.street,
+        cart.address.city,
+        cart.address.state,
+        cart.address.zipCode,
+      ]
+        .filter((value) => typeof value === "string" && value.trim())
+        .join(", ");
+
+      if (structuredAddress) return structuredAddress;
+    }
+
+    if (typeof cart.location === "string" && cart.location.trim()) {
+      return cart.location.trim();
+    }
+
+    return null;
+  };
+
+  const getDeliveryMetaText = (cart) => {
+    if (!cart?.deliveryInfo) return null;
+
+    const parts = [];
+    if (typeof cart.deliveryInfo.deliveryCharge === "number") {
+      parts.push(`Delivery: Rs.${cart.deliveryInfo.deliveryCharge}`);
+    }
+    if (typeof cart.deliveryInfo.estimatedTime === "number") {
+      parts.push(`${Math.round(cart.deliveryInfo.estimatedTime)} min`);
+    }
+    if (typeof cart.deliveryInfo.distance === "number") {
+      parts.push(`${cart.deliveryInfo.distance.toFixed(2)} km`);
+    }
+
+    return parts.length ? parts.join(" - ") : null;
+  };
+
   const isPickupEnabled = (cart) => {
     if (typeof cart?.pickupEnabled === "boolean") return cart.pickupEnabled;
     if (typeof cart?.canPickup === "boolean") return cart.canPickup;
@@ -303,7 +354,13 @@ const OrderTypeSelector = ({
               </div>
             ) : (
               <div className="carts-list">
-                {deliveryCarts.map((cart) => (
+                {deliveryCarts.map((cart) => {
+                  const cartAddress = getCartAddress(cart);
+                  const deliveryMetaText = getDeliveryMetaText(cart);
+                  const hasDeliveryDistance =
+                    typeof cart?.deliveryInfo?.distance === "number";
+
+                  return (
                   <label
                     key={cart._id}
                     className={`cart-option ${
@@ -319,23 +376,25 @@ const OrderTypeSelector = ({
                     />
                     <div className="cart-content">
                       <div className="cart-name">{getCartDisplayName(cart)}</div>
-                      {typeof cart.distance === "number" && (
+                      {cartAddress && (
+                        <div className="cart-meta cart-meta-address">
+                          {cartAddress}
+                        </div>
+                      )}
+                      {typeof cart.distance === "number" && !hasDeliveryDistance && (
                         <div className="cart-meta">
                           {cart.distance.toFixed(2)} km away
                         </div>
                       )}
-                      {cart.deliveryInfo && (
+                      {deliveryMetaText && (
                         <div className="cart-meta cart-meta-success">
-                          Delivery: Rs.{cart.deliveryInfo.deliveryCharge} - {" "}
-                          {cart.deliveryInfo.estimatedTime} min
-                          {cart.deliveryInfo.distance ? (
-                            <span> - {cart.deliveryInfo.distance.toFixed(2)} km</span>
-                          ) : null}
+                          {deliveryMetaText}
                         </div>
                       )}
                     </div>
                   </label>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -358,7 +417,9 @@ const OrderTypeSelector = ({
             </div>
           ) : (
             <div className="carts-list">
-              {pickupCarts.map((cart) => (
+              {pickupCarts.map((cart) => {
+                const cartAddress = getCartAddress(cart);
+                return (
                   <label
                     key={cart._id}
                     className={`cart-option ${
@@ -374,15 +435,16 @@ const OrderTypeSelector = ({
                     />
                     <div className="cart-content">
                       <div className="cart-name">{getCartDisplayName(cart)}</div>
-                      {cart.address?.fullAddress && (
-                        <div className="cart-meta">{cart.address.fullAddress}</div>
+                      {cartAddress && (
+                        <div className="cart-meta cart-meta-address">{cartAddress}</div>
                       )}
                       {typeof cart.distance === "number" && (
                         <div className="cart-meta">{cart.distance.toFixed(2)} km away</div>
                       )}
                     </div>
                   </label>
-                ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -392,5 +454,3 @@ const OrderTypeSelector = ({
 };
 
 export default OrderTypeSelector;
-
-

@@ -264,6 +264,9 @@
 .cart-content {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
 }
 
 .cart-name {
@@ -280,6 +283,16 @@
   line-height: 1.35;
   color: #64748b;
   word-break: break-word;
+}
+
+.cart-meta-address {
+  color: #334155;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.cart-option.selected .cart-meta-address {
+  color: #1f2937;
 }
 
 .cart-meta-success {
@@ -347,4 +360,3 @@
     padding: 0.65rem;
   }
 }
-

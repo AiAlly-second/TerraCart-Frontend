@@ -528,15 +528,19 @@ export default function MenuPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [lang, setLang] = useState(localStorage.getItem("language") || "en");
+  const supportedLangs = ["en", "hi", "mr", "gu"];
+  const normalizeLang = (stored) =>
+    supportedLangs.includes(stored) ? stored : "en";
+  const [lang, setLang] = useState(() =>
+    normalizeLang(localStorage.getItem("language") || "en")
+  );
 
-  // Listen for storage changes to update language
+  // Listen for storage changes to update language (no remount – menu stays loaded)
   useEffect(() => {
     const handleStorageChange = () => {
-      setLang(localStorage.getItem("language") || "en");
+      setLang(normalizeLang(localStorage.getItem("language") || "en"));
     };
     window.addEventListener("storage", handleStorageChange);
-    // Custom event listener for same-tab updates if dispatching manual events
     window.addEventListener("language-change", handleStorageChange);
     return () => {
       window.removeEventListener("storage", handleStorageChange);
@@ -547,11 +551,13 @@ export default function MenuPage() {
   const t = (key, fallback) => {
     if (!key) return fallback;
     const keys = key.split(".");
-    let value = menuPageTranslations[lang];
+    const langSource =
+      menuPageTranslations[lang] ?? menuPageTranslations.en ?? {};
+    let value = langSource;
     for (const k of keys) {
       value = value?.[k];
     }
-    return value || fallback;
+    return value ?? fallback;
   };
 
   const initialProcessSteps = [

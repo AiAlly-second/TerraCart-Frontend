@@ -122,7 +122,7 @@ export default function App() {
           setActiveModal={setActiveModal}
         /> */}
 
-            <div key={`lang-${currentLanguage}`}>
+            <div>
               <Routes>
                 <Route path="/" element={<Landing />} />
                 <Route path="/secondpage" element={<SecondPage />} />

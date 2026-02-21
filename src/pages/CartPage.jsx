@@ -687,13 +687,20 @@ export default function CartPage() {
             new Date().toISOString(),
           );
         }
-        localStorage.removeItem("terra_cart");
-        setCart({});
+        // For takeaway, keep cart until payment completes so back-from-payment shows items
+        if (!isTakeawayLike) {
+          localStorage.removeItem("terra_cart");
+          setCart({});
+        }
       }
 
       // DONE - Navigate
-      // Navigate to Menu directly (no confirm action)
-      navigate("/menu");
+      // For takeaway: payment is compulsory — go to Payment page
+      if (isTakeawayLike) {
+        navigate("/payment");
+      } else {
+        navigate("/menu");
+      }
     } catch (err) {
       console.error("Order processing failed:", err);
       setStepState(2, "error");

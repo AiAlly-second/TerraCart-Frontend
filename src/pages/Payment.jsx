@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { FaQrcode, FaMoneyBillWave, FaArrowLeft } from "react-icons/fa";
-import { MdPayments } from "react-icons/md";
 import { useNavigate } from "react-router-dom";
 import QRCode from "react-qr-code";
 import translations from "../data/translations/payment.json";
@@ -11,94 +10,22 @@ const nodeApi = (
   import.meta.env.VITE_NODE_API_URL || "http://localhost:5001"
 ).replace(/\/$/, "");
 
-const extractUpiIdFromPayload = (payload) => {
-  if (!payload || typeof payload !== "string") return "";
-  const match = payload.match(/[?&]pa=([^&]+)/i);
-  return match ? decodeURIComponent(match[1]) : "";
-};
+/** Build full URL for uploaded QR image (handles relative path or absolute URL). */
+function qrImageSrc(qrImageUrl) {
+  if (!qrImageUrl) return "";
+  if (qrImageUrl.startsWith("http://") || qrImageUrl.startsWith("https://"))
+    return qrImageUrl;
+  const path = qrImageUrl.startsWith("/") ? qrImageUrl : `/${qrImageUrl}`;
+  return `${nodeApi}${path}`;
+}
 
-const parseAmountCandidates = (text) => {
-  if (!text) return [];
-  const matches = text.match(/\d+(?:[.,]\d{1,2})?/g) || [];
-  const values = matches
-    .map((value) => Number(value.replace(/,/g, "")))
-    .filter((value) => Number.isFinite(value) && value > 0 && value < 1000000);
-  return [...new Set(values)];
-};
-
-const extractReferenceId = (text) => {
-  if (!text) return "";
-  const patterns = [
-    /utr[\s:.-]*([a-z0-9]{8,})/i,
-    /upi[\s]*(?:ref(?:erence)?|id)?[\s:.-]*([a-z0-9]{8,})/i,
-    /txn[\s]*(?:id|no|number)?[\s:.-]*([a-z0-9]{8,})/i,
-    /ref(?:erence)?[\s]*(?:id|no|number)?[\s:.-]*([a-z0-9]{8,})/i,
-  ];
-  for (const pattern of patterns) {
-    const match = text.match(pattern);
-    if (match?.[1]) return match[1].toUpperCase();
-  }
-
-  const longDigit = text.match(/\b\d{10,18}\b/);
-  return longDigit ? longDigit[0] : "";
-};
-
-const validateReceiptText = ({ rawText, amount, upiId, orderId }) => {
-  const normalizedText = String(rawText || "").toLowerCase();
-  const expectedAmount = Number(amount || 0);
-  const amountCandidates = parseAmountCandidates(normalizedText);
-  const amountMatch = amountCandidates.find(
-    (candidate) => Math.abs(candidate - expectedAmount) <= 1
-  );
-
-  const successKeywords = [
-    "success",
-    "successful",
-    "paid",
-    "completed",
-    "debited",
-    "credited",
-    "transaction",
-    "upi",
-  ];
-  const failureKeywords = ["failed", "failure", "reversed", "declined", "pending"];
-
-  const successCount = successKeywords.reduce(
-    (count, keyword) => count + (normalizedText.includes(keyword) ? 1 : 0),
-    0
-  );
-  const hasFailureKeyword = failureKeywords.some((keyword) =>
-    normalizedText.includes(keyword)
-  );
-
-  const expectedUpiId = String(upiId || "").trim().toLowerCase();
-  const upiMatched =
-    expectedUpiId.length > 0 && normalizedText.includes(expectedUpiId);
-
-  const referenceId = extractReferenceId(normalizedText);
-  const orderTail = String(orderId || "").slice(-5).toLowerCase();
-  const orderHintMatched =
-    orderTail.length >= 4 ? normalizedText.includes(orderTail) : false;
-
-  let score = 0;
-  if (amountMatch) score += 2;
-  if (referenceId) score += 1;
-  if (upiMatched) score += 1;
-  if (successCount > 0) score += 1;
-  if (orderHintMatched) score += 1;
-  if (hasFailureKeyword) score -= 2;
-
-  return {
-    amountMatched: Boolean(amountMatch),
-    detectedAmount: amountMatch || null,
-    referenceId,
-    upiMatched,
-    successCount,
-    hasFailureKeyword,
-    orderHintMatched,
-    isValid: Boolean(amountMatch) && score >= 3 && !hasFailureKeyword,
-  };
-};
+/** Build PhonePe / Paytm deep link from UPI payload for exact amount payment. */
+function getUpiAppUrl(upiPayload, scheme) {
+  if (!upiPayload || typeof upiPayload !== "string") return null;
+  const match = upiPayload.match(/^(upi:\/\/pay\?)(.*)$/i);
+  if (!match) return null;
+  return `${scheme}://pay?${match[2]}`;
+}
 
 export default function Payment() {
   const navigate = useNavigate();
@@ -112,11 +39,7 @@ export default function Payment() {
   );
   // Track if we've already handled payment completion to prevent re-render loops
   const [hasHandledPayment, setHasHandledPayment] = useState(false);
-  const [receiptFile, setReceiptFile] = useState(null);
-  const [receiptPreview, setReceiptPreview] = useState("");
-  const [ocrLoading, setOcrLoading] = useState(false);
-  const [ocrError, setOcrError] = useState("");
-  const [ocrResult, setOcrResult] = useState(null);
+  const [cancellingOrder, setCancellingOrder] = useState(false);
 
   // Memoize language and translation function to prevent re-renders
   const language = useMemo(
@@ -148,11 +71,6 @@ export default function Payment() {
       ["PENDING", "PROCESSING", "CASH_PENDING"].includes(payment.status),
     [payment]
   );
-  const expectedUpiId = useMemo(
-    () => uploadedQR?.upiId || extractUpiIdFromPayload(payment?.upiPayload),
-    [uploadedQR?.upiId, payment?.upiPayload]
-  );
-
   const fetchLatestPayment = useCallback(async () => {
     if (!orderId) return;
     try {
@@ -327,21 +245,6 @@ export default function Payment() {
     }
   }, [payment?.status, handleCompleteAndRedirect, hasHandledPayment]);
 
-  useEffect(() => {
-    return () => {
-      if (receiptPreview) {
-        URL.revokeObjectURL(receiptPreview);
-      }
-    };
-  }, [receiptPreview]);
-
-  useEffect(() => {
-    setReceiptFile(null);
-    setReceiptPreview("");
-    setOcrError("");
-    setOcrResult(null);
-  }, [payment?.id]);
-
   const createPaymentIntent = async (method) => {
     if (!orderId) return;
     setCreating(true);
@@ -362,6 +265,62 @@ export default function Payment() {
       setCreating(false);
     }
   };
+
+  // For takeaway only: cancel the order when user goes back without paying (so order is not "placed")
+  const handleBackWithoutPayment = useCallback(async () => {
+    const isTakeaway =
+      serviceType === "TAKEAWAY" ||
+      serviceType === "PICKUP" ||
+      serviceType === "DELIVERY";
+    if (
+      !isTakeaway ||
+      !orderId ||
+      hasHandledPayment ||
+      payment?.status === "PAID"
+    ) {
+      navigate("/menu");
+      return;
+    }
+    setCancellingOrder(true);
+    try {
+      const sessionToken =
+        localStorage.getItem("terra_takeaway_sessionToken") || undefined;
+      const res = await fetch(
+        `${nodeApi}/api/orders/${orderId}/customer-status`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            status: "Cancelled",
+            sessionToken,
+            reason: "Customer left payment without paying",
+          }),
+        }
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        console.warn("[Payment] Cancel order failed:", data?.message || res.status);
+      }
+    } catch (err) {
+      console.warn("[Payment] Cancel order error:", err);
+    } finally {
+      localStorage.removeItem("terra_orderId_TAKEAWAY");
+      localStorage.removeItem("terra_orderStatus_TAKEAWAY");
+      localStorage.removeItem("terra_orderStatusUpdatedAt_TAKEAWAY");
+      localStorage.removeItem("terra_takeaway_sessionToken");
+      if (localStorage.getItem("terra_orderId") === orderId) {
+        localStorage.removeItem("terra_orderId");
+      }
+      setCancellingOrder(false);
+      navigate("/menu");
+    }
+  }, [
+    serviceType,
+    orderId,
+    hasHandledPayment,
+    payment?.status,
+    navigate,
+  ]);
 
   const handleCancelPayment = async () => {
     if (!payment?.id) return;
@@ -392,59 +351,24 @@ export default function Payment() {
     }
   };
 
-  const handleReceiptFileChange = (event) => {
-    const file = event.target.files?.[0] || null;
-    if (receiptPreview) {
-      URL.revokeObjectURL(receiptPreview);
-    }
-    setReceiptFile(file);
-    setOcrResult(null);
-    setOcrError("");
-    if (!file) {
-      setReceiptPreview("");
+  // Back to payment method selection (cancel current payment intent, no confirm). Used when user clicks back from QR/Cash screen.
+  const handleBackToMethodSelection = useCallback(async () => {
+    if (!payment?.id) {
+      setPayment(null);
       return;
     }
-    setReceiptPreview(URL.createObjectURL(file));
-  };
-
-  const handleScanReceipt = async () => {
-    if (!receiptFile || !payment) {
-      setOcrError("Please upload a receipt image first.");
-      return;
-    }
-
-    setOcrLoading(true);
-    setOcrError("");
+    setCanceling(true);
     try {
-      const Tesseract = await import("tesseract.js");
-      const result = await Tesseract.recognize(receiptFile, "eng", {
-        logger: () => {},
-      });
-      const rawText = String(result?.data?.text || "").trim();
-      if (!rawText) {
-        throw new Error("No readable text found in receipt image.");
-      }
-
-      const validation = validateReceiptText({
-        rawText,
-        amount: payment.amount,
-        upiId: expectedUpiId,
-        orderId,
-      });
-      setOcrResult({
-        ...validation,
-        rawText,
+      await fetch(`${nodeApi}/api/payments/${payment.id}/cancel`, {
+        method: "POST",
       });
     } catch (err) {
-      setOcrResult(null);
-      setOcrError(
-        err?.message ||
-          "Could not scan receipt. Please upload a clear screenshot."
-      );
+      console.warn("[Payment] Cancel payment on back:", err);
     } finally {
-      setOcrLoading(false);
+      setPayment(null);
+      setCanceling(false);
     }
-  };
+  }, [payment?.id]);
 
   const renderPaymentStatus = () => {
     if (!payment) return null;
@@ -500,141 +424,129 @@ export default function Payment() {
         {shouldShowQrSection && (hasUploadedQr || hasGeneratedUpiQr) && (
           <div className="payment-qr-wrapper">
             {hasUploadedQr ? (
-              // Show QR code uploaded from cart admin payment panel
+              // Show QR code uploaded from cart admin payment panel (clickable when we have UPI payload)
               <>
-                <img
-                  src={`${nodeApi}${uploadedQR.qrImageUrl}`}
-                  alt="Payment QR Code"
-                  style={{
-                    maxWidth: "180px",
-                    maxHeight: "180px",
-                    width: "auto",
-                    height: "auto",
-                  }}
-                />
+                {showOnline && payment?.upiPayload ? (
+                  <button
+                    type="button"
+                    className="payment-qr-clickable"
+                    onClick={() => {
+                      if (payment?.upiPayload) window.location.href = payment.upiPayload;
+                    }}
+                    title={t("payNow")}
+                  >
+                    <img
+                      src={qrImageSrc(uploadedQR.qrImageUrl)}
+                      alt="Payment QR Code"
+                      style={{
+                        maxWidth: "180px",
+                        maxHeight: "180px",
+                        width: "auto",
+                        height: "auto",
+                      }}
+                    />
+                  </button>
+                ) : (
+                  <img
+                    src={qrImageSrc(uploadedQR.qrImageUrl)}
+                    alt="Payment QR Code"
+                    style={{
+                      maxWidth: "180px",
+                      maxHeight: "180px",
+                      width: "auto",
+                      height: "auto",
+                    }}
+                  />
+                )}
                 {uploadedQR.upiId && (
                   <p className="text-sm text-slate-600 mt-2">
                     UPI ID: <strong>{uploadedQR.upiId}</strong>
                   </p>
                 )}
                 {showOnline && payment?.upiPayload && (
-                  <>
-                    <textarea
-                      className="payment-qr-text"
-                      readOnly
-                      value={payment.upiPayload}
-                      rows={3}
-                    />
+                  <div className="payment-upi-app-buttons">
                     <button
-                      className="payment-button secondary"
-                      onClick={() =>
-                        payment?.upiPayload &&
-                        navigator.clipboard.writeText(payment.upiPayload)
-                      }
+                      type="button"
+                      className="payment-button payment-button-upi-open"
+                      onClick={() => {
+                        if (payment?.upiPayload) window.location.href = payment.upiPayload;
+                      }}
                     >
-                      Copy UPI string
+                      {t("payNow")}
                     </button>
-                  </>
+                    <div className="payment-upi-app-row">
+                      <button
+                        type="button"
+                        className="payment-button payment-button-phonepe"
+                        onClick={() => {
+                          const url = getUpiAppUrl(payment.upiPayload, "phonepe");
+                          if (url) window.location.href = url;
+                        }}
+                      >
+                        {t("payWithPhonePe")}
+                      </button>
+                      <button
+                        type="button"
+                        className="payment-button payment-button-paytm"
+                        onClick={() => {
+                          const url = getUpiAppUrl(payment.upiPayload, "paytmmp");
+                          if (url) window.location.href = url;
+                        }}
+                      >
+                        {t("payWithPaytm")}
+                      </button>
+                    </div>
+                  </div>
                 )}
               </>
             ) : showOnline && payment?.upiPayload ? (
-              // Fallback to generated QR code from UPI payload for online method
+              // Fallback: generated QR (clickable) + direct pay buttons
               <>
-                <QRCode value={payment.upiPayload} size={180} />
-                <textarea
-                  className="payment-qr-text"
-                  readOnly
-                  value={payment.upiPayload}
-                  rows={3}
-                />
                 <button
-                  className="payment-button secondary"
-                  onClick={() =>
-                    payment?.upiPayload &&
-                    navigator.clipboard.writeText(payment.upiPayload)
-                  }
+                  type="button"
+                  className="payment-qr-clickable"
+                  onClick={() => {
+                    if (payment?.upiPayload) window.location.href = payment.upiPayload;
+                  }}
+                  title={t("payNow")}
                 >
-                  Copy UPI string
+                  <QRCode value={payment.upiPayload} size={180} />
                 </button>
+                <div className="payment-upi-app-buttons">
+                  <button
+                    type="button"
+                    className="payment-button payment-button-upi-open"
+                    onClick={() => {
+                      if (payment?.upiPayload) window.location.href = payment.upiPayload;
+                    }}
+                  >
+                    {t("payNow")}
+                  </button>
+                  <div className="payment-upi-app-row">
+                    <button
+                      type="button"
+                      className="payment-button payment-button-phonepe"
+                      onClick={() => {
+                        const url = getUpiAppUrl(payment.upiPayload, "phonepe");
+                        if (url) window.location.href = url;
+                      }}
+                    >
+                      {t("payWithPhonePe")}
+                    </button>
+                    <button
+                      type="button"
+                      className="payment-button payment-button-paytm"
+                      onClick={() => {
+                        const url = getUpiAppUrl(payment.upiPayload, "paytmmp");
+                        if (url) window.location.href = url;
+                      }}
+                    >
+                      {t("payWithPaytm")}
+                    </button>
+                  </div>
+                </div>
               </>
             ) : null}
-          </div>
-        )}
-
-        {showOnline && (
-          <div className="receipt-ocr-wrapper">
-            <p className="receipt-ocr-title">Receipt Validation (OCR)</p>
-            <p className="receipt-ocr-subtitle">
-              Upload your UPI payment receipt screenshot to auto-check if it
-              looks valid.
-            </p>
-
-            <input
-              type="file"
-              accept="image/*"
-              onChange={handleReceiptFileChange}
-              className="receipt-file-input"
-            />
-
-            {receiptPreview && (
-              <img
-                src={receiptPreview}
-                alt="Uploaded receipt preview"
-                className="receipt-preview-image"
-              />
-            )}
-
-            <button
-              type="button"
-              onClick={handleScanReceipt}
-              disabled={!receiptFile || ocrLoading}
-              className={`payment-button secondary ${
-                !receiptFile || ocrLoading ? "disabled" : ""
-              }`}
-            >
-              {ocrLoading ? "Scanning receipt..." : "Scan receipt"}
-            </button>
-
-            {ocrError && <p className="receipt-ocr-error">{ocrError}</p>}
-
-            {ocrResult && (
-              <div
-                className={`receipt-ocr-result ${
-                  ocrResult.isValid ? "valid" : "review"
-                }`}
-              >
-                <p className="receipt-ocr-result-title">
-                  {ocrResult.isValid
-                    ? "Receipt looks valid"
-                    : "Receipt needs manual review"}
-                </p>
-                <div className="receipt-ocr-checks">
-                  <p>
-                    Amount match:{" "}
-                    <strong>
-                      {ocrResult.amountMatched
-                        ? `Yes (Rs ${Number(
-                            ocrResult.detectedAmount || 0
-                          ).toFixed(2)})`
-                        : "No"}
-                    </strong>
-                  </p>
-                  <p>
-                    Transaction reference:{" "}
-                    <strong>{ocrResult.referenceId || "Not found"}</strong>
-                  </p>
-                  <p>
-                    UPI ID match:{" "}
-                    <strong>{ocrResult.upiMatched ? "Yes" : "No"}</strong>
-                  </p>
-                </div>
-
-                <details className="receipt-ocr-text-block">
-                  <summary>View extracted text</summary>
-                  <pre>{ocrResult.rawText}</pre>
-                </details>
-              </div>
-            )}
           </div>
         )}
 
@@ -658,7 +570,23 @@ export default function Payment() {
       }`}
     >
       <button
-        onClick={() => navigate(-1)}
+        onClick={() => {
+          const isTakeaway =
+            serviceType === "TAKEAWAY" ||
+            serviceType === "PICKUP" ||
+            serviceType === "DELIVERY";
+          if (isTakeaway && orderId && !hasHandledPayment) {
+            // If user already chose a method (QR/Cash) and is on that screen, back = return to method selection
+            if (payment?.id) {
+              handleBackToMethodSelection();
+            } else {
+              handleBackWithoutPayment();
+            }
+          } else {
+            navigate(-1);
+          }
+        }}
+        disabled={cancellingOrder || canceling}
         className={`back-button ${
           accessibilityMode ? "accessibility-mode" : ""
         }`}
@@ -718,19 +646,6 @@ export default function Payment() {
               >
                 <FaMoneyBillWave size={20} />
                 {creating ? "Starting..." : t("createCash")}
-              </motion.button>
-
-              <motion.button
-                whileHover={{ scale: creating ? 1 : 1.03 }}
-                whileTap={{ scale: creating ? 1 : 0.97 }}
-                onClick={() => createPaymentIntent("ONLINE")}
-                disabled={creating}
-                className={`payment-button ${
-                  accessibilityMode ? "accessibility-mode" : ""
-                }`}
-              >
-                <MdPayments size={20} />
-                {creating ? "Starting..." : t("payOnline")}
               </motion.button>
             </div>
           </div>

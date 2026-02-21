@@ -3143,11 +3143,14 @@ export default function MenuPage() {
         persistPreviousOrderDetail(data);
       }
 
-      // Clear cart - both generic and service-type-specific
-      setCart({});
-      localStorage.removeItem("terra_cart");
-      localStorage.removeItem("terra_cart_DINE_IN");
-      localStorage.removeItem("terra_cart_TAKEAWAY");
+      // Clear cart only for dine-in. For takeaway, keep cart until payment completes
+      // so if user backs out from payment they still see their items
+      if (!isTakeawayServiceMode) {
+        setCart({});
+        localStorage.removeItem("terra_cart");
+        localStorage.removeItem("terra_cart_DINE_IN");
+        localStorage.removeItem("terra_cart_TAKEAWAY");
+      }
       setIsOrderingMore(false);
 
       console.log("[Menu] Order created and stored:", {
@@ -3174,9 +3177,14 @@ export default function MenuPage() {
       // await wait(DUR.summary);
       setStepState(4, "done");
 
-      // Navigate when all steps done
-      // navigate("/order-summary");
-      setProcessOpen(false); // Close overlay and stay on Menu page
+      // For takeaway: payment is compulsory — redirect to Payment page
+      if (isTakeawayServiceMode) {
+        setProcessOpen(false);
+        navigate("/payment");
+        return;
+      }
+      // Dine-in: close overlay and stay on Menu page
+      setProcessOpen(false);
     } catch (err) {
       // Network or unexpected error → mark backend step as error
       setStepState(2, "error");
@@ -6205,7 +6213,7 @@ export default function MenuPage() {
                   <div className="brand-address">
                     {invoiceOrder?.cafe?.address ||
                       invoiceOrder?.franchise?.address ||
-                      "123 Main Street, City"}
+                      "—"}
                   </div>
                   {(invoiceOrder?.franchise?.fssaiNumber ||
                     invoiceOrder?.franchise?.fssai ||

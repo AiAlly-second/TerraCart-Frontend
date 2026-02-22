@@ -28,6 +28,45 @@ function getUpiAppUrl(upiPayload, scheme) {
   return `${scheme}://pay?${match[2]}`;
 }
 
+function parseUpiPayload(upiPayload) {
+  if (!upiPayload || typeof upiPayload !== "string") return null;
+  const match = upiPayload.match(/^upi:\/\/pay\?(.*)$/i);
+  if (!match) return null;
+
+  try {
+    const params = new URLSearchParams(match[1]);
+    const upiId = (params.get("pa") || "").trim();
+    const payeeName = (params.get("pn") || "").trim();
+
+    if (!upiId && !payeeName) return null;
+    return {
+      upiId,
+      payeeName,
+    };
+  } catch (_error) {
+    return null;
+  }
+}
+
+function buildFallbackUpiPayload({ upiId, payeeName, amount, orderId }) {
+  if (!upiId) return null;
+
+  const normalizedUpiId = String(upiId).trim();
+  if (!normalizedUpiId) return null;
+
+  const normalizedPayeeName = String(payeeName || "Terra Cart").trim();
+  const amountNumber = Number(amount);
+  const amountParam =
+    Number.isFinite(amountNumber) && amountNumber > 0
+      ? `&am=${amountNumber.toFixed(2)}`
+      : "";
+  const note = encodeURIComponent(orderId ? `Order ${orderId}` : "Order Payment");
+
+  return `upi://pay?pa=${encodeURIComponent(
+    normalizedUpiId
+  )}&pn=${encodeURIComponent(normalizedPayeeName)}&tn=${note}${amountParam}&cu=INR`;
+}
+
 export default function Payment() {
   const navigate = useNavigate();
   const [creating, setCreating] = useState(false);
@@ -387,7 +426,27 @@ export default function Payment() {
       payment?.method === "CASH" || payment?.status === "CASH_PENDING";
     const shouldShowQrSection = showOnline || showCash;
     const hasUploadedQr = Boolean(uploadedQR?.qrImageUrl);
-    const hasGeneratedUpiQr = Boolean(payment?.upiPayload);
+    const parsedPaymentUpi = parseUpiPayload(payment?.upiPayload);
+    const resolvedUpiId = (
+      uploadedQR?.upiId ||
+      parsedPaymentUpi?.upiId ||
+      ""
+    ).trim();
+    const resolvedPayeeName = (
+      uploadedQR?.gatewayName ||
+      parsedPaymentUpi?.payeeName ||
+      ""
+    ).trim();
+    const upiLaunchUrl =
+      payment?.upiPayload ||
+      buildFallbackUpiPayload({
+        upiId: resolvedUpiId,
+        payeeName: resolvedPayeeName,
+        amount: payment?.amount,
+        orderId: payment?.orderId || orderId,
+      });
+    const hasGeneratedUpiQr = Boolean(upiLaunchUrl);
+    const canOpenUpi = showOnline && Boolean(upiLaunchUrl);
 
     return (
       <div className="payment-status-card">
@@ -403,12 +462,12 @@ export default function Payment() {
             {hasUploadedQr ? (
               // Show QR code uploaded from cart admin payment panel (clickable when we have UPI payload)
               <>
-                {showOnline && payment?.upiPayload ? (
+                {canOpenUpi ? (
                   <button
                     type="button"
                     className="payment-qr-clickable"
                     onClick={() => {
-                      if (payment?.upiPayload) window.location.href = payment.upiPayload;
+                      if (upiLaunchUrl) window.location.href = upiLaunchUrl;
                     }}
                     title={t("payNow")}
                   >
@@ -435,18 +494,27 @@ export default function Payment() {
                     }}
                   />
                 )}
-                {uploadedQR.upiId && (
-                  <p className="text-sm text-slate-600 mt-2">
-                    UPI ID: <strong>{uploadedQR.upiId}</strong>
-                  </p>
+                {(resolvedPayeeName || resolvedUpiId) && (
+                  <div className="text-sm text-slate-600 mt-2">
+                    {resolvedPayeeName && (
+                      <p>
+                        QR Owner: <strong>{resolvedPayeeName}</strong>
+                      </p>
+                    )}
+                    {resolvedUpiId && (
+                      <p>
+                        UPI ID: <strong>{resolvedUpiId}</strong>
+                      </p>
+                    )}
+                  </div>
                 )}
-                {showOnline && payment?.upiPayload && (
+                {canOpenUpi && (
                   <div className="payment-upi-app-buttons">
                     <button
                       type="button"
                       className="payment-button payment-button-upi-open"
                       onClick={() => {
-                        if (payment?.upiPayload) window.location.href = payment.upiPayload;
+                        if (upiLaunchUrl) window.location.href = upiLaunchUrl;
                       }}
                     >
                       {t("payNow")}
@@ -456,7 +524,7 @@ export default function Payment() {
                         type="button"
                         className="payment-button payment-button-phonepe"
                         onClick={() => {
-                          const url = getUpiAppUrl(payment.upiPayload, "phonepe");
+                          const url = getUpiAppUrl(upiLaunchUrl, "phonepe");
                           if (url) window.location.href = url;
                         }}
                       >
@@ -466,7 +534,7 @@ export default function Payment() {
                         type="button"
                         className="payment-button payment-button-paytm"
                         onClick={() => {
-                          const url = getUpiAppUrl(payment.upiPayload, "paytmmp");
+                          const url = getUpiAppUrl(upiLaunchUrl, "paytmmp");
                           if (url) window.location.href = url;
                         }}
                       >
@@ -476,25 +544,39 @@ export default function Payment() {
                   </div>
                 )}
               </>
-            ) : showOnline && payment?.upiPayload ? (
+            ) : showOnline && hasGeneratedUpiQr ? (
               // Fallback: generated QR (clickable) + direct pay buttons
               <>
                 <button
                   type="button"
                   className="payment-qr-clickable"
                   onClick={() => {
-                    if (payment?.upiPayload) window.location.href = payment.upiPayload;
+                    if (upiLaunchUrl) window.location.href = upiLaunchUrl;
                   }}
                   title={t("payNow")}
                 >
-                  <QRCode value={payment.upiPayload} size={180} />
+                  <QRCode value={upiLaunchUrl} size={180} />
                 </button>
+                {(resolvedPayeeName || resolvedUpiId) && (
+                  <div className="text-sm text-slate-600 mt-2">
+                    {resolvedPayeeName && (
+                      <p>
+                        QR Owner: <strong>{resolvedPayeeName}</strong>
+                      </p>
+                    )}
+                    {resolvedUpiId && (
+                      <p>
+                        UPI ID: <strong>{resolvedUpiId}</strong>
+                      </p>
+                    )}
+                  </div>
+                )}
                 <div className="payment-upi-app-buttons">
                   <button
                     type="button"
                     className="payment-button payment-button-upi-open"
                     onClick={() => {
-                      if (payment?.upiPayload) window.location.href = payment.upiPayload;
+                      if (upiLaunchUrl) window.location.href = upiLaunchUrl;
                     }}
                   >
                     {t("payNow")}
@@ -504,7 +586,7 @@ export default function Payment() {
                       type="button"
                       className="payment-button payment-button-phonepe"
                       onClick={() => {
-                        const url = getUpiAppUrl(payment.upiPayload, "phonepe");
+                        const url = getUpiAppUrl(upiLaunchUrl, "phonepe");
                         if (url) window.location.href = url;
                       }}
                     >
@@ -514,7 +596,7 @@ export default function Payment() {
                       type="button"
                       className="payment-button payment-button-paytm"
                       onClick={() => {
-                        const url = getUpiAppUrl(payment.upiPayload, "paytmmp");
+                        const url = getUpiAppUrl(upiLaunchUrl, "paytmmp");
                         if (url) window.location.href = url;
                       }}
                     >
@@ -589,14 +671,14 @@ export default function Payment() {
 
         {loading ? (
           <div className="payment-status-card">
-            <p className="payment-status-title">Loading payment details…</p>
+            <p className="payment-status-title">Loading payment details...</p>
           </div>
         ) : payment ? (
           renderPaymentStatus()
         ) : (
           <div className="payment-options">
             <p className="payment-status-text">
-              Choose how you’d like to complete your payment.
+              Choose how you'd like to complete your payment.
             </p>
             <div className="payment-buttons">
               <motion.button

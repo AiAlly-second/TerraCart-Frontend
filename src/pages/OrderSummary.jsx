@@ -417,6 +417,11 @@ export default function OrderSummary() {
     order.assignedStaff?.role || order.acceptedBy?.employeeRole;
   const disabilitySupport =
     order.acceptedBy?.disability?.type || order.assignedStaff?.disability;
+  const helplineNumber =
+    order.cafe?.managerHelplineNumber ||
+    order.cafe?.phone ||
+    order.cafe?.primaryEmergencyContact?.phone ||
+    null;
   const terminalReason =
     typeof order.cancellationReason === "string"
       ? order.cancellationReason.trim()
@@ -737,6 +742,11 @@ export default function OrderSummary() {
                   {disabilitySupport && (
                     <p className="text-sm text-gray-600 mt-1">
                       Your server has indicated: {disabilitySupport}
+                    </p>
+                  )}
+                  {helplineNumber && (
+                    <p className="text-sm text-blue-700 mt-1">
+                      Helpline (Manager): {helplineNumber}
                     </p>
                   )}
                 </div>

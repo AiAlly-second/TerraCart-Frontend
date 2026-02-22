@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import Header from "../components/Header";
 import { FiArrowLeft, FiMinus, FiPlus, FiTrash2 } from "react-icons/fi";
@@ -25,6 +25,14 @@ const sanitizeAddonName = (value) => {
     .replace(/^\(\s*\+\s*\)\s*/u, "")
     .trim();
   return normalized || "Add-on";
+};
+
+const parseJsonSafely = (value, fallback = {}) => {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
 };
 
 function getImageUrl(imagePath) {
@@ -166,6 +174,7 @@ export default function CartPage() {
   ];
   const [processOpen, setProcessOpen] = useState(false);
   const [processSteps, setProcessSteps] = useState(initialProcessSteps);
+  const placeOrderInFlightRef = useRef(false);
 
   const setStepState = (index, state) =>
     setProcessSteps((steps) =>
@@ -409,7 +418,10 @@ export default function CartPage() {
   };
 
   const handleConfirm = async () => {
+    if (placeOrderInFlightRef.current) return;
     if (Object.keys(cart).length === 0) return alert(t("cartEmpty"));
+    if (processOpen) return;
+    placeOrderInFlightRef.current = true;
 
     saveAddonsForCart(selectedAddOns);
 
@@ -435,9 +447,17 @@ export default function CartPage() {
       await wait(DUR.beforeSend);
 
       // --- AGGREGATE ORDER CONTEXT ---
-      const serviceType =
-        localStorage.getItem("terra_serviceType") || "DINE_IN";
-      const storedOrderType = localStorage.getItem("terra_orderType");
+      const serviceType = (
+        localStorage.getItem("terra_serviceType") || "DINE_IN"
+      )
+        .toString()
+        .trim()
+        .toUpperCase();
+      // Ignore stale pickup/delivery subtype when current flow is DINE_IN.
+      const storedOrderType =
+        serviceType !== "DINE_IN"
+          ? localStorage.getItem("terra_orderType")
+          : null;
       const isPickupOrDeliveryServiceType =
         serviceType === "PICKUP" || serviceType === "DELIVERY";
       const effectiveOrderType =
@@ -453,7 +473,7 @@ export default function CartPage() {
         serviceType === "TAKEAWAY" || isPickupOrDeliveryServiceType;
       const requiresImmediatePayment =
         effectiveOrderType === "PICKUP" || effectiveOrderType === "DELIVERY";
-      const tableInfo = JSON.parse(
+      let tableInfo = JSON.parse(
         localStorage.getItem("terra_selectedTable") || "{}",
       );
       const activeOrderId =
@@ -470,16 +490,53 @@ export default function CartPage() {
           localStorage.setItem("terra_takeaway_sessionToken", sessionToken);
         }
       } else {
-        sessionToken = localStorage.getItem("terra_sessionToken");
-        if (!sessionToken) {
-          // Try to recover from table info
-          if (tableInfo && tableInfo.sessionToken) {
-            sessionToken = tableInfo.sessionToken;
-            localStorage.setItem("terra_sessionToken", sessionToken);
-          } else {
-            sessionToken = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-            localStorage.setItem("terra_sessionToken", sessionToken);
+        sessionToken =
+          localStorage.getItem("terra_sessionToken") || tableInfo?.sessionToken || "";
+
+        // Refresh table/session context from lookup when possible.
+        const tableSlug =
+          tableInfo?.qrSlug ||
+          localStorage.getItem("terra_scanToken") ||
+          searchParams?.get("table");
+        const hasTableIdentity = !!(
+          tableInfo?.id ||
+          tableInfo?._id ||
+          tableInfo?.number ||
+          tableInfo?.tableNumber
+        );
+
+        if (tableSlug && (!sessionToken || !hasTableIdentity)) {
+          try {
+            const params = new URLSearchParams();
+            if (sessionToken) params.set("sessionToken", sessionToken);
+            const lookupUrl = `${nodeApi}/api/tables/lookup/${encodeURIComponent(tableSlug)}${
+              params.toString() ? `?${params.toString()}` : ""
+            }`;
+            const lookupRes = await fetch(lookupUrl);
+            if (lookupRes.ok || lookupRes.status === 423) {
+              const lookupPayload = await lookupRes.json();
+              if (lookupPayload?.table) {
+                tableInfo = { ...tableInfo, ...lookupPayload.table };
+                localStorage.setItem(
+                  "terra_selectedTable",
+                  JSON.stringify(tableInfo),
+                );
+              }
+              if (lookupPayload?.sessionToken || lookupPayload?.table?.sessionToken) {
+                sessionToken =
+                  lookupPayload.sessionToken || lookupPayload.table.sessionToken;
+                localStorage.setItem("terra_sessionToken", sessionToken);
+              }
+            }
+          } catch (lookupErr) {
+            console.warn("[CartPage] Failed to refresh table/session lookup:", lookupErr);
           }
+        }
+
+        if (!sessionToken) {
+          throw new Error(
+            "Session expired. Please scan the table QR code again and retry.",
+          );
         }
       }
 
@@ -625,6 +682,10 @@ export default function CartPage() {
       ) {
         orderPayload.takeawayToken = previewTakeawayToken;
       }
+      const requestIdempotencyKey = `ord-${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2, 11)}`;
+      orderPayload.idempotencyKey = requestIdempotencyKey;
 
       // API Call
       const url = finalActiveOrderId
@@ -634,7 +695,7 @@ export default function CartPage() {
       const res = await postWithRetry(
         url,
         orderPayload,
-        { headers: { "Content-Type": "application/json" } },
+        {},
         { maxRetries: 2, timeout: 30000 },
       );
 
@@ -709,6 +770,8 @@ export default function CartPage() {
       await wait(DUR.error);
       alert(`${t("errorPrefix")} ${err.message}`);
       setProcessOpen(false);
+    } finally {
+      placeOrderInFlightRef.current = false;
     }
   };
 

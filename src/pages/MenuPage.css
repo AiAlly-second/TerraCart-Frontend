@@ -1832,40 +1832,39 @@
 }
 .category-items {
   padding: 0.5rem;
+  --category-items-gap: 0.75rem;
   display: grid;
-  gap: 0.85rem;
-  grid-template-columns: repeat(2, 1fr);
-  grid-auto-rows: minmax(220px, auto); /* Compact row height for mobile */
+  grid-template-rows: repeat(2, minmax(220px, auto));
+  grid-auto-flow: column;
+  grid-auto-columns: calc((100% - var(--category-items-gap)) / 2);
+  gap: var(--category-items-gap);
   width: 100%;
   box-sizing: border-box;
-  overflow: visible;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x proximity;
   visibility: visible;
   opacity: 1;
-  max-height: none;
+  align-items: stretch;
+}
+.category-items::-webkit-scrollbar {
+  height: 6px;
+}
+.category-items::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.55);
+  border-radius: 999px;
+}
+.category-items > .item-card {
+  width: 100%;
+  min-width: 0;
+  min-height: 220px;
+  scroll-snap-align: start;
 }
 @media (min-width: 640px) {
   .category-items {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 1.25rem;
+    --category-items-gap: 0.9rem;
     padding: 0.75rem;
-  }
-}
-@media (min-width: 768px) {
-  .category-items {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 1.5rem;
-  }
-}
-@media (min-width: 1024px) {
-  .category-items {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 1.5rem;
-  }
-}
-@media (min-width: 1280px) {
-  .category-items {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 1.5rem;
   }
 }
 /* =========================
@@ -2287,9 +2286,13 @@
 
 @media (max-width: 420px) {
   .category-items {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.7rem;
+    --category-items-gap: 0.6rem;
     padding: 0.45rem;
+    grid-template-rows: repeat(2, minmax(210px, auto));
+  }
+
+  .category-items > .item-card {
+    min-height: 210px;
   }
 
   .item-image-container {
@@ -2320,8 +2323,7 @@
 
 @media (min-width: 421px) and (max-width: 640px) {
   .category-items {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.8rem;
+    --category-items-gap: 0.75rem;
   }
 }
 .item-status-badge.unavailable {

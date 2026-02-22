@@ -62,6 +62,15 @@ const CANCEL_ALLOWED_STATUSES = [
 ];
 const RETURN_ALLOWED_STATUSES = ["Paid"];
 const TERMINAL_STATUSES_TO_PRESERVE = ["Paid", "Cancelled", "Returned"];
+const TAKEAWAY_LIKE_SERVICE_TYPES = ["TAKEAWAY", "PICKUP", "DELIVERY"];
+
+const normalizeServiceType = (value = "DINE_IN") =>
+  String(value || "DINE_IN")
+    .trim()
+    .toUpperCase();
+
+const isTakeawayLikeServiceType = (value) =>
+  TAKEAWAY_LIKE_SERVICE_TYPES.includes(normalizeServiceType(value));
 
 const paiseToRupees = (value) => {
   if (value === undefined || value === null) return 0;
@@ -606,6 +615,7 @@ export default function MenuPage() {
     return saved ? JSON.parse(saved) : {};
   });
   const cartRef = useRef(cart);
+  const placeOrderInFlightRef = useRef(false);
 
   useEffect(() => {
     localStorage.setItem("terra_cart", JSON.stringify(cart));
@@ -679,11 +689,15 @@ export default function MenuPage() {
   const invoiceRef = useRef(null);
   const [activeOrderId, setActiveOrderId] = useState(() => {
     // Check service type specific order ID ONLY - never mix TAKEAWAY and DINE_IN orders
-    const serviceType = localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN";
+    const serviceType = normalizeServiceType(
+      localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN",
+    );
     let stored = null;
-    if (serviceType === "TAKEAWAY") {
-      // For TAKEAWAY: Only read from TAKEAWAY-specific key, ignore generic terra_orderId
-      stored = localStorage.getItem("terra_orderId_TAKEAWAY");
+    if (isTakeawayLikeServiceType(serviceType)) {
+      // For takeaway-like flows, use takeaway-scoped key first.
+      stored =
+        localStorage.getItem("terra_orderId_TAKEAWAY") ||
+        localStorage.getItem("terra_orderId");
     } else {
       // For DINE_IN: Read from DINE_IN-specific key first, fallback to generic for backward compatibility
       stored =
@@ -694,9 +708,11 @@ export default function MenuPage() {
   });
   const [orderStatus, setOrderStatus] = useState(() => {
     // Check service type specific status first, then fallback to general
-    const serviceType = localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN";
+    const serviceType = normalizeServiceType(
+      localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN",
+    );
     const stored =
-      serviceType === "TAKEAWAY"
+      isTakeawayLikeServiceType(serviceType)
         ? localStorage.getItem("terra_orderStatus_TAKEAWAY") ||
           localStorage.getItem("terra_orderStatus")
         : localStorage.getItem("terra_orderStatus_DINE_IN") ||
@@ -705,9 +721,11 @@ export default function MenuPage() {
   });
   const [orderStatusUpdatedAt, setOrderStatusUpdatedAt] = useState(() => {
     // Check service type specific updatedAt first, then fallback to general
-    const serviceType = localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN";
+    const serviceType = normalizeServiceType(
+      localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN",
+    );
     const stored =
-      serviceType === "TAKEAWAY"
+      isTakeawayLikeServiceType(serviceType)
         ? localStorage.getItem("terra_orderStatusUpdatedAt_TAKEAWAY") ||
           localStorage.getItem("terra_orderStatusUpdatedAt")
         : localStorage.getItem("terra_orderStatusUpdatedAt_DINE_IN") ||
@@ -740,10 +758,11 @@ export default function MenuPage() {
   useEffect(() => {
     const verifyActiveOrderSession = async () => {
       // Only run this strict session check for DINE_IN flows.
-      // For TAKEAWAY we rely on dedicated takeaway session handling elsewhere.
-      const currentServiceType =
-        localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN";
-      if (currentServiceType === "TAKEAWAY") {
+      // For takeaway-like flows we rely on dedicated session handling elsewhere.
+      const currentServiceType = normalizeServiceType(
+        localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN",
+      );
+      if (isTakeawayLikeServiceType(currentServiceType)) {
         return;
       }
 
@@ -831,14 +850,15 @@ export default function MenuPage() {
   useEffect(() => {
     const currentToken = localStorage.getItem("terra_sessionToken");
     const storedToken = sessionToken;
-    const currentServiceType =
-      localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN";
+    const currentServiceType = normalizeServiceType(
+      localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN",
+    );
 
     // If sessionToken changed (different from state), clear old DINE_IN order data only
     // IMPORTANT: Do NOT clear takeaway order data - takeaway uses separate sessionToken
     if (currentToken && storedToken && currentToken !== storedToken) {
       // Only clear dine-in order data, not takeaway
-      if (currentServiceType !== "TAKEAWAY") {
+      if (!isTakeawayLikeServiceType(currentServiceType)) {
         console.log(
           "[Menu] SessionToken changed - clearing old dine-in order data",
         );
@@ -863,14 +883,17 @@ export default function MenuPage() {
 
   // Sync activeOrderId when serviceType changes or on mount
   useEffect(() => {
-    const currentServiceType =
-      localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN";
+    const currentServiceType = normalizeServiceType(
+      localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN",
+    );
 
     // CRITICAL: Only read from service-type-specific keys, never mix TAKEAWAY and DINE_IN orders
     let orderId = null;
-    if (currentServiceType === "TAKEAWAY") {
-      // For TAKEAWAY: Only read from TAKEAWAY-specific key, ignore generic terra_orderId
-      orderId = localStorage.getItem("terra_orderId_TAKEAWAY");
+    if (isTakeawayLikeServiceType(currentServiceType)) {
+      // For takeaway-like flows, prefer takeaway key.
+      orderId =
+        localStorage.getItem("terra_orderId_TAKEAWAY") ||
+        localStorage.getItem("terra_orderId");
     } else {
       // For DINE_IN: Read from DINE_IN-specific key first, fallback to generic for backward compatibility
       orderId =
@@ -886,7 +909,7 @@ export default function MenuPage() {
   }, [serviceType, activeOrderId]);
 
   useEffect(() => {
-    if (serviceType !== "TAKEAWAY") {
+    if (!isTakeawayLikeServiceType(serviceType)) {
       setTakeawayTokenPreview(null);
       return;
     }
@@ -1108,7 +1131,9 @@ export default function MenuPage() {
 
   const invoiceServiceLabel = useMemo(() => {
     if (!invoiceOrder) return "";
-    return invoiceOrder.serviceType === "TAKEAWAY" ? "Takeaway" : "Dine-In";
+    return isTakeawayLikeServiceType(invoiceOrder.serviceType)
+      ? "Takeaway"
+      : "Dine-In";
   }, [invoiceOrder]);
 
   const invoiceTableNumber =
@@ -1149,6 +1174,21 @@ export default function MenuPage() {
     () => getAssignedStaffFromOrder(previousOrderDetail),
     [previousOrderDetail],
   );
+  const helplineNumber = useMemo(() => {
+    const primaryFromCurrent =
+      currentOrderDetail?.cafe?.primaryEmergencyContact?.phone;
+    const primaryFromPrevious =
+      previousOrderDetail?.cafe?.primaryEmergencyContact?.phone;
+    return (
+      currentOrderDetail?.cafe?.managerHelplineNumber ||
+      currentOrderDetail?.cafe?.phone ||
+      primaryFromCurrent ||
+      previousOrderDetail?.cafe?.managerHelplineNumber ||
+      previousOrderDetail?.cafe?.phone ||
+      primaryFromPrevious ||
+      null
+    );
+  }, [currentOrderDetail, previousOrderDetail]);
   const takeawayTokenForDisplay = useMemo(() => {
     const token =
       currentOrderDetail?.takeawayToken ??
@@ -1228,14 +1268,16 @@ export default function MenuPage() {
   useEffect(() => {
     // CRITICAL: On mount/refresh, check localStorage first to preserve serviceType
     // This ensures takeaway mode is maintained across page refreshes
-    const storedServiceType = localStorage.getItem(SERVICE_TYPE_KEY);
+    const storedServiceType = normalizeServiceType(
+      localStorage.getItem(SERVICE_TYPE_KEY),
+    );
     const takeawayOnly = localStorage.getItem("terra_takeaway_only") === "true";
     const hasTakeawayOrder = localStorage.getItem("terra_orderId_TAKEAWAY");
 
-    // If we have a takeaway order or takeaway-only flag, ensure serviceType is TAKEAWAY
+    // If we have a takeaway order but no takeaway-like service type, recover safely.
     if (
       (hasTakeawayOrder || takeawayOnly) &&
-      storedServiceType !== "TAKEAWAY"
+      !isTakeawayLikeServiceType(storedServiceType)
     ) {
       console.log(
         "[Menu] Detected takeaway order or takeaway-only mode on refresh, setting serviceType to TAKEAWAY",
@@ -1440,13 +1482,14 @@ export default function MenuPage() {
     // CRITICAL: Mark table as OCCUPIED ONLY when user enters menu page for DINE_IN (not on landing/second page)
     const markTableOccupied = async () => {
       try {
-        // IMPORTANT: Only mark table as occupied for DINE_IN orders, not TAKEAWAY
-        const currentServiceType =
+        // IMPORTANT: Only mark table as occupied for DINE_IN orders.
+        const currentServiceType = normalizeServiceType(
           localStorage.getItem(SERVICE_TYPE_KEY) ||
-          location.state?.serviceType ||
-          "DINE_IN";
-        if (currentServiceType === "TAKEAWAY") {
-          return; // Don't mark table as occupied for takeaway orders
+            location.state?.serviceType ||
+            "DINE_IN",
+        );
+        if (isTakeawayLikeServiceType(currentServiceType)) {
+          return; // Don't mark table as occupied for takeaway-like orders
         }
 
         const selectedTable = localStorage.getItem("terra_selectedTable");
@@ -2375,27 +2418,35 @@ export default function MenuPage() {
 
   // REPLACE the whole handleContinue with this
   const handleContinue = async () => {
-    if (Object.keys(cartRef.current || {}).length === 0) {
-      setProcessOpen(false); // Ensure overlay is closed if validation fails
-      return alert(cartEmptyText);
+    if (placeOrderInFlightRef.current) return;
+    placeOrderInFlightRef.current = true;
+
+    try {
+      if (Object.keys(cartRef.current || {}).length === 0) {
+        setProcessOpen(false); // Ensure overlay is closed if validation fails
+        return alert(cartEmptyText);
+      }
+
+      const existingId = activeOrderId;
+
+      if (serviceType === "DINE_IN" && !existingId && !tableInfo) {
+        setProcessOpen(false); // Ensure overlay is closed if validation fails
+        alert(
+          "We couldn't detect your table. Please scan the table QR again or contact staff before placing an order.",
+        );
+        return;
+      }
+
+      // Proceed with order creation
+      await proceedWithOrder();
+    } finally {
+      placeOrderInFlightRef.current = false;
     }
-
-    const existingId = activeOrderId;
-
-    if (serviceType === "DINE_IN" && !existingId && !tableInfo) {
-      setProcessOpen(false); // Ensure overlay is closed if validation fails
-      alert(
-        "We couldn't detect your table. Please scan the table QR again or contact staff before placing an order.",
-      );
-      return;
-    }
-
-    // Proceed with order creation
-    await proceedWithOrder();
   };
 
   const proceedWithOrder = async () => {
     let existingId = activeOrderId;
+    const isTakeawayLikeFlow = isTakeawayLikeServiceType(serviceType);
 
     // Check if existing order can accept new items
     // Allow adding items until payment is done - only block if order is Paid, Cancelled, or Returned
@@ -2416,7 +2467,7 @@ export default function MenuPage() {
             existingId = null;
             setActiveOrderId(null);
             // Clear service-type-specific keys
-            if (serviceType === "TAKEAWAY") {
+            if (isTakeawayLikeFlow) {
               localStorage.removeItem("terra_orderId_TAKEAWAY");
               localStorage.removeItem("terra_orderStatus_TAKEAWAY");
               localStorage.removeItem("terra_orderStatusUpdatedAt_TAKEAWAY");
@@ -2437,7 +2488,7 @@ export default function MenuPage() {
           existingId = null;
           setActiveOrderId(null);
           // Clear service-type-specific keys
-          if (serviceType === "TAKEAWAY") {
+          if (isTakeawayLikeFlow) {
             localStorage.removeItem("terra_orderId_TAKEAWAY");
             localStorage.removeItem("terra_orderStatus_TAKEAWAY");
             localStorage.removeItem("terra_orderStatusUpdatedAt_TAKEAWAY");
@@ -2458,7 +2509,7 @@ export default function MenuPage() {
         existingId = null;
         setActiveOrderId(null);
         // Clear service-type-specific keys
-        if (serviceType === "TAKEAWAY") {
+        if (isTakeawayLikeFlow) {
           localStorage.removeItem("terra_orderId_TAKEAWAY");
           localStorage.removeItem("terra_orderStatus_TAKEAWAY");
           localStorage.removeItem("terra_orderStatusUpdatedAt_TAKEAWAY");
@@ -2943,6 +2994,11 @@ export default function MenuPage() {
       }
 
       // Order payload prepared
+      const requestIdempotencyKey = `ord-${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2, 11)}`;
+      orderPayload.idempotencyKey = requestIdempotencyKey;
+
       const url = existingId
         ? `${nodeApi}/api/orders/${existingId}/kot`
         : `${nodeApi}/api/orders`;
@@ -2953,9 +3009,7 @@ export default function MenuPage() {
         res = await postWithRetry(
           url,
           orderPayload,
-          {
-            headers: { "Content-Type": "application/json" },
-          },
+          {},
           {
             maxRetries: 2, // Retry order creation up to 2 times
             retryDelay: 1500,
@@ -3203,7 +3257,7 @@ export default function MenuPage() {
       }
 
       // Store order detail including takeaway token for takeaway orders
-      if (data && (data.takeawayToken || data.serviceType === "TAKEAWAY")) {
+      if (data && (data.takeawayToken || isTakeawayLikeServiceType(data.serviceType))) {
         persistPreviousOrderDetail(data);
       }
 
@@ -3514,11 +3568,12 @@ export default function MenuPage() {
     setReordering(true);
     try {
       // Check service type
-      const currentServiceType =
-        localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN";
+      const currentServiceType = normalizeServiceType(
+        localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN",
+      );
 
-      // For TAKEAWAY orders, skip table lookup - just allow adding more items
-      if (currentServiceType === "TAKEAWAY") {
+      // For takeaway-like orders, skip table lookup - just allow adding more items
+      if (isTakeawayLikeServiceType(currentServiceType)) {
         // For takeaway, we just need the order ID and session token
         const takeawayOrderId =
           activeOrderId ||
@@ -3743,11 +3798,21 @@ export default function MenuPage() {
 
       if (payload.order) {
         // CRITICAL: Verify order serviceType matches current serviceType before processing
-        const currentServiceType =
-          localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN";
+        const currentServiceType = normalizeServiceType(
+          localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN",
+        );
+        const payloadServiceType = normalizeServiceType(
+          payload.order.serviceType || currentServiceType,
+        );
+        const serviceTypeMismatch =
+          payloadServiceType !== currentServiceType &&
+          !(
+            isTakeawayLikeServiceType(payloadServiceType) &&
+            isTakeawayLikeServiceType(currentServiceType)
+          );
         if (
           payload.order.serviceType &&
-          payload.order.serviceType !== currentServiceType
+          serviceTypeMismatch
         ) {
           console.log(
             `[Menu] Ignoring order from table lookup - serviceType mismatch: order is ${payload.order.serviceType}, current is ${currentServiceType}`,
@@ -3757,7 +3822,7 @@ export default function MenuPage() {
 
         setActiveOrderId(payload.order._id);
         // CRITICAL: Store order ID based on service type to prevent mixing TAKEAWAY and DINE_IN
-        if (currentServiceType === "TAKEAWAY") {
+        if (isTakeawayLikeServiceType(currentServiceType)) {
           localStorage.setItem("terra_orderId_TAKEAWAY", payload.order._id);
           localStorage.removeItem("terra_orderId");
           localStorage.removeItem("terra_orderId_DINE_IN");
@@ -3817,9 +3882,10 @@ export default function MenuPage() {
   };
 
   const handleCancelOrder = () => {
+    const isTakeawayLike = isTakeawayLikeServiceType(serviceType);
     // Get order ID - check service-type-specific first, then general
     const orderId =
-      serviceType === "TAKEAWAY"
+      isTakeawayLike
         ? activeOrderId ||
           localStorage.getItem("terra_orderId_TAKEAWAY") ||
           localStorage.getItem("terra_orderId")
@@ -3854,11 +3920,12 @@ export default function MenuPage() {
     setSubmittingReason(true);
 
     try {
+      const isTakeawayLike = isTakeawayLikeServiceType(serviceType);
       if (reasonAction === "Cancel") {
         setCancelling(true);
         // Get order ID
         const orderId =
-          serviceType === "TAKEAWAY"
+          isTakeawayLike
             ? activeOrderId ||
               localStorage.getItem("terra_orderId_TAKEAWAY") ||
               localStorage.getItem("terra_orderId")
@@ -3866,7 +3933,7 @@ export default function MenuPage() {
 
         // Get appropriate session token based on service type
         let sessionToken = null;
-        if (serviceType === "TAKEAWAY") {
+        if (isTakeawayLike) {
           // Try takeaway-specific token first, then fallback to generic
           sessionToken =
             localStorage.getItem("terra_takeaway_sessionToken") ||
@@ -3953,7 +4020,7 @@ export default function MenuPage() {
         setActiveOrderId(null);
 
         // Clear order data based on service type
-        if (serviceType === "TAKEAWAY") {
+        if (isTakeawayLike) {
           localStorage.removeItem("terra_orderId_TAKEAWAY");
           localStorage.setItem("terra_orderStatus_TAKEAWAY", "Cancelled");
           localStorage.setItem("terra_orderStatusUpdatedAt_TAKEAWAY", updatedAt);
@@ -3983,7 +4050,7 @@ export default function MenuPage() {
         localStorage.removeItem("terra_cart");
 
         // CRITICAL: If this is a takeaway order, clear waitlist state
-        if (serviceType === "TAKEAWAY") {
+        if (isTakeawayLike) {
           localStorage.removeItem("terra_waitToken");
           console.log(
             "[Menu] Cleared waitlist state for cancelled takeaway order",
@@ -3997,14 +4064,14 @@ export default function MenuPage() {
       } else if (reasonAction === "Return") {
         setReturning(true);
         const orderId =
-          serviceType === "TAKEAWAY"
+          isTakeawayLike
             ? activeOrderId ||
               localStorage.getItem("terra_orderId_TAKEAWAY") ||
               localStorage.getItem("terra_orderId")
             : activeOrderId || localStorage.getItem("terra_orderId");
 
         let sessionToken = null;
-        if (serviceType === "TAKEAWAY") {
+        if (isTakeawayLike) {
           sessionToken =
             localStorage.getItem("terra_takeaway_sessionToken") ||
             localStorage.getItem("terra_sessionToken");
@@ -4088,7 +4155,7 @@ export default function MenuPage() {
         setActiveOrderId(null);
 
         // Clear order IDs based on service type
-        if (serviceType === "TAKEAWAY") {
+        if (isTakeawayLike) {
           localStorage.removeItem("terra_orderId_TAKEAWAY");
           localStorage.setItem("terra_orderStatus_TAKEAWAY", "Returned");
           localStorage.setItem("terra_orderStatusUpdatedAt_TAKEAWAY", updatedAt);
@@ -4108,7 +4175,7 @@ export default function MenuPage() {
         setIsOrderingMore(false);
 
         // CRITICAL: If this is a takeaway order, clear waitlist state
-        if (serviceType === "TAKEAWAY") {
+        if (isTakeawayLike) {
           localStorage.removeItem("terra_waitToken");
 
           // CRITICAL: Clear takeaway customer data when order is returned
@@ -4771,13 +4838,17 @@ export default function MenuPage() {
 
   useEffect(() => {
     // Get order ID - check service-type-specific ONLY, never mix TAKEAWAY and DINE_IN
-    const currentServiceType =
-      localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN";
-    const isTakeaway = currentServiceType === "TAKEAWAY";
+    const currentServiceType = normalizeServiceType(
+      localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN",
+    );
+    const isTakeaway = isTakeawayLikeServiceType(currentServiceType);
     let orderId = null;
     if (isTakeaway) {
-      // For TAKEAWAY: Only read from TAKEAWAY-specific key
-      orderId = activeOrderId || localStorage.getItem("terra_orderId_TAKEAWAY");
+      // For takeaway-like flows: prefer takeaway key.
+      orderId =
+        activeOrderId ||
+        localStorage.getItem("terra_orderId_TAKEAWAY") ||
+        localStorage.getItem("terra_orderId");
     } else {
       // For DINE_IN: Read from DINE_IN-specific key first, fallback to generic for backward compatibility
       orderId =
@@ -4837,13 +4908,17 @@ export default function MenuPage() {
     const fetchStatus = async () => {
       try {
         // Get order ID - check service-type-specific ONLY, never mix TAKEAWAY and DINE_IN
-        const currentServiceType =
-          localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN";
+        const currentServiceType = normalizeServiceType(
+          localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN",
+        );
+        const isTakeawayFlow = isTakeawayLikeServiceType(currentServiceType);
         let orderId = null;
-        if (currentServiceType === "TAKEAWAY") {
-          // For TAKEAWAY: Only read from TAKEAWAY-specific key
+        if (isTakeawayFlow) {
+          // For takeaway-like flows: prefer takeaway key.
           orderId =
-            activeOrderId || localStorage.getItem("terra_orderId_TAKEAWAY");
+            activeOrderId ||
+            localStorage.getItem("terra_orderId_TAKEAWAY") ||
+            localStorage.getItem("terra_orderId");
         } else {
           // For DINE_IN: Read from DINE_IN-specific key first, fallback to generic for backward compatibility
           orderId =
@@ -4888,7 +4963,7 @@ export default function MenuPage() {
           if (res.status === 404) {
             console.warn("Order not found (404), clearing order data");
             // Clear service-type-specific keys
-            if (currentServiceType === "TAKEAWAY") {
+            if (isTakeawayFlow) {
               localStorage.removeItem("terra_orderId_TAKEAWAY");
               localStorage.removeItem("terra_orderStatus_TAKEAWAY");
               localStorage.removeItem("terra_orderStatusUpdatedAt_TAKEAWAY");
@@ -4922,12 +4997,22 @@ export default function MenuPage() {
         if (!data) return;
 
         // CRITICAL: Verify order serviceType matches current serviceType to prevent mixing TAKEAWAY and DINE_IN
-        const serviceType =
-          localStorage.getItem("terra_serviceType") || "DINE_IN";
-        const isTakeaway = serviceType === "TAKEAWAY";
+        const serviceType = normalizeServiceType(
+          localStorage.getItem("terra_serviceType") || "DINE_IN",
+        );
+        const isTakeaway = isTakeawayLikeServiceType(serviceType);
+        const orderServiceType = normalizeServiceType(
+          data.serviceType || serviceType,
+        );
+        const serviceTypeMismatch =
+          orderServiceType !== serviceType &&
+          !(
+            isTakeawayLikeServiceType(orderServiceType) &&
+            isTakeawayLikeServiceType(serviceType)
+          );
 
         // If order serviceType doesn't match current serviceType, ignore it
-        if (data.serviceType && data.serviceType !== serviceType) {
+        if (data.serviceType && serviceTypeMismatch) {
           console.log(
             `[Menu] Ignoring order update - serviceType mismatch: order is ${data.serviceType}, current is ${serviceType}`,
           );
@@ -5097,13 +5182,17 @@ export default function MenuPage() {
     // Define event handlers
     const handleOrderUpdated = (payload) => {
       // Get order ID - check service-type-specific ONLY, never mix TAKEAWAY and DINE_IN
-      const currentServiceType =
-        localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN";
+      const currentServiceType = normalizeServiceType(
+        localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN",
+      );
+      const isTakeawayFlow = isTakeawayLikeServiceType(currentServiceType);
       let orderId = null;
-      if (currentServiceType === "TAKEAWAY") {
-        // For TAKEAWAY: Only read from TAKEAWAY-specific key
+      if (isTakeawayFlow) {
+        // For takeaway-like flows: prefer takeaway key.
         orderId =
-          activeOrderId || localStorage.getItem("terra_orderId_TAKEAWAY");
+          activeOrderId ||
+          localStorage.getItem("terra_orderId_TAKEAWAY") ||
+          localStorage.getItem("terra_orderId");
       } else {
         // For DINE_IN: Read from DINE_IN-specific key first, fallback to generic for backward compatibility
         orderId =
@@ -5114,10 +5203,19 @@ export default function MenuPage() {
 
       // CRITICAL: Only process if this is our order and status actually changed
       // Also verify serviceType matches to prevent TAKEAWAY orders appearing in DINE_IN mode
+      const payloadServiceType = normalizeServiceType(
+        payload?.serviceType || currentServiceType,
+      );
+      const serviceTypeMismatch =
+        payloadServiceType !== currentServiceType &&
+        !(
+          isTakeawayLikeServiceType(payloadServiceType) &&
+          isTakeawayLikeServiceType(currentServiceType)
+        );
       if (
         String(payload?._id || "") === String(orderId || "") &&
         payload?.status &&
-        payload?.serviceType === currentServiceType
+        !serviceTypeMismatch
       ) {
         const currentStatus = localStorage.getItem("terra_orderStatus");
         // Avoid duplicate updates if status hasn't changed
@@ -5129,7 +5227,7 @@ export default function MenuPage() {
         }
 
         // CRITICAL: For takeaway orders, verify sessionToken matches to prevent cross-order updates
-        if (currentServiceType === "TAKEAWAY" && payload.sessionToken) {
+        if (isTakeawayFlow && payload.sessionToken) {
           const expectedSessionToken =
             localStorage.getItem("terra_takeaway_sessionToken") ||
             localStorage.getItem("terra_sessionToken");
@@ -5153,7 +5251,7 @@ export default function MenuPage() {
         localStorage.setItem("terra_orderStatus", payload.status);
         localStorage.setItem("terra_orderStatusUpdatedAt", nowIso);
         // Update service-type-specific keys
-        if (currentServiceType === "TAKEAWAY") {
+        if (isTakeawayFlow) {
           localStorage.setItem("terra_orderStatus_TAKEAWAY", payload.status);
           localStorage.setItem("terra_orderStatusUpdatedAt_TAKEAWAY", nowIso);
         } else {
@@ -5166,12 +5264,16 @@ export default function MenuPage() {
     const handleOrderAccepted = (payload) => {
       if (!payload) return;
 
-      const currentServiceType =
-        localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN";
+      const currentServiceType = normalizeServiceType(
+        localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN",
+      );
+      const isTakeawayFlow = isTakeawayLikeServiceType(currentServiceType);
       let orderId = null;
-      if (currentServiceType === "TAKEAWAY") {
+      if (isTakeawayFlow) {
         orderId =
-          activeOrderId || localStorage.getItem("terra_orderId_TAKEAWAY");
+          activeOrderId ||
+          localStorage.getItem("terra_orderId_TAKEAWAY") ||
+          localStorage.getItem("terra_orderId");
       } else {
         orderId =
           activeOrderId ||
@@ -5194,7 +5296,7 @@ export default function MenuPage() {
 
       localStorage.setItem("terra_orderStatus", acceptedStatus);
       localStorage.setItem("terra_orderStatusUpdatedAt", nowIso);
-      if (currentServiceType === "TAKEAWAY") {
+      if (isTakeawayFlow) {
         localStorage.setItem("terra_orderStatus_TAKEAWAY", acceptedStatus);
         localStorage.setItem("terra_orderStatusUpdatedAt_TAKEAWAY", nowIso);
       } else {
@@ -5233,13 +5335,17 @@ export default function MenuPage() {
 
     const handleOrderDeleted = (payload) => {
       // Get order ID - check service-type-specific ONLY, never mix TAKEAWAY and DINE_IN
-      const currentServiceType =
-        localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN";
+      const currentServiceType = normalizeServiceType(
+        localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN",
+      );
+      const isTakeawayFlow = isTakeawayLikeServiceType(currentServiceType);
       let orderId = null;
-      if (currentServiceType === "TAKEAWAY") {
-        // For TAKEAWAY: Only read from TAKEAWAY-specific key
+      if (isTakeawayFlow) {
+        // For takeaway-like flows: prefer takeaway key.
         orderId =
-          activeOrderId || localStorage.getItem("terra_orderId_TAKEAWAY");
+          activeOrderId ||
+          localStorage.getItem("terra_orderId_TAKEAWAY") ||
+          localStorage.getItem("terra_orderId");
       } else {
         // For DINE_IN: Read from DINE_IN-specific key first, fallback to generic for backward compatibility
         orderId =
@@ -5253,7 +5359,7 @@ export default function MenuPage() {
         setActiveOrderId(null);
         setCurrentOrderDetail(null);
         // Clear service-type-specific keys
-        if (currentServiceType === "TAKEAWAY") {
+        if (isTakeawayFlow) {
           localStorage.removeItem("terra_orderId_TAKEAWAY");
           localStorage.removeItem("terra_orderStatus_TAKEAWAY");
           localStorage.removeItem("terra_orderStatusUpdatedAt_TAKEAWAY");
@@ -5420,27 +5526,33 @@ export default function MenuPage() {
   // This ensures that when user navigates back from payment page or refreshes, the status is synced
   useEffect(() => {
     // Get order ID - check service-type-specific first, then general
-    const currentServiceType =
-      localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN";
+    const currentServiceType = normalizeServiceType(
+      localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN",
+    );
+    const isTakeawayFlow = isTakeawayLikeServiceType(currentServiceType);
     const orderId =
-      currentServiceType === "TAKEAWAY"
+      isTakeawayFlow
         ? activeOrderId ||
           localStorage.getItem("terra_orderId_TAKEAWAY") ||
           localStorage.getItem("terra_orderId")
-        : activeOrderId || localStorage.getItem("terra_orderId");
+        : activeOrderId ||
+          localStorage.getItem("terra_orderId_DINE_IN") ||
+          localStorage.getItem("terra_orderId");
 
     if (orderId) {
       // Check service-type-specific keys for takeaway orders
       const storedStatus =
-        currentServiceType === "TAKEAWAY"
+        isTakeawayFlow
           ? localStorage.getItem("terra_orderStatus_TAKEAWAY") ||
             localStorage.getItem("terra_orderStatus")
-          : localStorage.getItem("terra_orderStatus");
+          : localStorage.getItem("terra_orderStatus_DINE_IN") ||
+            localStorage.getItem("terra_orderStatus");
       const storedUpdatedAt =
-        currentServiceType === "TAKEAWAY"
+        isTakeawayFlow
           ? localStorage.getItem("terra_orderStatusUpdatedAt_TAKEAWAY") ||
             localStorage.getItem("terra_orderStatusUpdatedAt")
-          : localStorage.getItem("terra_orderStatusUpdatedAt");
+          : localStorage.getItem("terra_orderStatusUpdatedAt_DINE_IN") ||
+            localStorage.getItem("terra_orderStatusUpdatedAt");
 
       if (storedStatus) {
         // Always restore status from localStorage if it exists, even if state already has it
@@ -5461,13 +5573,17 @@ export default function MenuPage() {
 
   // Also restore order status and activeOrderId immediately on mount
   useEffect(() => {
-    const currentServiceType =
-      localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN";
+    const currentServiceType = normalizeServiceType(
+      localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN",
+    );
+    const isTakeawayFlow = isTakeawayLikeServiceType(currentServiceType);
     // CRITICAL: Only read from service-type-specific keys, never mix TAKEAWAY and DINE_IN
     let storedOrderId = null;
-    if (currentServiceType === "TAKEAWAY") {
-      // For TAKEAWAY: Only read from TAKEAWAY-specific key
-      storedOrderId = localStorage.getItem("terra_orderId_TAKEAWAY");
+    if (isTakeawayFlow) {
+      // For takeaway-like flows, use takeaway key first.
+      storedOrderId =
+        localStorage.getItem("terra_orderId_TAKEAWAY") ||
+        localStorage.getItem("terra_orderId");
     } else {
       // For DINE_IN: Read from DINE_IN-specific key first, fallback to generic for backward compatibility
       storedOrderId =
@@ -5489,15 +5605,17 @@ export default function MenuPage() {
     // Restore order status if it exists
     if (storedOrderId && !orderStatus) {
       const storedStatus =
-        currentServiceType === "TAKEAWAY"
+        isTakeawayFlow
           ? localStorage.getItem("terra_orderStatus_TAKEAWAY") ||
             localStorage.getItem("terra_orderStatus")
-          : localStorage.getItem("terra_orderStatus");
+          : localStorage.getItem("terra_orderStatus_DINE_IN") ||
+            localStorage.getItem("terra_orderStatus");
       const storedUpdatedAt =
-        currentServiceType === "TAKEAWAY"
+        isTakeawayFlow
           ? localStorage.getItem("terra_orderStatusUpdatedAt_TAKEAWAY") ||
             localStorage.getItem("terra_orderStatusUpdatedAt")
-          : localStorage.getItem("terra_orderStatusUpdatedAt");
+          : localStorage.getItem("terra_orderStatusUpdatedAt_DINE_IN") ||
+            localStorage.getItem("terra_orderStatusUpdatedAt");
 
       if (storedStatus) {
         // Restoring order status on mount
@@ -5526,8 +5644,17 @@ export default function MenuPage() {
         if (cancelled || !data) return;
 
         const currentServiceType =
-          localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN";
-        if (data.serviceType && data.serviceType !== currentServiceType) {
+          normalizeServiceType(localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN");
+        const orderServiceType = normalizeServiceType(
+          data.serviceType || currentServiceType,
+        );
+        const serviceTypeMismatch =
+          orderServiceType !== currentServiceType &&
+          !(
+            isTakeawayLikeServiceType(orderServiceType) &&
+            isTakeawayLikeServiceType(currentServiceType)
+          );
+        if (data.serviceType && serviceTypeMismatch) {
           return;
         }
         setCurrentOrderDetail(data);
@@ -5740,6 +5867,13 @@ export default function MenuPage() {
                           Disability Support: {activeAssignedStaff.disability}
                         </p>
                       )}
+                    </div>
+                  )}
+                  {helplineNumber && (
+                    <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg text-center">
+                      <p className="text-blue-800 font-medium">
+                        Helpline (Manager): {helplineNumber}
+                      </p>
                     </div>
                   )}
                   <div className="button-group status-actions">

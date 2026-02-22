@@ -12,6 +12,13 @@ import "./Billing.css";
 const nodeApi = (
   import.meta.env.VITE_NODE_API_URL || "http://localhost:5001"
 ).replace(/\/$/, "");
+const TAKEAWAY_LIKE_SERVICE_TYPES = ["TAKEAWAY", "PICKUP", "DELIVERY"];
+const isTakeawayLikeServiceType = (value) =>
+  TAKEAWAY_LIKE_SERVICE_TYPES.includes(
+    String(value || "DINE_IN")
+      .trim()
+      .toUpperCase(),
+  );
 
 // Convert paise to rupees
 const paiseToRupees = (paise) => {
@@ -21,8 +28,15 @@ const paiseToRupees = (paise) => {
   return num / 100;
 };
 
-/* helpers to combine all KOTs (kotLines) */
-function mergeKotLines(kotLines = []) {
+const sanitizeAddonName = (value) => {
+  const normalized = String(value || "")
+    .replace(/^\(\s*\+\s*\)\s*/u, "")
+    .trim();
+  return normalized || "Add-on";
+};
+
+/* helpers to combine all KOTs (kotLines + selected add-ons) */
+function mergeKotLines(kotLines = [], selectedAddons = []) {
   const collapsed = {};
   kotLines.forEach((kot) => {
     (kot?.items || []).forEach((item) => {
@@ -49,6 +63,39 @@ function mergeKotLines(kotLines = []) {
       }
     });
   });
+
+  (selectedAddons || []).forEach((addon) => {
+    if (!addon) return;
+    const addonName = sanitizeAddonName(addon.name);
+    const addonPriceInPaise = Math.round((Number(addon.price) || 0) * 100);
+    const qtyValue = Number(addon.quantity);
+    const addonQuantity =
+      Number.isFinite(qtyValue) && qtyValue > 0 ? Math.floor(qtyValue) : 1;
+    const addonId =
+      addon.addonId ||
+      addon._id ||
+      addon.id ||
+      `${addonName}-${addonPriceInPaise}`;
+    const key = `addon:${addonId}`;
+
+    if (!collapsed[key]) {
+      collapsed[key] = {
+        name: `+ ${addonName}`,
+        quantity: 0,
+        returnedQuantity: 0,
+        price: addonPriceInPaise, // Stored in paise for a single add-on
+        returned: false,
+        isAddon: true,
+      };
+    }
+
+    const entry = collapsed[key];
+    entry.quantity += addonQuantity;
+    if (!entry.price && addonPriceInPaise) {
+      entry.price = addonPriceInPaise;
+    }
+  });
+
   return Object.values(collapsed);
 }
 
@@ -77,9 +124,9 @@ function calculateTotalsFromItems(mergedItems) {
   };
 }
 
-function sumTotals(kotLines = []) {
+function sumTotals(kotLines = [], selectedAddons = []) {
   // Merge all items from all KOTs
-  const mergedItems = mergeKotLines(kotLines);
+  const mergedItems = mergeKotLines(kotLines, selectedAddons);
 
   // Calculate totals from actual items
   return calculateTotalsFromItems(mergedItems);
@@ -110,11 +157,13 @@ export default function Billing() {
   // Load current order by id (service-type aware)
   useEffect(() => {
     const serviceType = localStorage.getItem("terra_serviceType") || "DINE_IN";
+    const isTakeawayFlow = isTakeawayLikeServiceType(serviceType);
     const orderId =
-      serviceType === "TAKEAWAY"
+      isTakeawayFlow
         ? localStorage.getItem("terra_orderId_TAKEAWAY") ||
           localStorage.getItem("terra_orderId")
-        : localStorage.getItem("terra_orderId");
+        : localStorage.getItem("terra_orderId_DINE_IN") ||
+          localStorage.getItem("terra_orderId");
     if (!orderId) {
       setOrder(null);
       setError(t("noOrderFound") || "No active order.");
@@ -157,11 +206,13 @@ export default function Billing() {
   // Finalize the order on proceed to pay
   const handleProceedToPay = () => {
     const serviceType = localStorage.getItem("terra_serviceType") || "DINE_IN";
+    const isTakeawayFlow = isTakeawayLikeServiceType(serviceType);
     const orderId =
-      serviceType === "TAKEAWAY"
+      isTakeawayFlow
         ? localStorage.getItem("terra_orderId_TAKEAWAY") ||
           localStorage.getItem("terra_orderId")
-        : localStorage.getItem("terra_orderId");
+        : localStorage.getItem("terra_orderId_DINE_IN") ||
+          localStorage.getItem("terra_orderId");
     if (!orderId) {
       alert(t("noOrderFound") || "No order found");
       return;
@@ -208,9 +259,12 @@ export default function Billing() {
 
   // Derive combined items and totals from all kotLines
   // Derive combined items and totals from all kotLines
-  const items = mergeKotLines(order.kotLines || []);
-  const totals = sumTotals(order.kotLines || []);
-  const isTakeaway = order.serviceType === "TAKEAWAY";
+  const items = mergeKotLines(
+    order.kotLines || [],
+    order.selectedAddons || [],
+  );
+  const totals = sumTotals(order.kotLines || [], order.selectedAddons || []);
+  const isTakeaway = isTakeawayLikeServiceType(order.serviceType);
   const baseTableNumber = order.table?.number ?? order.tableNumber ?? "—";
   const tableName = order.table?.name;
 

@@ -2,6 +2,10 @@ import React, { useState, useEffect } from "react";
 import { FaMapMarkerAlt, FaStore, FaTruck } from "react-icons/fa";
 import "./OrderTypeSelector.css";
 
+const nodeApi = (
+  import.meta.env.VITE_NODE_API_URL || "http://localhost:5001"
+).replace(/\/$/, "");
+
 const OrderTypeSelector = ({
   selectedType,
   onTypeChange,
@@ -106,13 +110,12 @@ const OrderTypeSelector = ({
   const reverseGeocode = async (latitude, longitude) => {
     try {
       setFetchingAddress(true);
+      const query = new URLSearchParams({
+        lat: String(latitude),
+        lon: String(longitude),
+      });
       const response = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&addressdetails=1`,
-        {
-          headers: {
-            "User-Agent": "TerraCart-Ordering-System",
-          },
-        },
+        `${nodeApi}/api/geocode/reverse?${query.toString()}`,
       );
 
       if (!response.ok) {
@@ -120,6 +123,14 @@ const OrderTypeSelector = ({
       }
 
       const data = await response.json();
+
+      if (typeof data?.formattedAddress === "string" && data.formattedAddress.trim()) {
+        return data.formattedAddress.trim();
+      }
+
+      if (typeof data?.displayName === "string" && data.displayName.trim()) {
+        return data.displayName.trim();
+      }
 
       if (data && data.address) {
         const addr = data.address;
@@ -161,13 +172,13 @@ const OrderTypeSelector = ({
         let formattedAddress = parts.join(", ");
 
         if (!formattedAddress || formattedAddress.trim().length === 0) {
-          formattedAddress = data.display_name || "Address not available";
+          formattedAddress = data.displayName || "Address not available";
         }
 
         return formattedAddress;
       }
 
-      return data.display_name || "Address not available";
+      return data.displayName || "Address not available";
     } catch (error) {
       console.error("Reverse geocoding error:", error);
       return null;
@@ -372,6 +383,7 @@ const OrderTypeSelector = ({
             ) : (
               <div className="carts-list">
                 {deliveryCarts.map((cart) => {
+                  const cartDisplayName = getCartDisplayName(cart);
                   const cartAddress = getCartAddress(cart);
                   const deliveryMetaText = getDeliveryMetaText(cart);
                   const hasDeliveryDistance =
@@ -392,9 +404,11 @@ const OrderTypeSelector = ({
                       onChange={() => onCartChange(cart)}
                     />
                     <div className="cart-content">
-                      <div className="cart-name">{getCartDisplayName(cart)}</div>
+                      <div className="cart-name" title={cartDisplayName}>
+                        {cartDisplayName}
+                      </div>
                       {cartAddress && (
-                        <div className="cart-meta cart-meta-address">
+                        <div className="cart-meta cart-meta-address" title={cartAddress}>
                           {cartAddress}
                         </div>
                       )}
@@ -438,6 +452,7 @@ const OrderTypeSelector = ({
           ) : (
             <div className="carts-list">
               {pickupCarts.map((cart) => {
+                const cartDisplayName = getCartDisplayName(cart);
                 const cartAddress = getCartAddress(cart);
                 return (
                   <label
@@ -454,9 +469,13 @@ const OrderTypeSelector = ({
                       onChange={() => onCartChange(cart)}
                     />
                     <div className="cart-content">
-                      <div className="cart-name">{getCartDisplayName(cart)}</div>
+                      <div className="cart-name" title={cartDisplayName}>
+                        {cartDisplayName}
+                      </div>
                       {cartAddress && (
-                        <div className="cart-meta cart-meta-address">{cartAddress}</div>
+                        <div className="cart-meta cart-meta-address" title={cartAddress}>
+                          {cartAddress}
+                        </div>
                       )}
                       {typeof cart.distance === "number" && (
                         <div className="cart-meta">{cart.distance.toFixed(2)} km away</div>

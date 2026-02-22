@@ -39,7 +39,6 @@ export default function Payment() {
   );
   // Track if we've already handled payment completion to prevent re-render loops
   const [hasHandledPayment, setHasHandledPayment] = useState(false);
-  const [cancellingOrder, setCancellingOrder] = useState(false);
 
   // Memoize language and translation function to prevent re-renders
   const language = useMemo(
@@ -132,9 +131,13 @@ export default function Payment() {
   const fetchUploadedQR = useCallback(async () => {
     try {
       const queryParams = new URLSearchParams();
-      if (orderId) queryParams.set("orderId", orderId);
-      const cartScopeId = resolveCartScopeId();
-      if (cartScopeId) queryParams.set("cartId", cartScopeId);
+      if (orderId) {
+        // Prefer orderId scope so backend resolves the exact cart from the order.
+        queryParams.set("orderId", orderId);
+      } else {
+        const cartScopeId = resolveCartScopeId();
+        if (cartScopeId) queryParams.set("cartId", cartScopeId);
+      }
       const activeQrUrl = `${nodeApi}/api/payment-qr/active${
         queryParams.toString() ? `?${queryParams.toString()}` : ""
       }`;
@@ -270,14 +273,15 @@ export default function Payment() {
     }
   };
 
-  // For takeaway only: cancel the order when user goes back without paying (so order is not "placed")
+  // Keep order pending when customer goes back without paying.
+  // Order should remain visible until admin confirms payment.
   const handleBackWithoutPayment = useCallback(async () => {
-    const isTakeaway =
+    const isTakeawayLike =
       serviceType === "TAKEAWAY" ||
       serviceType === "PICKUP" ||
       serviceType === "DELIVERY";
     if (
-      !isTakeaway ||
+      !isTakeawayLike ||
       !orderId ||
       hasHandledPayment ||
       payment?.status === "PAID"
@@ -285,39 +289,7 @@ export default function Payment() {
       navigate("/menu");
       return;
     }
-    setCancellingOrder(true);
-    try {
-      const sessionToken =
-        localStorage.getItem("terra_takeaway_sessionToken") || undefined;
-      const res = await fetch(
-        `${nodeApi}/api/orders/${orderId}/customer-status`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            status: "Cancelled",
-            sessionToken,
-            reason: "Customer left payment without paying",
-          }),
-        }
-      );
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        console.warn("[Payment] Cancel order failed:", data?.message || res.status);
-      }
-    } catch (err) {
-      console.warn("[Payment] Cancel order error:", err);
-    } finally {
-      localStorage.removeItem("terra_orderId_TAKEAWAY");
-      localStorage.removeItem("terra_orderStatus_TAKEAWAY");
-      localStorage.removeItem("terra_orderStatusUpdatedAt_TAKEAWAY");
-      localStorage.removeItem("terra_takeaway_sessionToken");
-      if (localStorage.getItem("terra_orderId") === orderId) {
-        localStorage.removeItem("terra_orderId");
-      }
-      setCancellingOrder(false);
-      navigate("/menu");
-    }
+    navigate("/menu");
   }, [
     serviceType,
     orderId,
@@ -590,7 +562,7 @@ export default function Payment() {
             navigate(-1);
           }
         }}
-        disabled={cancellingOrder || canceling}
+        disabled={canceling}
         className={`back-button ${
           accessibilityMode ? "accessibility-mode" : ""
         }`}

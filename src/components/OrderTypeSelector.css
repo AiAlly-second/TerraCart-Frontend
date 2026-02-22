@@ -12,6 +12,12 @@
   color: #1f2937;
 }
 
+.order-type-selector-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
 .order-type-options-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -32,6 +38,22 @@
   cursor: pointer;
   transition: all 0.2s ease;
   text-align: center;
+}
+
+.order-type-option-icon-wrap {
+  width: 2.35rem;
+  height: 2.35rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #fff2e7;
+}
+
+.order-type-option-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: inherit;
 }
 
 .order-type-option-card:hover {
@@ -87,6 +109,34 @@
   font-size: 1.03rem;
   font-weight: 700;
   color: #1f2937;
+}
+
+.section-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.7rem;
+}
+
+.section-title-row .section-title {
+  margin: 0;
+}
+
+.section-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 999px;
+  background: #fff2e7;
+  border: 1px solid #ffd7b5;
+  color: #b45309;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1;
+  padding: 0 0.45rem;
 }
 
 .section-title-icon {
@@ -264,6 +314,9 @@
 .cart-content {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
 }
 
 .cart-name {
@@ -282,69 +335,253 @@
   word-break: break-word;
 }
 
+.cart-meta-address {
+  color: #334155;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.cart-option.selected .cart-meta-address {
+  color: #1f2937;
+}
+
 .cart-meta-success {
   color: #0f8a3a;
   font-weight: 600;
 }
 
-@media (max-width: 560px) {
+@media (max-width: 768px) {
   .order-type-selector {
-    padding: 0.8rem;
+    padding: 0.85rem;
     border-radius: 12px;
   }
 
   .order-type-selector-title {
     font-size: 1rem;
-    margin-bottom: 0.75rem;
+    margin-bottom: 0.72rem;
   }
 
   .order-type-options-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0.55rem;
   }
 
   .order-type-option-card {
-    min-height: 92px;
-    padding: 0.7rem;
-    align-items: flex-start;
-    text-align: left;
+    min-height: 90px;
+    padding: 0.65rem;
+  }
+
+  .order-type-option-icon-wrap {
+    width: 2rem;
+    height: 2rem;
   }
 
   .order-type-option-icon {
-    margin-bottom: 0.35rem;
+    font-size: 1.15rem;
+    margin-bottom: 0;
   }
 
   .order-type-option-title {
-    font-size: 0.95rem;
+    font-size: 0.9rem;
   }
 
   .order-type-option-desc {
-    font-size: 0.78rem;
+    margin-top: 0.2rem;
+    font-size: 0.73rem;
+    line-height: 1.22;
   }
 
   .location-section,
   .nearby-carts-section,
   .pickup-carts-section {
-    margin-top: 0.65rem;
-    padding: 0.75rem;
+    margin-top: 0.62rem;
+    padding: 0.72rem;
+    border-radius: 11px;
   }
 
   .section-title {
-    margin-bottom: 0.55rem;
-    font-size: 0.96rem;
+    font-size: 0.92rem;
   }
 
   .btn-location {
     min-height: 42px;
-    font-size: 0.95rem;
+    font-size: 0.92rem;
+    border-radius: 9px;
   }
 
   .input-field {
-    font-size: 0.95rem;
+    padding: 0.65rem 0.72rem;
+    font-size: 0.92rem;
+    border-radius: 9px;
+  }
+
+  .helper-text {
+    font-size: 0.75rem;
+  }
+
+  .status-message {
+    padding: 0.62rem 0.68rem;
+    font-size: 0.8rem;
+    border-radius: 9px;
+  }
+
+  .status-note,
+  .status-list {
+    font-size: 0.76rem;
+  }
+
+  .carts-list {
+    gap: 0.5rem;
+    max-height: 280px;
   }
 
   .cart-option {
-    padding: 0.65rem;
+    gap: 0.5rem;
+    padding: 0.6rem;
+    border-radius: 9px;
+  }
+
+  .cart-option input[type="radio"] {
+    width: 0.95rem;
+    height: 0.95rem;
+  }
+
+  .cart-name {
+    font-size: 0.9rem;
+  }
+
+  .cart-meta {
+    font-size: 0.78rem;
+    margin-top: 0.18rem;
+  }
+
+  .section-count {
+    min-width: 1.55rem;
+    height: 1.55rem;
+    font-size: 0.72rem;
   }
 }
 
+@media (max-width: 560px) {
+  .order-type-selector {
+    padding: 0.72rem;
+    border-radius: 11px;
+  }
+
+  .order-type-selector-title {
+    font-size: 0.95rem;
+    margin-bottom: 0.62rem;
+  }
+
+  .order-type-options-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.45rem;
+  }
+
+  .order-type-option-card {
+    min-height: 78px;
+    padding: 0.55rem 0.5rem;
+    align-items: stretch;
+    justify-content: flex-start;
+    text-align: left;
+    display: grid;
+    grid-template-columns: 1.7rem minmax(0, 1fr);
+    column-gap: 0.48rem;
+  }
+
+  .order-type-option-icon-wrap {
+    width: 1.7rem;
+    height: 1.7rem;
+    margin-top: 0.02rem;
+    border-radius: 8px;
+  }
+
+  .order-type-option-icon {
+    font-size: 0.92rem;
+  }
+
+  .order-type-option-desc {
+    font-size: 0.68rem;
+    margin-top: 0.12rem;
+    line-height: 1.2;
+  }
+
+  .order-type-option-title {
+    font-size: 0.81rem;
+    line-height: 1.15;
+  }
+
+  .location-section,
+  .nearby-carts-section,
+  .pickup-carts-section {
+    margin-top: 0.52rem;
+    padding: 0.62rem;
+    border-radius: 10px;
+  }
+
+  .section-title {
+    font-size: 0.86rem;
+  }
+
+  .btn-location {
+    min-height: 40px;
+    font-size: 0.86rem;
+    padding: 0.6rem 0.78rem;
+  }
+
+  .input-field {
+    font-size: 0.86rem;
+    padding: 0.58rem 0.66rem;
+  }
+
+  .helper-text {
+    font-size: 0.7rem;
+    line-height: 1.25;
+  }
+
+  .cart-option {
+    padding: 0.52rem;
+    border-radius: 8px;
+  }
+
+  .cart-name {
+    font-size: 0.82rem;
+  }
+
+  .cart-meta {
+    font-size: 0.72rem;
+    line-height: 1.28;
+  }
+
+  .section-count {
+    min-width: 1.4rem;
+    height: 1.4rem;
+    font-size: 0.66rem;
+    padding: 0 0.35rem;
+  }
+}
+
+@media (max-width: 390px) {
+  .order-type-options-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .order-type-option-card {
+    min-height: 72px;
+    grid-template-columns: 1.55rem minmax(0, 1fr);
+    padding: 0.5rem 0.45rem;
+  }
+
+  .order-type-option-icon-wrap {
+    width: 1.55rem;
+    height: 1.55rem;
+  }
+
+  .order-type-option-title {
+    font-size: 0.79rem;
+  }
+
+  .order-type-option-desc {
+    font-size: 0.67rem;
+  }
+}

@@ -342,12 +342,16 @@ export default function OrderSummary() {
         console.log("[OrderSummary] Socket connected");
       });
 
-      // Fetch order and join cart room for real-time updates
+      // Fetch order and join cart room for real-time status updates
       fetchOrder().then((orderData) => {
         if (orderData?.cartId && orderSocket) {
-          orderSocket.emit("join:cart", orderData.cartId.toString());
+          const cartId =
+            typeof orderData.cartId === "object" && orderData.cartId != null
+              ? (orderData.cartId._id || orderData.cartId).toString()
+              : String(orderData.cartId);
+          orderSocket.emit("join:cart", cartId);
           if (import.meta.env.DEV) {
-            console.log("[OrderSummary] Joined cart room:", orderData.cartId);
+            console.log("[OrderSummary] Joined cart room:", cartId);
           }
         }
       });
@@ -370,6 +374,7 @@ export default function OrderSummary() {
       });
 
       orderSocket.on("orderUpdated", handleOrderUpdated);
+      orderSocket.on("order:status:updated", handleOrderUpdated);
       orderSocket.on("ORDER_ACCEPTED", handleOrderAccepted);
     } catch (err) {
       console.warn("[OrderSummary] Failed to create socket connection:", err);
@@ -379,6 +384,7 @@ export default function OrderSummary() {
     return () => {
       if (orderSocket) {
         orderSocket.off("orderUpdated", handleOrderUpdated);
+        orderSocket.off("order:status:updated", handleOrderUpdated);
         orderSocket.off("ORDER_ACCEPTED", handleOrderAccepted);
         orderSocket.off("connect");
         orderSocket.off("connect_error");

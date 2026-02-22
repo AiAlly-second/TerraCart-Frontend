@@ -26,6 +26,7 @@ const Payment = lazy(() => import("./pages/Payment"));
 const Takeaway = lazy(() => import("./pages/Takeaway"));
 const CartPage = lazy(() => import("./pages/CartPage"));
 const FeedbackPage = lazy(() => import("./pages/FeedbackPage"));
+const ContactUs = lazy(() => import("./pages/ContactUs"));
 const SignLanguage = lazy(() => import("./pages/SignLanguage"));
 const SignName = lazy(() => import("./pages/SignName"));
 const BlindAssistantPage = lazy(() => import("./pages/BlindAssistantPage"));
@@ -122,7 +123,7 @@ export default function App() {
           setActiveModal={setActiveModal}
         /> */}
 
-            <div key={`lang-${currentLanguage}`}>
+            <div>
               <Routes>
                 <Route path="/" element={<Landing />} />
                 <Route path="/secondpage" element={<SecondPage />} />
@@ -187,6 +188,14 @@ export default function App() {
                   element={
                     <Suspense fallback={<Loader />}>
                       <FeedbackPage />
+                    </Suspense>
+                  }
+                />
+                <Route
+                  path="/contact-us"
+                  element={
+                    <Suspense fallback={<Loader />}>
+                      <ContactUs />
                     </Suspense>
                   }
                 />

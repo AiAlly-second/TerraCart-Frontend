@@ -29,6 +29,57 @@ const OrderTypeSelector = ({
     return resolvedName || "Store";
   };
 
+  const getCartAddress = (cart) => {
+    if (!cart) return null;
+
+    if (typeof cart.address === "string" && cart.address.trim()) {
+      return cart.address.trim();
+    }
+
+    if (cart.address && typeof cart.address === "object") {
+      if (
+        typeof cart.address.fullAddress === "string" &&
+        cart.address.fullAddress.trim()
+      ) {
+        return cart.address.fullAddress.trim();
+      }
+
+      const structuredAddress = [
+        cart.address.street,
+        cart.address.city,
+        cart.address.state,
+        cart.address.zipCode,
+      ]
+        .filter((value) => typeof value === "string" && value.trim())
+        .join(", ");
+
+      if (structuredAddress) return structuredAddress;
+    }
+
+    if (typeof cart.location === "string" && cart.location.trim()) {
+      return cart.location.trim();
+    }
+
+    return null;
+  };
+
+  const getDeliveryMetaText = (cart) => {
+    if (!cart?.deliveryInfo) return null;
+
+    const parts = [];
+    if (typeof cart.deliveryInfo.deliveryCharge === "number") {
+      parts.push(`Delivery: Rs.${cart.deliveryInfo.deliveryCharge}`);
+    }
+    if (typeof cart.deliveryInfo.estimatedTime === "number") {
+      parts.push(`${Math.round(cart.deliveryInfo.estimatedTime)} min`);
+    }
+    if (typeof cart.deliveryInfo.distance === "number") {
+      parts.push(`${cart.deliveryInfo.distance.toFixed(2)} km`);
+    }
+
+    return parts.length ? parts.join(" - ") : null;
+  };
+
   const isPickupEnabled = (cart) => {
     if (typeof cart?.pickupEnabled === "boolean") return cart.pickupEnabled;
     if (typeof cart?.canPickup === "boolean") return cart.canPickup;
@@ -170,10 +221,16 @@ const OrderTypeSelector = ({
   }, [customerLocation?.address]);
 
   return (
-    <div className="order-type-selector">
-      <h3 className="order-type-selector-title">
-        {texts.title || "Choose Order Type"}
-      </h3>
+    <div
+      className={`order-type-selector ${
+        selectedType ? `mode-${selectedType.toLowerCase()}` : ""
+      }`}
+    >
+      <div className="order-type-selector-head">
+        <h3 className="order-type-selector-title">
+          {texts.title || "Choose Order Type"}
+        </h3>
+      </div>
 
       <div className="order-type-options-grid">
         <label
@@ -189,12 +246,16 @@ const OrderTypeSelector = ({
             onChange={() => onTypeChange("PICKUP")}
             className="hidden"
           />
-          <FaStore className="order-type-option-icon" />
-          <div className="order-type-option-title">
-            {texts.pickupOption || "Pickup"}
+          <div className="order-type-option-icon-wrap">
+            <FaStore className="order-type-option-icon" />
           </div>
-          <div className="order-type-option-desc">
-            {texts.pickupDesc || "Order and collect from store"}
+          <div className="order-type-option-copy">
+            <div className="order-type-option-title">
+              {texts.pickupOption || "Pickup"}
+            </div>
+            <div className="order-type-option-desc">
+              {texts.pickupDesc || "Order and collect from store"}
+            </div>
           </div>
         </label>
 
@@ -211,12 +272,16 @@ const OrderTypeSelector = ({
             onChange={() => onTypeChange("DELIVERY")}
             className="hidden"
           />
-          <FaTruck className="order-type-option-icon" />
-          <div className="order-type-option-title">
-            {texts.deliveryOption || "Delivery"}
+          <div className="order-type-option-icon-wrap">
+            <FaTruck className="order-type-option-icon" />
           </div>
-          <div className="order-type-option-desc">
-            {texts.deliveryDesc || "Get your order delivered"}
+          <div className="order-type-option-copy">
+            <div className="order-type-option-title">
+              {texts.deliveryOption || "Delivery"}
+            </div>
+            <div className="order-type-option-desc">
+              {texts.deliveryDesc || "Get your order delivered"}
+            </div>
           </div>
         </label>
       </div>
@@ -284,7 +349,10 @@ const OrderTypeSelector = ({
 
       {showDeliveryStoreSelector && (
           <div className="nearby-carts-section">
-            <h4 className="section-title">Available Stores</h4>
+            <div className="section-title-row">
+              <h4 className="section-title">Available Stores</h4>
+              <span className="section-count">{deliveryCarts.length}</span>
+            </div>
             {loading ? (
               <p className="status-message status-neutral">
                 Loading nearby stores...
@@ -303,7 +371,13 @@ const OrderTypeSelector = ({
               </div>
             ) : (
               <div className="carts-list">
-                {deliveryCarts.map((cart) => (
+                {deliveryCarts.map((cart) => {
+                  const cartAddress = getCartAddress(cart);
+                  const deliveryMetaText = getDeliveryMetaText(cart);
+                  const hasDeliveryDistance =
+                    typeof cart?.deliveryInfo?.distance === "number";
+
+                  return (
                   <label
                     key={cart._id}
                     className={`cart-option ${
@@ -319,23 +393,25 @@ const OrderTypeSelector = ({
                     />
                     <div className="cart-content">
                       <div className="cart-name">{getCartDisplayName(cart)}</div>
-                      {typeof cart.distance === "number" && (
+                      {cartAddress && (
+                        <div className="cart-meta cart-meta-address">
+                          {cartAddress}
+                        </div>
+                      )}
+                      {typeof cart.distance === "number" && !hasDeliveryDistance && (
                         <div className="cart-meta">
                           {cart.distance.toFixed(2)} km away
                         </div>
                       )}
-                      {cart.deliveryInfo && (
+                      {deliveryMetaText && (
                         <div className="cart-meta cart-meta-success">
-                          Delivery: Rs.{cart.deliveryInfo.deliveryCharge} - {" "}
-                          {cart.deliveryInfo.estimatedTime} min
-                          {cart.deliveryInfo.distance ? (
-                            <span> - {cart.deliveryInfo.distance.toFixed(2)} km</span>
-                          ) : null}
+                          {deliveryMetaText}
                         </div>
                       )}
                     </div>
                   </label>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -343,7 +419,10 @@ const OrderTypeSelector = ({
 
       {selectedType === "PICKUP" && customerLocation && (
         <div className="pickup-carts-section">
-          <h4 className="section-title">Select Store</h4>
+          <div className="section-title-row">
+            <h4 className="section-title">Select Store</h4>
+            <span className="section-count">{pickupCarts.length}</span>
+          </div>
           {loading ? (
             <p className="status-message status-neutral">Loading stores...</p>
           ) : pickupCarts.length === 0 ? (
@@ -358,7 +437,9 @@ const OrderTypeSelector = ({
             </div>
           ) : (
             <div className="carts-list">
-              {pickupCarts.map((cart) => (
+              {pickupCarts.map((cart) => {
+                const cartAddress = getCartAddress(cart);
+                return (
                   <label
                     key={cart._id}
                     className={`cart-option ${
@@ -374,15 +455,16 @@ const OrderTypeSelector = ({
                     />
                     <div className="cart-content">
                       <div className="cart-name">{getCartDisplayName(cart)}</div>
-                      {cart.address?.fullAddress && (
-                        <div className="cart-meta">{cart.address.fullAddress}</div>
+                      {cartAddress && (
+                        <div className="cart-meta cart-meta-address">{cartAddress}</div>
                       )}
                       {typeof cart.distance === "number" && (
                         <div className="cart-meta">{cart.distance.toFixed(2)} km away</div>
                       )}
                     </div>
                   </label>
-                ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -392,5 +474,3 @@ const OrderTypeSelector = ({
 };
 
 export default OrderTypeSelector;
-
-

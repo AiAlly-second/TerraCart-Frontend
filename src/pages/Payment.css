@@ -192,6 +192,82 @@
   gap: 12px;
 }
 
+.payment-qr-clickable {
+  cursor: pointer;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: 12px;
+  display: inline-block;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.payment-qr-clickable:hover {
+  transform: scale(1.02);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.payment-qr-clickable:active {
+  transform: scale(0.98);
+}
+
+.payment-upi-app-buttons {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.payment-button.payment-button-upi-open {
+  width: 100%;
+  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+  color: white;
+  font-weight: 600;
+}
+
+.payment-button.payment-button-upi-open:hover {
+  background: linear-gradient(135deg, #2dd66e 0%, #15803d 100%);
+}
+
+.payment-upi-app-label {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #475569;
+}
+
+.payment-upi-app-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.payment-button.payment-button-phonepe {
+  flex: 1;
+  min-width: 120px;
+  background: linear-gradient(135deg, #5f259f 0%, #3d1a6b 100%);
+  color: white;
+}
+
+.payment-button.payment-button-phonepe:hover {
+  background: linear-gradient(135deg, #6f2bb3 0%, #4d2080 100%);
+}
+
+.payment-button.payment-button-paytm {
+  flex: 1;
+  min-width: 120px;
+  background: linear-gradient(135deg, #00baf2 0%, #007fad 100%);
+  color: white;
+}
+
+.payment-button.payment-button-paytm:hover {
+  background: linear-gradient(135deg, #00c8ff 0%, #0090c0 100%);
+}
+
 .receipt-ocr-wrapper {
   display: flex;
   flex-direction: column;

@@ -237,13 +237,79 @@
 
 .addons-grid {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 0.75rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
 }
 
-@media (min-width: 480px) {
+@media (min-width: 768px) {
   .addons-grid {
     grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .addon-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding: 5px;
+    gap: 4px 6px;
+    border-radius: 8px;
+    align-items: center;
+    min-height: 58px;
+  }
+
+  .addon-info {
+    display: block;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .addon-text {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+  }
+
+  .addon-card .addon-name {
+    display: block;
+    font-size: 0.66rem;
+    line-height: 1.1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    word-break: normal;
+  }
+
+  .addon-card .addon-price {
+    font-size: 0.6rem;
+    line-height: 1.05;
+  }
+
+  .addon-card .addon-qty-controls {
+    width: 60px;
+    justify-content: flex-end;
+    gap: 1px;
+    flex-shrink: 0;
+    margin-top: 0;
+  }
+
+  .addon-card .addon-ctrl-btn {
+    width: 18px;
+    height: 18px;
+    border-radius: 5px;
+    padding: 0;
+  }
+
+  .addon-card .addon-ctrl-btn svg {
+    width: 10px;
+    height: 10px;
+  }
+
+  .addon-card .addon-qty-val {
+    min-width: 8px;
+    font-size: 0.68rem;
+    line-height: 1;
   }
 }
 

@@ -528,15 +528,19 @@ export default function MenuPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [lang, setLang] = useState(localStorage.getItem("language") || "en");
+  const supportedLangs = ["en", "hi", "mr", "gu"];
+  const normalizeLang = (stored) =>
+    supportedLangs.includes(stored) ? stored : "en";
+  const [lang, setLang] = useState(() =>
+    normalizeLang(localStorage.getItem("language") || "en")
+  );
 
-  // Listen for storage changes to update language
+  // Listen for storage changes to update language (no remount – menu stays loaded)
   useEffect(() => {
     const handleStorageChange = () => {
-      setLang(localStorage.getItem("language") || "en");
+      setLang(normalizeLang(localStorage.getItem("language") || "en"));
     };
     window.addEventListener("storage", handleStorageChange);
-    // Custom event listener for same-tab updates if dispatching manual events
     window.addEventListener("language-change", handleStorageChange);
     return () => {
       window.removeEventListener("storage", handleStorageChange);
@@ -547,11 +551,13 @@ export default function MenuPage() {
   const t = (key, fallback) => {
     if (!key) return fallback;
     const keys = key.split(".");
-    let value = menuPageTranslations[lang];
+    const langSource =
+      menuPageTranslations[lang] ?? menuPageTranslations.en ?? {};
+    let value = langSource;
     for (const k of keys) {
       value = value?.[k];
     }
-    return value || fallback;
+    return value ?? fallback;
   };
 
   const initialProcessSteps = [
@@ -623,6 +629,9 @@ export default function MenuPage() {
   const [menuCatalog, setMenuCatalog] = useState({});
   const [menuLoading, setMenuLoading] = useState(true);
   const [menuError, setMenuError] = useState(null);
+  const [cartContact, setCartContact] = useState(null);
+  const [hasCartContext, setHasCartContext] = useState(false);
+  const [contactCartId, setContactCartId] = useState("");
   const flatMenuItems = useMemo(() => {
     if (!Array.isArray(menuCategories) || menuCategories.length === 0)
       return [];
@@ -2000,7 +2009,33 @@ export default function MenuPage() {
               }
 
               const tableData = JSON.parse(tableDataStr);
-              cartId = tableData.cartId || tableData.cafeId || "";
+              const rawCartId = tableData.cartId || tableData.cafeId || "";
+              // Normalize: backend may return populated cart object
+              if (typeof rawCartId === "string") {
+                cartId = rawCartId;
+              } else if (rawCartId && typeof rawCartId === "object" && (rawCartId._id || rawCartId.id)) {
+                cartId = String(rawCartId._id || rawCartId.id);
+              } else {
+                cartId = rawCartId ? String(rawCartId) : "";
+              }
+
+              // Fallback: if table payload missed cartId, resolve it via table id.
+              if (!cartId && (tableData.id || tableData._id)) {
+                try {
+                  const tableId = tableData.id || tableData._id;
+                  const cartIdRes = await fetch(
+                    `${nodeApi}/api/tables/public-cart-id/${encodeURIComponent(tableId)}`,
+                  );
+                  if (cartIdRes.ok) {
+                    const cartIdJson = await cartIdRes.json().catch(() => ({}));
+                    if (cartIdJson?.success && cartIdJson?.cartId) {
+                      cartId = String(cartIdJson.cartId);
+                    }
+                  }
+                } catch (lookupErr) {
+                  console.warn("[Menu] Failed to resolve cartId from table id:", lookupErr);
+                }
+              }
 
               console.log("[Menu] Table data for cartId lookup:", {
                 hasTableData: !!tableDataStr,
@@ -2026,8 +2061,9 @@ export default function MenuPage() {
           }
         }
 
-        const menuUrl = cartId
-          ? `${nodeApi}/api/menu/public?cartId=${cartId}`
+        const cartIdForApi = typeof cartId === "string" ? cartId : (cartId && (cartId._id || cartId.id) ? String(cartId._id || cartId.id) : "");
+        const menuUrl = cartIdForApi
+          ? `${nodeApi}/api/menu/public?cartId=${cartIdForApi}`
           : `${nodeApi}/api/menu/public`;
 
         console.log("[Menu] Loading menu from:", menuUrl, {
@@ -2083,6 +2119,29 @@ export default function MenuPage() {
             ? categories[0]?.name || null
             : null;
         });
+        // Fetch cart contact (phone/email) for Contact us
+        const cartIdForContact = typeof cartId === "string" ? cartId : (cartId && (cartId._id || cartId.id) ? String(cartId._id || cartId.id) : "");
+        if (cartIdForContact && !cancelled) {
+          setHasCartContext(true);
+          setContactCartId(cartIdForContact);
+          try {
+            const contactRes = await fetch(
+              `${nodeApi}/api/carts/public-contact?cartId=${encodeURIComponent(cartIdForContact)}`
+            );
+            const contactJson = await contactRes.json();
+            if (contactJson?.success && contactJson?.data) {
+              setCartContact(contactJson.data);
+            } else {
+              setCartContact(null);
+            }
+          } catch (_) {
+            setCartContact(null);
+          }
+        } else {
+          setHasCartContext(!!cartIdForApi);
+          setContactCartId(cartIdForApi || "");
+          setCartContact(null);
+        }
       } catch (err) {
         console.error("Menu fetch error", err);
         if (cancelled) return;
@@ -2091,6 +2150,9 @@ export default function MenuPage() {
         setMenuCategories([]);
         setMenuCatalog({});
         setOpenCategory(null);
+        setCartContact(null);
+        setHasCartContext(false);
+        setContactCartId("");
         setMenuError(
           "Trying to connect to live menu... please check your network or ask staff.",
         );
@@ -3169,11 +3231,14 @@ export default function MenuPage() {
         persistPreviousOrderDetail(data);
       }
 
-      // Clear cart - both generic and service-type-specific
-      setCart({});
-      localStorage.removeItem("terra_cart");
-      localStorage.removeItem("terra_cart_DINE_IN");
-      localStorage.removeItem("terra_cart_TAKEAWAY");
+      // Clear cart only for dine-in. For takeaway, keep cart until payment completes
+      // so if user backs out from payment they still see their items
+      if (!isTakeawayServiceMode) {
+        setCart({});
+        localStorage.removeItem("terra_cart");
+        localStorage.removeItem("terra_cart_DINE_IN");
+        localStorage.removeItem("terra_cart_TAKEAWAY");
+      }
       setIsOrderingMore(false);
 
       console.log("[Menu] Order created and stored:", {
@@ -3200,9 +3265,14 @@ export default function MenuPage() {
       // await wait(DUR.summary);
       setStepState(4, "done");
 
-      // Navigate when all steps done
-      // navigate("/order-summary");
-      setProcessOpen(false); // Close overlay and stay on Menu page
+      // For takeaway: payment is compulsory — redirect to Payment page
+      if (isTakeawayServiceMode) {
+        setProcessOpen(false);
+        navigate("/payment");
+        return;
+      }
+      // Dine-in: close overlay and stay on Menu page
+      setProcessOpen(false);
     } catch (err) {
       // Network or unexpected error → mark backend step as error
       setStepState(2, "error");
@@ -4773,10 +4843,17 @@ export default function MenuPage() {
     let connectionErrorLogged = false;
     let joinedCartId = null;
 
+    const normalizeCartId = (cartId) => {
+      if (cartId == null) return null;
+      if (typeof cartId === "string") return cartId;
+      if (typeof cartId === "object" && cartId._id) return String(cartId._id);
+      return String(cartId);
+    };
+
     const joinCartRoom = (cartId) => {
-      if (!socket || !cartId) return;
-      const normalizedCartId = String(cartId);
-      if (joinedCartId === normalizedCartId) return;
+      if (!socket || cartId == null) return;
+      const normalizedCartId = normalizeCartId(cartId);
+      if (!normalizedCartId || joinedCartId === normalizedCartId) return;
       socket.emit("join:cart", normalizedCartId);
       joinedCartId = normalizedCartId;
     };
@@ -4976,10 +5053,9 @@ export default function MenuPage() {
       }
     };
 
-    // Use polling + socket for both DINE_IN and TAKEAWAY so
-    // customer status always stays in sync with admin actions.
+    // Use polling + socket so customer status stays in sync with admin in real time
     fetchStatus();
-    timer = setInterval(fetchStatus, 20000);
+    timer = setInterval(fetchStatus, 10000);
 
     // Create socket connection with proper error handling
     try {
@@ -5339,9 +5415,10 @@ export default function MenuPage() {
       }
     };
 
-    // Register event listeners only if socket is connected
+    // Register event listeners only if socket is connected (listen to both event names for real-time status)
     if (socket) {
       socket.on("orderUpdated", handleOrderUpdated);
+      socket.on("order:status:updated", handleOrderUpdated);
       socket.on("ORDER_ACCEPTED", handleOrderAccepted);
       socket.on("orderDeleted", handleOrderDeleted);
       socket.on("table:status:updated", handleTableStatusUpdated);
@@ -5354,6 +5431,7 @@ export default function MenuPage() {
       // Remove event listeners before disconnecting
       if (socket) {
         socket.off("orderUpdated", handleOrderUpdated);
+        socket.off("order:status:updated", handleOrderUpdated);
         socket.off("ORDER_ACCEPTED", handleOrderAccepted);
         socket.off("orderDeleted", handleOrderDeleted);
         socket.off("table:status:updated", handleTableStatusUpdated);
@@ -5602,164 +5680,32 @@ export default function MenuPage() {
                       : tapToOrder}
               </p>
 
-              {/* Call Waiter and Request Water Buttons - Only show for DINE_IN orders */}
-              {serviceType === "DINE_IN" && (
-                <div className="action-buttons-row">
+              {/* Contact us entry point */}
+              {!menuLoading && (
+                <div className="contact-us-row" style={{ marginTop: "8px", fontSize: "13px", display: "flex", flexWrap: "wrap", gap: "8px", justifyContent: "center", alignItems: "center" }}>
                   <button
-                    onClick={async () => {
-                      try {
-                        const tableDataStr = localStorage.getItem(
-                          "terra_selectedTable",
-                        );
-                        if (!tableDataStr) {
-                          alert("Please select a table first");
-                          return;
-                        }
-                        const tableData = JSON.parse(tableDataStr);
-                        const tableId = tableData.id || tableData._id;
-                        const orderId =
-                          localStorage.getItem("terra_orderId") || null;
-                        const nodeApi = (
-                          import.meta.env.VITE_NODE_API_URL ||
-                          "http://localhost:5001"
-                        ).replace(/\/$/, "");
-
-                        const response = await fetch(
-                          `${nodeApi}/api/customer-requests`,
-                          {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({
-                              tableId: tableId,
-                              requestType: "assistance",
-                              customerNotes: "Call Waiter",
-                              ...(orderId && { orderId: orderId }),
-                            }),
+                    type="button"
+                    onClick={() =>
+                      navigate(
+                        `/contact-us${contactCartId ? `?cartId=${encodeURIComponent(contactCartId)}` : ""}`,
+                        {
+                          state: {
+                            cartId: contactCartId || null,
+                            contact: cartContact || null,
+                            hasCartContext,
                           },
-                        );
-
-                        if (response.ok) {
-                          alert(
-                            "✅ Waiter called! Someone will be with you shortly.",
-                          );
-                        } else {
-                          throw new Error("Failed to send request");
-                        }
-                      } catch (error) {
-                        console.error("Error calling waiter:", error);
-                        alert("❌ Failed to call waiter. Please try again.");
-                      }
-                    }}
-                    className="action-button call-waiter-button"
+                        },
+                      )
+                    }
+                    className="action-button"
+                    style={{ minWidth: "160px", padding: "8px 14px" }}
                   >
-                    {t("callWaiter", "Call Waiter")}
+                    {t("contactUs", "Contact us")}
                   </button>
-
-                  {!activeOrderId ? (
-                    <button
-                      onClick={async () => {
-                        try {
-                          const tableDataStr = localStorage.getItem(
-                            "terra_selectedTable",
-                          );
-                          if (!tableDataStr) {
-                            alert("Please select a table first");
-                            return;
-                          }
-                          const tableData = JSON.parse(tableDataStr);
-                          const tableId = tableData.id || tableData._id;
-                          const orderId =
-                            localStorage.getItem("terra_orderId") || null;
-                          const nodeApi = (
-                            import.meta.env.VITE_NODE_API_URL ||
-                            "http://localhost:5001"
-                          ).replace(/\/$/, "");
-
-                          const response = await fetch(
-                            `${nodeApi}/api/customer-requests`,
-                            {
-                              method: "POST",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({
-                                tableId: tableId,
-                                requestType: "water",
-                                customerNotes: "Request Water",
-                                ...(orderId && { orderId: orderId }),
-                              }),
-                            },
-                          );
-
-                          if (response.ok) {
-                            alert(
-                              "✅ Water requested! Someone will bring it shortly.",
-                            );
-                          } else {
-                            throw new Error("Failed to send request");
-                          }
-                        } catch (error) {
-                          console.error("Error requesting water:", error);
-                          alert(
-                            "❌ Failed to request water. Please try again.",
-                          );
-                        }
-                      }}
-                      className="action-button request-water-button"
-                    >
-                      💧 {t("requestWater", "Request Water")}
-                    </button>
-                  ) : (
-                    <button
-                      onClick={async () => {
-                        try {
-                          const tableDataStr = localStorage.getItem(
-                            "terra_selectedTable",
-                          );
-                          if (!tableDataStr) {
-                            alert("Please select a table first");
-                            return;
-                          }
-                          const tableData = JSON.parse(tableDataStr);
-                          const tableId = tableData.id || tableData._id;
-                          const orderId =
-                            localStorage.getItem("terra_orderId") || null;
-                          const nodeApi = (
-                            import.meta.env.VITE_NODE_API_URL ||
-                            "http://localhost:5001"
-                          ).replace(/\/$/, "");
-
-                          const response = await fetch(
-                            `${nodeApi}/api/customer-requests`,
-                            {
-                              method: "POST",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({
-                                tableId: tableId,
-                                requestType: "bill",
-                                customerNotes: "Request Bill",
-                                ...(orderId && { orderId: orderId }),
-                              }),
-                            },
-                          );
-
-                          if (response.ok) {
-                            alert(
-                              "✅ Bill requested! Someone will bring it shortly.",
-                            );
-                          } else {
-                            throw new Error("Failed to send request");
-                          }
-                        } catch (error) {
-                          console.error("Error requesting bill:", error);
-                          alert("❌ Failed to request bill. Please try again.");
-                        }
-                      }}
-                      className="action-button request-bill-button"
-                    >
-                      🧾 {t("requestBill", "Request Bill")}
-                    </button>
-                  )}
                 </div>
               )}
+
+              {/* Service request buttons removed from Menu UI as requested */}
 
               {orderText && (
                 <p className="ai-ordered-text">
@@ -6238,7 +6184,7 @@ export default function MenuPage() {
                   <div className="brand-address">
                     {invoiceOrder?.cafe?.address ||
                       invoiceOrder?.franchise?.address ||
-                      "123 Main Street, City"}
+                      "—"}
                   </div>
                   {(invoiceOrder?.franchise?.fssaiNumber ||
                     invoiceOrder?.franchise?.fssai ||

@@ -20,3 +20,4 @@ node_modules
 *.sw?
 .env
 .env.development
+dist

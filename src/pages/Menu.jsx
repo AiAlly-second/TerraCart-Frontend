@@ -600,6 +600,7 @@ export default function MenuPage() {
     return saved ? JSON.parse(saved) : {};
   });
   const cartRef = useRef(cart);
+  const placeOrderInFlightRef = useRef(false);
 
   useEffect(() => {
     localStorage.setItem("terra_cart", JSON.stringify(cart));
@@ -1140,6 +1141,21 @@ export default function MenuPage() {
     () => getAssignedStaffFromOrder(previousOrderDetail),
     [previousOrderDetail],
   );
+  const helplineNumber = useMemo(() => {
+    const primaryFromCurrent =
+      currentOrderDetail?.cafe?.primaryEmergencyContact?.phone;
+    const primaryFromPrevious =
+      previousOrderDetail?.cafe?.primaryEmergencyContact?.phone;
+    return (
+      currentOrderDetail?.cafe?.managerHelplineNumber ||
+      currentOrderDetail?.cafe?.phone ||
+      primaryFromCurrent ||
+      previousOrderDetail?.cafe?.managerHelplineNumber ||
+      previousOrderDetail?.cafe?.phone ||
+      primaryFromPrevious ||
+      null
+    );
+  }, [currentOrderDetail, previousOrderDetail]);
   const takeawayTokenForDisplay = useMemo(() => {
     const token =
       currentOrderDetail?.takeawayToken ??
@@ -2313,23 +2329,30 @@ export default function MenuPage() {
 
   // REPLACE the whole handleContinue with this
   const handleContinue = async () => {
-    if (Object.keys(cartRef.current || {}).length === 0) {
-      setProcessOpen(false); // Ensure overlay is closed if validation fails
-      return alert(cartEmptyText);
+    if (placeOrderInFlightRef.current) return;
+    placeOrderInFlightRef.current = true;
+
+    try {
+      if (Object.keys(cartRef.current || {}).length === 0) {
+        setProcessOpen(false); // Ensure overlay is closed if validation fails
+        return alert(cartEmptyText);
+      }
+
+      const existingId = activeOrderId;
+
+      if (serviceType === "DINE_IN" && !existingId && !tableInfo) {
+        setProcessOpen(false); // Ensure overlay is closed if validation fails
+        alert(
+          "We couldn't detect your table. Please scan the table QR again or contact staff before placing an order.",
+        );
+        return;
+      }
+
+      // Proceed with order creation
+      await proceedWithOrder();
+    } finally {
+      placeOrderInFlightRef.current = false;
     }
-
-    const existingId = activeOrderId;
-
-    if (serviceType === "DINE_IN" && !existingId && !tableInfo) {
-      setProcessOpen(false); // Ensure overlay is closed if validation fails
-      alert(
-        "We couldn't detect your table. Please scan the table QR again or contact staff before placing an order.",
-      );
-      return;
-    }
-
-    // Proceed with order creation
-    await proceedWithOrder();
   };
 
   const proceedWithOrder = async () => {
@@ -2879,6 +2902,11 @@ export default function MenuPage() {
       }
 
       // Order payload prepared
+      const requestIdempotencyKey = `ord-${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2, 11)}`;
+      orderPayload.idempotencyKey = requestIdempotencyKey;
+
       const url = existingId
         ? `${nodeApi}/api/orders/${existingId}/kot`
         : `${nodeApi}/api/orders`;
@@ -2889,9 +2917,7 @@ export default function MenuPage() {
         res = await postWithRetry(
           url,
           orderPayload,
-          {
-            headers: { "Content-Type": "application/json" },
-          },
+          {},
           {
             maxRetries: 2, // Retry order creation up to 2 times
             retryDelay: 1500,
@@ -5792,6 +5818,13 @@ export default function MenuPage() {
                           Disability Support: {activeAssignedStaff.disability}
                         </p>
                       )}
+                    </div>
+                  )}
+                  {helplineNumber && (
+                    <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg text-center">
+                      <p className="text-blue-800 font-medium">
+                        Helpline (Manager): {helplineNumber}
+                      </p>
                     </div>
                   )}
                   <div className="button-group status-actions">

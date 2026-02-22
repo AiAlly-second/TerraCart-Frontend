@@ -221,10 +221,16 @@ const OrderTypeSelector = ({
   }, [customerLocation?.address]);
 
   return (
-    <div className="order-type-selector">
-      <h3 className="order-type-selector-title">
-        {texts.title || "Choose Order Type"}
-      </h3>
+    <div
+      className={`order-type-selector ${
+        selectedType ? `mode-${selectedType.toLowerCase()}` : ""
+      }`}
+    >
+      <div className="order-type-selector-head">
+        <h3 className="order-type-selector-title">
+          {texts.title || "Choose Order Type"}
+        </h3>
+      </div>
 
       <div className="order-type-options-grid">
         <label
@@ -240,12 +246,16 @@ const OrderTypeSelector = ({
             onChange={() => onTypeChange("PICKUP")}
             className="hidden"
           />
-          <FaStore className="order-type-option-icon" />
-          <div className="order-type-option-title">
-            {texts.pickupOption || "Pickup"}
+          <div className="order-type-option-icon-wrap">
+            <FaStore className="order-type-option-icon" />
           </div>
-          <div className="order-type-option-desc">
-            {texts.pickupDesc || "Order and collect from store"}
+          <div className="order-type-option-copy">
+            <div className="order-type-option-title">
+              {texts.pickupOption || "Pickup"}
+            </div>
+            <div className="order-type-option-desc">
+              {texts.pickupDesc || "Order and collect from store"}
+            </div>
           </div>
         </label>
 
@@ -262,12 +272,16 @@ const OrderTypeSelector = ({
             onChange={() => onTypeChange("DELIVERY")}
             className="hidden"
           />
-          <FaTruck className="order-type-option-icon" />
-          <div className="order-type-option-title">
-            {texts.deliveryOption || "Delivery"}
+          <div className="order-type-option-icon-wrap">
+            <FaTruck className="order-type-option-icon" />
           </div>
-          <div className="order-type-option-desc">
-            {texts.deliveryDesc || "Get your order delivered"}
+          <div className="order-type-option-copy">
+            <div className="order-type-option-title">
+              {texts.deliveryOption || "Delivery"}
+            </div>
+            <div className="order-type-option-desc">
+              {texts.deliveryDesc || "Get your order delivered"}
+            </div>
           </div>
         </label>
       </div>
@@ -335,7 +349,10 @@ const OrderTypeSelector = ({
 
       {showDeliveryStoreSelector && (
           <div className="nearby-carts-section">
-            <h4 className="section-title">Available Stores</h4>
+            <div className="section-title-row">
+              <h4 className="section-title">Available Stores</h4>
+              <span className="section-count">{deliveryCarts.length}</span>
+            </div>
             {loading ? (
               <p className="status-message status-neutral">
                 Loading nearby stores...
@@ -402,7 +419,10 @@ const OrderTypeSelector = ({
 
       {selectedType === "PICKUP" && customerLocation && (
         <div className="pickup-carts-section">
-          <h4 className="section-title">Select Store</h4>
+          <div className="section-title-row">
+            <h4 className="section-title">Select Store</h4>
+            <span className="section-count">{pickupCarts.length}</span>
+          </div>
           {loading ? (
             <p className="status-message status-neutral">Loading stores...</p>
           ) : pickupCarts.length === 0 ? (

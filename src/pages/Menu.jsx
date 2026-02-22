@@ -2542,6 +2542,8 @@ export default function MenuPage() {
             : null;
       const isTakeawayServiceMode =
         serviceType === "TAKEAWAY" || isPickupOrDeliveryServiceType;
+      const requiresImmediatePayment =
+        effectiveOrderType === "PICKUP" || effectiveOrderType === "DELIVERY";
       const customerLocationStr =
         serviceType !== "DINE_IN"
           ? localStorage.getItem("terra_customerLocation")
@@ -3205,9 +3207,9 @@ export default function MenuPage() {
         persistPreviousOrderDetail(data);
       }
 
-      // Clear cart only for dine-in. For takeaway, keep cart until payment completes
-      // so if user backs out from payment they still see their items
-      if (!isTakeawayServiceMode) {
+      // Clear cart for dine-in and regular takeaway.
+      // Keep cart only for pickup/delivery until payment completes.
+      if (!requiresImmediatePayment) {
         setCart({});
         localStorage.removeItem("terra_cart");
         localStorage.removeItem("terra_cart_DINE_IN");
@@ -3239,8 +3241,8 @@ export default function MenuPage() {
       // await wait(DUR.summary);
       setStepState(4, "done");
 
-      // For takeaway: payment is compulsory — redirect to Payment page
-      if (isTakeawayServiceMode) {
+      // For pickup/delivery: payment is compulsory — redirect to Payment page
+      if (requiresImmediatePayment) {
         setProcessOpen(false);
         navigate("/payment");
         return;

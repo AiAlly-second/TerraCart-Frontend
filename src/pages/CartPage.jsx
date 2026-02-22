@@ -451,6 +451,8 @@ export default function CartPage() {
         effectiveOrderType === "DELIVERY";
       const isTakeawayLike =
         serviceType === "TAKEAWAY" || isPickupOrDeliveryServiceType;
+      const requiresImmediatePayment =
+        effectiveOrderType === "PICKUP" || effectiveOrderType === "DELIVERY";
       const tableInfo = JSON.parse(
         localStorage.getItem("terra_selectedTable") || "{}",
       );
@@ -687,16 +689,16 @@ export default function CartPage() {
             new Date().toISOString(),
           );
         }
-        // For takeaway, keep cart until payment completes so back-from-payment shows items
-        if (!isTakeawayLike) {
+        // For pickup/delivery, keep cart until payment completes so back-from-payment shows items
+        if (!requiresImmediatePayment) {
           localStorage.removeItem("terra_cart");
           setCart({});
         }
       }
 
       // DONE - Navigate
-      // For takeaway: payment is compulsory — go to Payment page
-      if (isTakeawayLike) {
+      // For pickup/delivery: payment is compulsory — go to Payment page
+      if (requiresImmediatePayment) {
         navigate("/payment");
       } else {
         navigate("/menu");
@@ -963,4 +965,3 @@ export default function CartPage() {
     </div>
   );
 }
-

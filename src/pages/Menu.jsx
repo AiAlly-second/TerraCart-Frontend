@@ -216,9 +216,18 @@ const aggregateOrderItems = (order) => {
   // Process Add-ons
   const addons = order.selectedAddons || [];
   addons.forEach((addon) => {
+    if (!addon) return;
     const addonName = sanitizeAddonName(addon.name);
-    const addonKey = `addon:${addon.addonId || addon._id || addon.id || `${addonName}-${addon.price || 0}`}`;
-    const quantity = 1;
+    const addonIdRaw =
+      addon.addonId || addon._id || addon.id || `${addonName}-${addon.price || 0}`;
+    const addonId =
+      addonIdRaw && typeof addonIdRaw.toString === "function"
+        ? addonIdRaw.toString()
+        : addonIdRaw;
+    const addonKey = `addon:${addonId}`;
+    const qtyValue = Number(addon.quantity);
+    const quantity =
+      Number.isFinite(qtyValue) && qtyValue > 0 ? Math.floor(qtyValue) : 1;
     const unitPrice = Number(addon.price) || 0; // Addons are in Rupees
 
     if (!map.has(addonKey)) {

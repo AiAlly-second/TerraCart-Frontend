@@ -2775,12 +2775,39 @@ export default function MenuPage() {
       // Prepare Add-ons (scoped by cartId so extras don't mix between carts)
       const addonsRaw = localStorage.getItem("terra_cart_addons") || "{}";
       let savedAddOnsIDs = [];
+      const expandAddonSelection = (selection) => {
+        if (Array.isArray(selection)) {
+          return selection
+            .map((id) => (id == null ? "" : String(id)))
+            .filter(Boolean);
+        }
+        if (!selection || typeof selection !== "object") return [];
+
+        const expanded = [];
+        Object.entries(selection).forEach(([addonId, qty]) => {
+          const id = addonId == null ? "" : String(addonId).trim();
+          if (!id) return;
+          const qtyValue = Number(qty);
+          const quantity =
+            Number.isFinite(qtyValue) && qtyValue > 0
+              ? Math.floor(qtyValue)
+              : 0;
+          for (let index = 0; index < quantity; index += 1) {
+            expanded.push(id);
+          }
+        });
+        return expanded;
+      };
       try {
         const parsed = JSON.parse(addonsRaw);
         if (Array.isArray(parsed)) {
-          savedAddOnsIDs = parsed;
-        } else if (effectiveCartId && Array.isArray(parsed[effectiveCartId])) {
-          savedAddOnsIDs = parsed[effectiveCartId];
+          savedAddOnsIDs = expandAddonSelection(parsed);
+        } else if (parsed && typeof parsed === "object") {
+          const scopedSelection =
+            effectiveCartId && Object.prototype.hasOwnProperty.call(parsed, effectiveCartId)
+              ? parsed[effectiveCartId]
+              : null;
+          savedAddOnsIDs = expandAddonSelection(scopedSelection);
         }
       } catch (_) {
         savedAddOnsIDs = [];

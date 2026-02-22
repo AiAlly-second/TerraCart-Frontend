@@ -5,6 +5,13 @@ const sanitizeAddonName = (value) => {
   return normalized || "Add-on";
 };
 
+const normalizeAddonQuantity = (value) => {
+  const qtyValue = Number(value);
+  return Number.isFinite(qtyValue) && qtyValue > 0
+    ? Math.floor(qtyValue)
+    : 1;
+};
+
 export function buildOrderPayload(cart, options = {}) {
   const {
     serviceType = "DINE_IN",
@@ -89,13 +96,40 @@ export function buildOrderPayload(cart, options = {}) {
   let validAddons = [];
   
   if (Array.isArray(selectedAddons) && selectedAddons.length > 0) {
-      validAddons = selectedAddons.map(addon => ({
-          addonId: addon.addonId || addon._id || addon.id,
-          name: sanitizeAddonName(addon.name),
-          price: Number(addon.price) || 0
-      })).filter(a => a.name);
-      
-      addonsTotal = validAddons.reduce((sum, a) => sum + a.price, 0);
+      const addonMap = new Map();
+
+      selectedAddons.forEach((addon) => {
+        if (!addon || typeof addon !== "object") return;
+
+        const addonId = addon.addonId || addon._id || addon.id;
+        const addonName = sanitizeAddonName(addon.name);
+        const priceValue = Number(addon.price);
+        const addonPrice =
+          Number.isFinite(priceValue) && priceValue >= 0 ? priceValue : 0;
+        const addonQuantity = normalizeAddonQuantity(addon.quantity);
+        const dedupeKey = addonId
+          ? `id:${addonId}`
+          : `name:${addonName.toLowerCase()}:${addonPrice}`;
+
+        if (!addonMap.has(dedupeKey)) {
+          addonMap.set(dedupeKey, {
+            ...(addonId ? { addonId } : {}),
+            name: addonName,
+            price: addonPrice,
+            quantity: 0,
+          });
+        }
+
+        addonMap.get(dedupeKey).quantity += addonQuantity;
+      });
+
+      validAddons = Array.from(addonMap.values()).filter(
+        (addon) => addon.name && addon.quantity > 0,
+      );
+      addonsTotal = validAddons.reduce(
+        (sum, addon) => sum + addon.price * addon.quantity,
+        0,
+      );
   }
 
   const subtotal = items.reduce((s, it) => s + it.price * it.quantity, 0);

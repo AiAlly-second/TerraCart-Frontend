@@ -6,6 +6,7 @@ import bgImage from "../assets/images/restaurant-img.jpg";
 import translations from "../data/translations/orderSummary.json";
 import floatingButtonTranslations from "../data/translations/floatingButtons.json";
 import io from "socket.io-client";
+import { clearScopedCart } from "../utils/cartStorage";
 import "./OrderSummary.css";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
@@ -228,7 +229,6 @@ export default function OrderSummary() {
         localStorage.setItem("terra_orderStatus_TAKEAWAY", terminalStatus);
         localStorage.setItem("terra_orderStatusUpdatedAt_TAKEAWAY", updatedAt);
         localStorage.removeItem("terra_orderId_TAKEAWAY");
-        localStorage.removeItem("terra_cart_TAKEAWAY");
       } else {
         localStorage.setItem("terra_orderStatus_DINE_IN", terminalStatus);
         localStorage.setItem("terra_orderStatusUpdatedAt_DINE_IN", updatedAt);
@@ -236,7 +236,7 @@ export default function OrderSummary() {
       }
 
       localStorage.removeItem("terra_orderId");
-      localStorage.removeItem("terra_cart");
+      clearScopedCart(terminalServiceType);
     };
 
     // Initial order fetch

@@ -4,6 +4,7 @@ import { FaQrcode, FaMoneyBillWave, FaArrowLeft } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
 import QRCode from "react-qr-code";
 import translations from "../data/translations/payment.json";
+import { clearScopedCart } from "../utils/cartStorage";
 import "./Payment.css";
 
 const nodeApi = (
@@ -169,6 +170,8 @@ export default function Payment() {
     }
     
     setHasHandledPayment(true);
+    const currentServiceType =
+      localStorage.getItem("terra_serviceType") || "DINE_IN";
     
     if (orderId) {
       // CRITICAL: Preserve orderId so Menu page can display order data
@@ -181,8 +184,6 @@ export default function Payment() {
       localStorage.setItem("terra_lastPaidOrderId", orderId);
 
       // Also set service-type-specific keys if needed
-      const currentServiceType =
-        localStorage.getItem("terra_serviceType") || "DINE_IN";
       const orderType = localStorage.getItem("terra_orderType") || null; // PICKUP or DELIVERY
       const isPickupOrDelivery = orderType === "PICKUP" || orderType === "DELIVERY";
       
@@ -217,7 +218,7 @@ export default function Payment() {
       }
     }
     // Only remove cart, keep order data
-    localStorage.removeItem("terra_cart");
+    clearScopedCart(currentServiceType);
     
     // CRITICAL: Set flag to indicate payment was completed
     // This will trigger session clearing when user scans a new table QR after refresh

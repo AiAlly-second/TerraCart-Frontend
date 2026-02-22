@@ -3,6 +3,10 @@
   background: #f8fafc;
   border: 1px solid #e5e7eb;
   border-radius: 14px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow-x: hidden;
 }
 
 .order-type-selector-title {
@@ -99,6 +103,7 @@
   background: #ffffff;
   border: 1px solid #e5e7eb;
   border-radius: 12px;
+  box-sizing: border-box;
 }
 
 .section-title {
@@ -180,6 +185,7 @@
   border-radius: 10px;
   font-size: 0.98rem;
   color: #0f172a;
+  box-sizing: border-box;
 }
 
 .input-field:focus {
@@ -273,8 +279,9 @@
   display: flex;
   flex-direction: column;
   gap: 0.55rem;
-  max-height: 310px;
+  max-height: 42vh;
   overflow-y: auto;
+  overflow-x: hidden;
   padding-right: 0.1rem;
   -webkit-overflow-scrolling: touch;
 }
@@ -290,6 +297,7 @@
   background: #ffffff;
   cursor: pointer;
   transition: all 0.2s ease;
+  box-sizing: border-box;
 }
 
 .cart-option:hover {
@@ -304,11 +312,12 @@
 }
 
 .cart-option input[type="radio"] {
-  margin-top: 0.2rem;
+  margin: 0.2rem 0 0 0;
   flex-shrink: 0;
   width: 1rem;
   height: 1rem;
   cursor: pointer;
+  accent-color: #fc8019;
 }
 
 .cart-content {
@@ -432,7 +441,8 @@
 
   .carts-list {
     gap: 0.5rem;
-    max-height: 260px;
+    max-height: none;
+    overflow-y: visible;
   }
 
   .cart-option {

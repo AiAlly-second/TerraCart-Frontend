@@ -14,6 +14,7 @@ import {
   getCurrentLanguage,
   subscribeToLanguageChanges,
 } from "../utils/language";
+import { clearScopedCart, readScopedCart, writeScopedCart } from "../utils/cartStorage";
 // But let's keep imports minimal
 
 const nodeApi = (
@@ -45,24 +46,41 @@ function getImageUrl(imagePath) {
 
 async function getCartId(searchParams) {
   try {
-    // Priority 1: URL parameter "cart" or "cartId" (Explicit override)
+    const serviceType = (
+      localStorage.getItem("terra_serviceType") || "DINE_IN"
+    )
+      .toString()
+      .trim()
+      .toUpperCase();
+    const storedOrderType = (
+      localStorage.getItem("terra_orderType") || ""
+    )
+      .toString()
+      .trim()
+      .toUpperCase();
+    const isPickupOrDeliveryFlow =
+      serviceType === "PICKUP" ||
+      serviceType === "DELIVERY" ||
+      storedOrderType === "PICKUP" ||
+      storedOrderType === "DELIVERY";
+
+    // Priority 1: URL parameter "cart" or "cartId" (explicit override)
     const urlCartId = searchParams?.get("cart") || searchParams?.get("cartId");
     if (urlCartId) {
       console.log("[CartPage] getCartId - from URL params:", urlCartId);
       return urlCartId;
     }
 
-    // Priority 2: Check localStorage for selected cart
     const selectedCartId = localStorage.getItem("terra_selectedCartId");
-    if (selectedCartId) {
+    if (isPickupOrDeliveryFlow && selectedCartId) {
       console.log(
-        "[CartPage] getCartId - from terra_selectedCartId:",
+        "[CartPage] getCartId - from terra_selectedCartId (pickup/delivery):",
         selectedCartId,
       );
       return selectedCartId;
     }
 
-    // Priority 2: Check localStorage for takeaway cart
+    // Priority 2: check explicit takeaway cart context
     const qrCartId = localStorage.getItem("terra_takeaway_cartId");
     if (qrCartId) {
       console.log(
@@ -72,14 +90,13 @@ async function getCartId(searchParams) {
       return qrCartId;
     }
 
-    // Priority 3: Check localStorage table data
+    // Priority 3: check selected table context
     const tableData = JSON.parse(
       localStorage.getItem("terra_selectedTable") ||
         localStorage.getItem("terra_table_selection") ||
         "{}",
     );
     let id = tableData.cartId || tableData.cafeId || "";
-    // Normalize: cartId may be string or object (e.g. { _id: "..." } or { id: "..." }) from API
     let finalId = "";
     if (id != null && id !== "") {
       if (typeof id === "string") {
@@ -87,6 +104,8 @@ async function getCartId(searchParams) {
       } else if (typeof id === "object") {
         const raw = id._id ?? id.id ?? id;
         finalId = typeof raw === "string" ? raw : raw?.toString?.() || "";
+      } else {
+        finalId = String(id);
       }
     }
 
@@ -100,7 +119,16 @@ async function getCartId(searchParams) {
       return finalId;
     }
 
-    // Priority 4: If table ID in URL but no cartId, fetch cartId from backend (public endpoint)
+    // Fallback for non pickup/delivery flow only
+    if (!isPickupOrDeliveryFlow && selectedCartId) {
+      console.log(
+        "[CartPage] getCartId - fallback from terra_selectedCartId:",
+        selectedCartId,
+      );
+      return selectedCartId;
+    }
+
+    // Priority 4: if table ID in URL but no cartId, fetch cartId from backend
     const tableId = searchParams?.get("table");
     if (tableId) {
       console.log(
@@ -205,8 +233,7 @@ export default function CartPage() {
   useEffect(() => {
     // Load Cart (add-ons are loaded below, scoped by cartId)
     try {
-      const savedCart = JSON.parse(localStorage.getItem("terra_cart") || "{}");
-      setCart(savedCart);
+      setCart(readScopedCart());
     } catch (e) {
       console.error("Error loading cart", e);
     }
@@ -254,7 +281,8 @@ export default function CartPage() {
         try {
           const params = new URLSearchParams();
           if (cartIdForAddons) params.set("cartId", cartIdForAddons);
-          if (tableId) params.set("tableId", tableId);
+          // Avoid sending stale tableId when cartId is already resolved.
+          if (!cartIdForAddons && tableId) params.set("tableId", tableId);
           const url = `${nodeApi}/api/addons/public?${params.toString()}`;
           console.log(
             "[CartPage] Fetching add-ons from:",
@@ -363,7 +391,7 @@ export default function CartPage() {
 
   const updateCart = (newCart) => {
     setCart(newCart);
-    localStorage.setItem("terra_cart", JSON.stringify(newCart));
+    writeScopedCart(newCart);
   };
 
   const saveAddonsForCart = (addonIds) => {
@@ -752,7 +780,7 @@ export default function CartPage() {
         }
         // For pickup/delivery, keep cart until payment completes so back-from-payment shows items
         if (!requiresImmediatePayment) {
-          localStorage.removeItem("terra_cart");
+          clearScopedCart(serviceType);
           setCart({});
         }
       }

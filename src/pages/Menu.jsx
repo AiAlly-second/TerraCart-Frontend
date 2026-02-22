@@ -18,6 +18,12 @@ import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 
 import { postWithRetry } from "../utils/fetchWithTimeout";
+import {
+  clearAllScopedCarts,
+  clearScopedCart,
+  readScopedCart,
+  writeScopedCart,
+} from "../utils/cartStorage";
 // import AccessibilityFooter from "../components/AccessibilityFooter";
 const nodeApi = (
   import.meta.env.VITE_NODE_API_URL || "http://localhost:5001"
@@ -610,17 +616,9 @@ export default function MenuPage() {
     localStorage.setItem("accessibilityMode", newMode.toString());
   };
 
-  const [cart, setCart] = useState(() => {
-    const saved = localStorage.getItem("terra_cart");
-    return saved ? JSON.parse(saved) : {};
-  });
+  const [cart, setCart] = useState(() => readScopedCart());
   const cartRef = useRef(cart);
   const placeOrderInFlightRef = useRef(false);
-
-  useEffect(() => {
-    localStorage.setItem("terra_cart", JSON.stringify(cart));
-    cartRef.current = cart;
-  }, [cart]);
 
   const [recording, setRecording] = useState(false);
   const [blindListening, setBlindListening] = useState(false);
@@ -754,6 +752,18 @@ export default function MenuPage() {
     localStorage.getItem("terra_sessionToken"),
   );
 
+  useEffect(() => {
+    const scopedCart = readScopedCart(serviceType);
+    setCart(scopedCart);
+    cartRef.current = scopedCart;
+  }, [serviceType]);
+
+  useEffect(() => {
+    // Persist cart in current service scope (and legacy key for compatibility).
+    writeScopedCart(cart, serviceType);
+    cartRef.current = cart;
+  }, [cart]);
+
   // Effect to verify active order belongs to current session on mount
   useEffect(() => {
     const verifyActiveOrderSession = async () => {
@@ -868,7 +878,7 @@ export default function MenuPage() {
         localStorage.removeItem("terra_previousOrder");
         localStorage.removeItem("terra_previousOrderDetail");
         localStorage.removeItem("terra_lastPaidOrderId");
-        localStorage.removeItem("terra_cart_DINE_IN");
+        clearScopedCart("DINE_IN");
         localStorage.removeItem("terra_orderId_DINE_IN");
         localStorage.removeItem("terra_orderStatus_DINE_IN");
         localStorage.removeItem("terra_orderStatusUpdatedAt_DINE_IN");
@@ -2007,84 +2017,105 @@ export default function MenuPage() {
         // Mark table as occupied when menu page loads
         await markTableOccupied();
 
-        // Get cartId to filter menu - priority order:
-        // 1. Selected cart for PICKUP/DELIVERY (terra_selectedCartId)
-        // 2. Takeaway QR cart (terra_takeaway_cartId)
-        // 3. Table data cartId (for dine-in)
+        // Get cartId to filter menu.
+        // Use terra_selectedCartId only for pickup/delivery flows to avoid stale cart mixups.
         let cartId = "";
+        const currentServiceType = normalizeServiceType(
+          localStorage.getItem(SERVICE_TYPE_KEY) || serviceType || "DINE_IN",
+        );
+        const storedOrderType = normalizeServiceType(
+          localStorage.getItem("terra_orderType") || "",
+        );
+        const isPickupOrDeliveryFlow =
+          currentServiceType === "PICKUP" ||
+          currentServiceType === "DELIVERY" ||
+          storedOrderType === "PICKUP" ||
+          storedOrderType === "DELIVERY";
 
-        // Check for selected cart (PICKUP/DELIVERY)
         const selectedCartId = localStorage.getItem("terra_selectedCartId");
-        if (selectedCartId) {
+        const qrCartId = localStorage.getItem("terra_takeaway_cartId");
+
+        if (isPickupOrDeliveryFlow && selectedCartId) {
           cartId = selectedCartId;
-          console.log("[Menu] Using selected cart ID for menu:", cartId);
+          console.log(
+            "[Menu] Using selected cart ID for pickup/delivery menu:",
+            cartId,
+          );
+        } else if (qrCartId) {
+          cartId = qrCartId;
+          console.log("[Menu] Using takeaway QR cart ID for menu:", cartId);
         } else {
-          // Check for takeaway QR cart
-          const qrCartId = localStorage.getItem("terra_takeaway_cartId");
-          if (qrCartId) {
-            cartId = qrCartId;
-            console.log("[Menu] Using takeaway QR cart ID for menu:", cartId);
-          } else {
-            // Fallback to table data - check both terra_selectedTable and TABLE_SELECTION_KEY
-            try {
-              // Try terra_selectedTable first (set by Landing.jsx)
-              let tableDataStr = localStorage.getItem("terra_selectedTable");
-              if (!tableDataStr) {
-                // Fallback to TABLE_SELECTION_KEY if terra_selectedTable doesn't exist
-                tableDataStr =
-                  localStorage.getItem(TABLE_SELECTION_KEY) || "{}";
-              }
+          // Fallback to table data - check both terra_selectedTable and TABLE_SELECTION_KEY
+          try {
+            // Try terra_selectedTable first (set by Landing.jsx)
+            let tableDataStr = localStorage.getItem("terra_selectedTable");
+            if (!tableDataStr) {
+              // Fallback to TABLE_SELECTION_KEY if terra_selectedTable doesn't exist
+              tableDataStr =
+                localStorage.getItem(TABLE_SELECTION_KEY) || "{}";
+            }
 
-              const tableData = JSON.parse(tableDataStr);
-              const rawCartId = tableData.cartId || tableData.cafeId || "";
-              // Normalize: backend may return populated cart object
-              if (typeof rawCartId === "string") {
-                cartId = rawCartId;
-              } else if (rawCartId && typeof rawCartId === "object" && (rawCartId._id || rawCartId.id)) {
-                cartId = String(rawCartId._id || rawCartId.id);
-              } else {
-                cartId = rawCartId ? String(rawCartId) : "";
-              }
+            const tableData = JSON.parse(tableDataStr);
+            const rawCartId = tableData.cartId || tableData.cafeId || "";
+            // Normalize: backend may return populated cart object
+            if (typeof rawCartId === "string") {
+              cartId = rawCartId;
+            } else if (
+              rawCartId &&
+              typeof rawCartId === "object" &&
+              (rawCartId._id || rawCartId.id)
+            ) {
+              cartId = String(rawCartId._id || rawCartId.id);
+            } else {
+              cartId = rawCartId ? String(rawCartId) : "";
+            }
 
-              // Fallback: if table payload missed cartId, resolve it via table id.
-              if (!cartId && (tableData.id || tableData._id)) {
-                try {
-                  const tableId = tableData.id || tableData._id;
-                  const cartIdRes = await fetch(
-                    `${nodeApi}/api/tables/public-cart-id/${encodeURIComponent(tableId)}`,
-                  );
-                  if (cartIdRes.ok) {
-                    const cartIdJson = await cartIdRes.json().catch(() => ({}));
-                    if (cartIdJson?.success && cartIdJson?.cartId) {
-                      cartId = String(cartIdJson.cartId);
-                    }
+            // Fallback: if table payload missed cartId, resolve it via table id.
+            if (!cartId && (tableData.id || tableData._id)) {
+              try {
+                const tableId = tableData.id || tableData._id;
+                const cartIdRes = await fetch(
+                  `${nodeApi}/api/tables/public-cart-id/${encodeURIComponent(tableId)}`,
+                );
+                if (cartIdRes.ok) {
+                  const cartIdJson = await cartIdRes.json().catch(() => ({}));
+                  if (cartIdJson?.success && cartIdJson?.cartId) {
+                    cartId = String(cartIdJson.cartId);
                   }
-                } catch (lookupErr) {
-                  console.warn("[Menu] Failed to resolve cartId from table id:", lookupErr);
                 }
-              }
-
-              console.log("[Menu] Table data for cartId lookup:", {
-                hasTableData: !!tableDataStr,
-                tableDataKeys: tableData ? Object.keys(tableData) : [],
-                cartId: tableData.cartId,
-                cafeId: tableData.cafeId,
-                foundCartId: cartId,
-              });
-
-              if (cartId) {
-                console.log("[Menu] Using table cart ID for menu:", cartId);
-              } else {
+              } catch (lookupErr) {
                 console.warn(
-                  "[Menu] No cartId or cafeId found in table data:",
-                  tableData,
+                  "[Menu] Failed to resolve cartId from table id:",
+                  lookupErr,
                 );
               }
-            } catch (e) {
-              // Could not get cartId from table data
-              console.error("[Menu] Error parsing table data:", e);
-              console.log("[Menu] No cart ID found, loading default menu");
             }
+
+            // Non pickup/delivery fallback only: use selected cart if nothing else resolved.
+            if (!cartId && !isPickupOrDeliveryFlow && selectedCartId) {
+              cartId = selectedCartId;
+            }
+
+            console.log("[Menu] Table data for cartId lookup:", {
+              hasTableData: !!tableDataStr,
+              tableDataKeys: tableData ? Object.keys(tableData) : [],
+              cartId: tableData.cartId,
+              cafeId: tableData.cafeId,
+              foundCartId: cartId,
+            });
+
+            if (cartId) {
+              console.log("[Menu] Using table cart ID for menu:", cartId);
+            } else {
+              console.warn(
+                "[Menu] No cartId or cafeId found in table data:",
+                tableData,
+              );
+            }
+          } catch (e) {
+            // Could not get cartId from table data
+            console.error("[Menu] Error parsing table data:", e);
+            console.log("[Menu] No cart ID found, loading default menu");
           }
         }
 
@@ -2720,10 +2751,14 @@ export default function MenuPage() {
       // Get special instructions and cartId (orderType and customerLocation already retrieved above)
       const specialInstructions =
         localStorage.getItem("terra_specialInstructions") || null;
+      const storedSelectedCartId = localStorage.getItem("terra_selectedCartId");
       const selectedCartId =
-        localStorage.getItem("terra_selectedCartId") || cartId;
+        requiresImmediatePayment && storedSelectedCartId
+          ? storedSelectedCartId
+          : null;
       const effectiveCartId =
         selectedCartId ||
+        cartId ||
         (() => {
           try {
             const tableData = JSON.parse(
@@ -2809,7 +2844,7 @@ export default function MenuPage() {
         // Include cartId for takeaway/pickup/delivery orders
         cartId:
           isTakeawayType || effectiveOrderType
-            ? selectedCartId || cartId
+            ? effectiveCartId || undefined
             : undefined,
         // Include customer location for PICKUP/DELIVERY
         customerLocation: customerLocation,
@@ -3265,9 +3300,7 @@ export default function MenuPage() {
       // Keep cart only for pickup/delivery until payment completes.
       if (!requiresImmediatePayment) {
         setCart({});
-        localStorage.removeItem("terra_cart");
-        localStorage.removeItem("terra_cart_DINE_IN");
-        localStorage.removeItem("terra_cart_TAKEAWAY");
+        clearScopedCart(serviceType);
       }
       setIsOrderingMore(false);
 
@@ -3559,7 +3592,7 @@ export default function MenuPage() {
 
   const handleResetCart = () => {
     setCart({});
-    localStorage.removeItem("terra_cart");
+    clearScopedCart(serviceType);
   };
 
   const handleOrderAgain = async () => {
@@ -3630,8 +3663,7 @@ export default function MenuPage() {
 
             // Clear cart so user can add new items
             setCart({});
-            localStorage.removeItem("terra_cart");
-            localStorage.removeItem("terra_cart_TAKEAWAY");
+            clearScopedCart(currentServiceType);
 
             alert("You can continue adding items to your takeaway order.");
             return;
@@ -3761,9 +3793,8 @@ export default function MenuPage() {
           setOrderStatusUpdatedAt(null);
           persistPreviousOrder(null);
           persistPreviousOrderDetail(null);
-          // Clear service-type-specific keys
+          clearAllScopedCarts();
           ["DINE_IN", "TAKEAWAY"].forEach((serviceType) => {
-            localStorage.removeItem(`terra_cart_${serviceType}`);
             localStorage.removeItem(`terra_orderId_${serviceType}`);
             localStorage.removeItem(`terra_orderStatus_${serviceType}`);
             localStorage.removeItem(
@@ -4024,7 +4055,7 @@ export default function MenuPage() {
           localStorage.removeItem("terra_orderId_TAKEAWAY");
           localStorage.setItem("terra_orderStatus_TAKEAWAY", "Cancelled");
           localStorage.setItem("terra_orderStatusUpdatedAt_TAKEAWAY", updatedAt);
-          localStorage.removeItem("terra_cart_TAKEAWAY");
+          clearScopedCart("TAKEAWAY");
           localStorage.setItem("terra_orderStatus", "Cancelled");
           localStorage.setItem("terra_orderStatusUpdatedAt", updatedAt);
 
@@ -4042,12 +4073,11 @@ export default function MenuPage() {
           localStorage.setItem("terra_orderStatusUpdatedAt", updatedAt);
           localStorage.setItem("terra_orderStatus_DINE_IN", "Cancelled");
           localStorage.setItem("terra_orderStatusUpdatedAt_DINE_IN", updatedAt);
-          localStorage.removeItem("terra_cart");
+          clearScopedCart("DINE_IN");
         }
 
         // Also clear general order id data
         localStorage.removeItem("terra_orderId");
-        localStorage.removeItem("terra_cart");
 
         // CRITICAL: If this is a takeaway order, clear waitlist state
         if (isTakeawayLike) {
@@ -4170,7 +4200,7 @@ export default function MenuPage() {
           localStorage.setItem("terra_orderStatusUpdatedAt_DINE_IN", updatedAt);
         }
 
-        localStorage.removeItem("terra_cart");
+        clearScopedCart(isTakeawayLike ? "TAKEAWAY" : "DINE_IN");
         setCart({});
         setIsOrderingMore(false);
 
@@ -5051,7 +5081,7 @@ export default function MenuPage() {
             localStorage.removeItem("terra_orderStatus_DINE_IN");
             localStorage.removeItem("terra_orderStatusUpdatedAt");
             localStorage.removeItem("terra_orderStatusUpdatedAt_DINE_IN");
-            localStorage.removeItem("terra_cart_DINE_IN");
+            clearScopedCart("DINE_IN");
             localStorage.removeItem("terra_previousOrder");
             localStorage.removeItem("terra_previousOrderDetail");
             setActiveOrderId(null);
@@ -5467,13 +5497,12 @@ export default function MenuPage() {
           // CRITICAL: Clear all previous customer order data when table becomes available
           // This ensures new customers don't see previous customer's orders
           localStorage.removeItem("terra_orderId");
-          localStorage.removeItem("terra_cart");
+          clearAllScopedCarts();
           localStorage.removeItem("terra_orderStatus");
           localStorage.removeItem("terra_orderStatusUpdatedAt");
           localStorage.removeItem("terra_previousOrder");
           localStorage.removeItem("terra_previousOrderDetail");
           ["DINE_IN", "TAKEAWAY"].forEach((serviceType) => {
-            localStorage.removeItem(`terra_cart_${serviceType}`);
             localStorage.removeItem(`terra_orderId_${serviceType}`);
             localStorage.removeItem(`terra_orderStatus_${serviceType}`);
             localStorage.removeItem(

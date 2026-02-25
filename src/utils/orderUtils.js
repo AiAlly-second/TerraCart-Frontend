@@ -27,6 +27,8 @@ export function buildOrderPayload(cart, options = {}) {
     customerLocation, // { latitude, longitude, address }
     specialInstructions, // Special notes from customer
     selectedAddons = [], // Array of { name, price, addonId }
+    sourceQrType,
+    officeDeliveryCharge,
   } = options;
   const items = Object.entries(cart)
     .filter(([name, quantity]) => {
@@ -181,6 +183,12 @@ export function buildOrderPayload(cart, options = {}) {
     serviceType === "PICKUP" ||
     serviceType === "DELIVERY"
   ) {
+    // Keep table reference when available so backend can infer QR context safely.
+    if (tableId) payload.tableId = tableId;
+    if (tableNumber !== undefined && tableNumber !== null) {
+      payload.tableNumber = String(tableNumber);
+    }
+
     // PICKUP/DELIVERY orders don't need table information
     // Set serviceType and orderType.
     // Fallback: if orderType is missing but serviceType is PICKUP/DELIVERY, preserve subtype from serviceType.
@@ -218,6 +226,14 @@ export function buildOrderPayload(cart, options = {}) {
 
     // Include cartId (required for PICKUP/DELIVERY)
     if (cartId) payload.cartId = cartId;
+
+    if (sourceQrType === "OFFICE") {
+      payload.sourceQrType = "OFFICE";
+    }
+    const officeChargeValue = Number(officeDeliveryCharge);
+    if (Number.isFinite(officeChargeValue) && officeChargeValue > 0) {
+      payload.officeDeliveryCharge = Number(officeChargeValue.toFixed(2));
+    }
   } else {
     payload.tableNumber = String(tableNumber || "TAKEAWAY");
   }

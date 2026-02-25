@@ -78,6 +78,26 @@ const normalizeServiceType = (value = "DINE_IN") =>
 const isTakeawayLikeServiceType = (value) =>
   TAKEAWAY_LIKE_SERVICE_TYPES.includes(normalizeServiceType(value));
 
+const hasOfficeQrMetadata = (tableContext) => {
+  if (!tableContext || typeof tableContext !== "object") return false;
+  if (tableContext.qrContextType === "OFFICE") return true;
+
+  const hasOfficeName = String(tableContext.officeName || "").trim().length > 0;
+  const hasOfficeAddress =
+    String(tableContext.officeAddress || "").trim().length > 0;
+  const hasOfficePhone =
+    String(tableContext.officePhone || "").trim().length > 0;
+  const hasOfficeDeliveryCharge =
+    Number(tableContext.officeDeliveryCharge || 0) > 0;
+
+  return (
+    hasOfficeName ||
+    hasOfficeAddress ||
+    hasOfficePhone ||
+    hasOfficeDeliveryCharge
+  );
+};
+
 const paiseToRupees = (value) => {
   if (value === undefined || value === null) return 0;
   const num = Number(value);
@@ -254,7 +274,13 @@ const aggregateOrderItems = (order) => {
 
 const computeOrderTotals = (order, aggregatedItems) => {
   if (!order) {
-    return { subtotal: 0, gst: 0, totalAmount: 0, totalItems: 0 };
+    return {
+      subtotal: 0,
+      gst: 0,
+      officeDeliveryCharge: 0,
+      totalAmount: 0,
+      totalItems: 0,
+    };
   }
   const items = Array.isArray(aggregatedItems)
     ? aggregatedItems
@@ -272,13 +298,18 @@ const computeOrderTotals = (order, aggregatedItems) => {
 
   // No GST calculation
   const gst = 0;
+  const officeDeliveryChargeRaw = Number(order?.officeDeliveryCharge);
+  const officeDeliveryCharge =
+    Number.isFinite(officeDeliveryChargeRaw) && officeDeliveryChargeRaw > 0
+      ? Number(officeDeliveryChargeRaw.toFixed(2))
+      : 0;
 
-  // Total amount equals subtotal (no GST added)
-  const totalAmount = subtotalRounded;
+  const totalAmount = Number((subtotalRounded + officeDeliveryCharge).toFixed(2));
 
   return {
     subtotal: subtotalRounded,
     gst: gst,
+    officeDeliveryCharge,
     totalAmount: totalAmount,
     totalItems: items.reduce((sum, item) => {
       if (!item) return sum;
@@ -559,7 +590,7 @@ export default function MenuPage() {
     normalizeLang(localStorage.getItem("language") || "en")
   );
 
-  // Listen for storage changes to update language (no remount – menu stays loaded)
+  // Listen for storage changes to update language (no remount - menu stays loaded)
   useEffect(() => {
     const handleStorageChange = () => {
       setLang(normalizeLang(localStorage.getItem("language") || "en"));
@@ -1007,7 +1038,7 @@ export default function MenuPage() {
     };
   }, [serviceType, activeOrderId]);
 
-  // Customer name form removed for all takeaway flows (global takeaway, normal link, table takeaway) – no redirect
+  // Customer name form removed for all takeaway flows (global takeaway, normal link, table takeaway) - no redirect
   useEffect(() => {
     if (serviceType === "DINE_IN") return;
     return;
@@ -1144,7 +1175,13 @@ export default function MenuPage() {
     () =>
       invoiceOrder
         ? computeOrderTotals(invoiceOrder, invoiceItems)
-        : { subtotal: 0, gst: 0, totalAmount: 0, totalItems: 0 },
+        : {
+            subtotal: 0,
+            gst: 0,
+            officeDeliveryCharge: 0,
+            totalAmount: 0,
+            totalItems: 0,
+          },
     [invoiceOrder, invoiceItems],
   );
 
@@ -1172,7 +1209,13 @@ export default function MenuPage() {
     () =>
       previousOrderDetail
         ? computeOrderTotals(previousOrderDetail, previousDetailItems)
-        : { subtotal: 0, gst: 0, totalAmount: 0, totalItems: 0 },
+        : {
+            subtotal: 0,
+            gst: 0,
+            officeDeliveryCharge: 0,
+            totalAmount: 0,
+            totalItems: 0,
+          },
     [previousOrderDetail, previousDetailItems],
   );
 
@@ -2635,6 +2678,18 @@ export default function MenuPage() {
         serviceType === "TAKEAWAY" || isPickupOrDeliveryServiceType;
       const requiresImmediatePayment =
         effectiveOrderType === "PICKUP" || effectiveOrderType === "DELIVERY";
+      const tableContextForOrder =
+        refreshedTableInfo ||
+        tableInfo ||
+        (() => {
+          try {
+            const raw = localStorage.getItem(TABLE_SELECTION_KEY);
+            return raw ? JSON.parse(raw) : null;
+          } catch {
+            return null;
+          }
+        })();
+      const isOfficeQrFlow = hasOfficeQrMetadata(tableContextForOrder);
       const customerLocationStr =
         serviceType !== "DINE_IN"
           ? localStorage.getItem("terra_customerLocation")
@@ -2660,7 +2715,9 @@ export default function MenuPage() {
         effectiveOrderType === "PICKUP" ||
         effectiveOrderType === "DELIVERY";
       const shouldIncludeCustomerInfo =
-        effectiveOrderType === "PICKUP" || effectiveOrderType === "DELIVERY";
+        effectiveOrderType === "PICKUP" ||
+        effectiveOrderType === "DELIVERY" ||
+        isOfficeQrFlow;
       const storedCustomerName = isTakeawayType
         ? localStorage.getItem("terra_takeaway_customerName") || ""
         : "";
@@ -2877,6 +2934,10 @@ export default function MenuPage() {
           shouldIncludeCustomerInfo && storedCustomerEmail?.trim()
             ? storedCustomerEmail.trim()
             : undefined,
+        sourceQrType: isOfficeQrFlow ? "OFFICE" : "TABLE",
+        officeDeliveryCharge: isOfficeQrFlow
+          ? Number(tableContextForOrder?.officeDeliveryCharge || 0)
+          : undefined,
         // Include cartId for takeaway/pickup/delivery orders
         cartId:
           isTakeawayType || effectiveOrderType
@@ -3177,7 +3238,7 @@ export default function MenuPage() {
         console.log("[Menu] Order created successfully:", data._id);
         // Continue to success flow below
       } else {
-        // Backend failed → mark error on step 2
+        // Backend failed -> mark error on step 2
         setStepState(2, "error");
 
         // Handle 403 Forbidden errors
@@ -3364,7 +3425,7 @@ export default function MenuPage() {
       // await wait(DUR.summary);
       setStepState(4, "done");
 
-      // For pickup/delivery: payment is compulsory — redirect to Payment page
+      // For pickup/delivery: payment is compulsory - redirect to Payment page
       if (requiresImmediatePayment) {
         setProcessOpen(false);
         navigate("/payment");
@@ -3373,7 +3434,7 @@ export default function MenuPage() {
       // Dine-in: close overlay and stay on Menu page
       setProcessOpen(false);
     } catch (err) {
-      // Network or unexpected error → mark backend step as error
+      // Network or unexpected error -> mark backend step as error
       setStepState(2, "error");
       alert("❌ Server Error");
       console.error(err);
@@ -3423,12 +3484,12 @@ export default function MenuPage() {
       recognition.onstart = () => {
         setRecording(true);
         setOrderText("");
-        console.log("🎤 Voice recognition started");
+        console.log("ðŸŽ¤ Voice recognition started");
       };
 
       recognition.onresult = async (event) => {
         const transcript = event.results[0][0].transcript;
-        console.log("📝 Transcribed:", transcript);
+        console.log("ðŸ“ Transcribed:", transcript);
         setOrderText(transcript);
         setRecording(false);
 
@@ -4283,7 +4344,11 @@ export default function MenuPage() {
 
     setConfirmingPayment(true);
     try {
-      const sessionToken = localStorage.getItem("terra_sessionToken");
+      const sessionToken =
+        serviceType === "DINE_IN"
+          ? localStorage.getItem("terra_sessionToken")
+          : localStorage.getItem("terra_takeaway_sessionToken") ||
+            localStorage.getItem("terra_sessionToken");
       const res = await fetch(
         `${nodeApi}/api/orders/${activeOrderId}/confirm-payment`,
         {
@@ -4291,8 +4356,7 @@ export default function MenuPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             paymentMethod: "CASH",
-            sessionToken:
-              serviceType === "DINE_IN" ? sessionToken || undefined : undefined,
+            sessionToken: sessionToken || undefined,
           }),
         },
       );
@@ -4354,7 +4418,7 @@ export default function MenuPage() {
       }
 
       // Debug logging
-      console.log("📄 Invoice order data:", {
+      console.log("ðŸ“„ Invoice order data:", {
         orderId: data._id,
         franchiseId: data.franchiseId,
         cafeId: data.cafeId,
@@ -4801,21 +4865,21 @@ export default function MenuPage() {
       "checkout",
       "submit order",
       "confirm my order",
-      "ऑर्डर कन्फर्म",
-      "ऑर्डर करो",
-      "ऑर्डर प्लेस",
-      "ऑર્ડર कન્ફર્મ",
-      "ઓર્ડર મૂકો",
+      "à¤‘à¤°à¥à¤¡à¤° à¤•à¤¨à¥à¤«à¤°à¥à¤®",
+      "à¤‘à¤°à¥à¤¡à¤° à¤•à¤°à¥‹",
+      "à¤‘à¤°à¥à¤¡à¤° à¤ªà¥à¤²à¥‡à¤¸",
+      "à¤‘àª°à«àª¡àª° à¤•àª¨à«àª«àª°à«àª®",
+      "àª“àª°à«àª¡àª° àª®à«‚àª•à«‹",
     ];
-    const cartKeywords = ["open cart", "show cart", "go to cart", "cart kholo", "कार्ट", "કાર્ટ"];
+    const cartKeywords = ["open cart", "show cart", "go to cart", "cart kholo", "à¤•à¤¾à¤°à¥à¤Ÿ", "àª•àª¾àª°à«àªŸ"];
     const clearCartKeywords = [
       "clear cart",
       "empty cart",
       "reset cart",
       "remove all",
       "cart clear",
-      "कार्ट खाली",
-      "કાર્ટ ખાલી",
+      "à¤•à¤¾à¤°à¥à¤Ÿ à¤–à¤¾à¤²à¥€",
+      "àª•àª¾àª°à«àªŸ àª–àª¾àª²à«€",
     ];
 
     if (allowStop && contains(stopKeywords)) {
@@ -5798,7 +5862,7 @@ export default function MenuPage() {
                   <div className="order-header-badge">
                     {serviceType === "DINE_IN" ? (
                       <>
-                        <span className="order-header-icon">📍</span>
+                        <span className="order-header-icon">ðŸ“</span>
                         <span>
                           {tableInfo?.number
                             ? `${t("dineIn", "Dine-In")} - ${t("table", "Table")} ${tableInfo.number}`
@@ -5811,7 +5875,7 @@ export default function MenuPage() {
                   </div>
                   {serviceType === "DINE_IN" && (
                     <div className="guest-count-badge">
-                      <span className="guest-icon">👥</span>
+                      <span className="guest-icon">ðŸ‘¥</span>
                       <span>
                         {tableInfo?.seats || tableInfo?.capacity || 2}
                       </span>
@@ -6228,7 +6292,7 @@ export default function MenuPage() {
               {/* Filter Pills - Commented out as per request */}
               {/* <div className="filter-pills-container">
                 <button className="filter-pill veg-filter">
-                  <span className="filter-icon">🌿</span>
+                  <span className="filter-icon">ðŸŒ¿</span>
                   <span>{t("vegOnly", "Veg Only")}</span>
                 </button>
                 <button className="filter-pill popular-filter">
@@ -6237,7 +6301,7 @@ export default function MenuPage() {
 
                 </button>
                 <button className="filter-pill spicy-filter">
-                  <span className="filter-icon">🌶️</span>
+                  <span className="filter-icon">ðŸŒ¶ï¸</span>
                   <span>{t("spicy", "Spicy")}</span>
                 </button>
               </div> */}
@@ -6329,7 +6393,7 @@ export default function MenuPage() {
                   disabled={!invoiceOrder || downloadingInvoice}
                   className="invoice-action-btn download"
                 >
-                  {downloadingInvoice ? "Preparing…" : "Download"}
+                  {downloadingInvoice ? "Preparing..." : "Download"}
                 </button>
                 <button
                   onClick={closeInvoiceModal}
@@ -6435,6 +6499,12 @@ export default function MenuPage() {
                           <span>{invoiceOrder.customerMobile}</span>
                         </div>
                       )}
+                      {invoiceOrder.customerLocation?.address && (
+                        <div className="meta-line">
+                          <span>Address:</span>
+                          <span>{invoiceOrder.customerLocation.address}</span>
+                        </div>
+                      )}
                     </>
                   )}
 
@@ -6508,6 +6578,12 @@ export default function MenuPage() {
                   <span>Subtotal</span>
                   <span>₹{formatMoney(invoiceTotals.subtotal)}</span>
                 </div>
+                {Number(invoiceTotals.officeDeliveryCharge || 0) > 0 && (
+                  <div className="meta-line">
+                    <span>Delivery Charge</span>
+                    <span>₹{formatMoney(invoiceTotals.officeDeliveryCharge)}</span>
+                  </div>
+                )}
 
                 <div className="meta-line total">
                   <span>Total</span>
@@ -6649,3 +6725,4 @@ export default function MenuPage() {
     </div>
   );
 }
+

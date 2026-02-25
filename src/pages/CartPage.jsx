@@ -36,6 +36,26 @@ const parseJsonSafely = (value, fallback = {}) => {
   }
 };
 
+const hasOfficeQrMetadata = (tableContext) => {
+  if (!tableContext || typeof tableContext !== "object") return false;
+  if (tableContext.qrContextType === "OFFICE") return true;
+
+  const hasOfficeName = String(tableContext.officeName || "").trim().length > 0;
+  const hasOfficeAddress =
+    String(tableContext.officeAddress || "").trim().length > 0;
+  const hasOfficePhone =
+    String(tableContext.officePhone || "").trim().length > 0;
+  const hasOfficeDeliveryCharge =
+    Number(tableContext.officeDeliveryCharge || 0) > 0;
+
+  return (
+    hasOfficeName ||
+    hasOfficeAddress ||
+    hasOfficePhone ||
+    hasOfficeDeliveryCharge
+  );
+};
+
 function getImageUrl(imagePath) {
   if (!imagePath) return null;
   if (imagePath.startsWith("http://") || imagePath.startsWith("https://"))
@@ -494,9 +514,6 @@ export default function CartPage() {
           : isPickupOrDeliveryServiceType
             ? serviceType
             : undefined;
-      const shouldIncludeCustomerInfo =
-        effectiveOrderType === "PICKUP" ||
-        effectiveOrderType === "DELIVERY";
       const isTakeawayLike =
         serviceType === "TAKEAWAY" || isPickupOrDeliveryServiceType;
       const requiresImmediatePayment =
@@ -504,6 +521,11 @@ export default function CartPage() {
       let tableInfo = JSON.parse(
         localStorage.getItem("terra_selectedTable") || "{}",
       );
+      const isOfficeQrFlow = hasOfficeQrMetadata(tableInfo);
+      const shouldIncludeCustomerInfo =
+        effectiveOrderType === "PICKUP" ||
+        effectiveOrderType === "DELIVERY" ||
+        isOfficeQrFlow;
       const activeOrderId =
         isTakeawayLike
           ? localStorage.getItem("terra_orderId_TAKEAWAY")
@@ -626,6 +648,10 @@ export default function CartPage() {
           ? localStorage.getItem("terra_takeaway_customerMobile")
           : undefined,
         customerLocation: customerLocation,
+        sourceQrType: isOfficeQrFlow ? "OFFICE" : "TABLE",
+        officeDeliveryCharge: isOfficeQrFlow
+          ? Number(tableInfo?.officeDeliveryCharge || 0)
+          : undefined,
         cartId: cartId,
         specialInstructions: effectiveSpecialInstructions,
         selectedAddons: resolvedAddons,

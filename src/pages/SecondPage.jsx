@@ -64,6 +64,23 @@ function updateSessionTokenWithCleanup(newToken, oldToken) {
   }
 }
 
+const isOfficeTableContext = (table) => {
+  if (!table || typeof table !== "object") return false;
+  if (table.qrContextType === "OFFICE") return true;
+
+  const hasOfficeName = String(table.officeName || "").trim().length > 0;
+  const hasOfficeAddress = String(table.officeAddress || "").trim().length > 0;
+  const hasOfficePhone = String(table.officePhone || "").trim().length > 0;
+  const hasOfficeDeliveryCharge = Number(table.officeDeliveryCharge || 0) > 0;
+
+  return (
+    hasOfficeName ||
+    hasOfficeAddress ||
+    hasOfficePhone ||
+    hasOfficeDeliveryCharge
+  );
+};
+
 const checkVoiceSupport = (language) => {
   const voices = window.speechSynthesis.getVoices();
   const langPrefix =
@@ -179,6 +196,7 @@ export default function SecondPage() {
   const [showWaitlistInfoModal, setShowWaitlistInfoModal] = useState(false);
   const [waitlistGuestName, setWaitlistGuestName] = useState("");
   const [waitlistPartySize, setWaitlistPartySize] = useState("1");
+  const isOfficeQr = isOfficeTableContext(tableInfo);
   const [takeawayOnly, setTakeawayOnly] = useState(
     () => localStorage.getItem("terra_takeaway_only") === "true",
   );
@@ -232,6 +250,47 @@ export default function SecondPage() {
       clearInterval(interval);
     };
   }, [tableInfo]); // Also react to tableInfo state changes
+
+  // OFFICE QR: prefill fixed office/customer data once table payload is available.
+  useEffect(() => {
+    if (!isOfficeQr || !tableInfo) return;
+
+    const officeName = (tableInfo.officeName || "").trim();
+    const officePhone = (tableInfo.officePhone || "").trim();
+    const officeAddress = (tableInfo.officeAddress || "").trim();
+    const officeCartId = tableInfo.cartId || tableInfo.cafeId || null;
+
+    localStorage.setItem("terra_serviceType", "TAKEAWAY");
+    localStorage.removeItem("terra_orderType");
+
+    if (officeName) {
+      setCustomerName(officeName);
+      localStorage.setItem("terra_takeaway_customerName", officeName);
+    }
+    if (officePhone) {
+      setCustomerMobile(officePhone);
+      localStorage.setItem("terra_takeaway_customerMobile", officePhone);
+    }
+    localStorage.removeItem("terra_takeaway_customerEmail");
+
+    if (officeAddress) {
+      const officeLocation = {
+        address: officeAddress,
+        fullAddress: officeAddress,
+        latitude: null,
+        longitude: null,
+      };
+      setCustomerLocation(officeLocation);
+      localStorage.setItem(
+        "terra_customerLocation",
+        JSON.stringify(officeLocation),
+      );
+    }
+
+    if (officeCartId) {
+      localStorage.setItem("terra_selectedCartId", String(officeCartId));
+    }
+  }, [isOfficeQr, tableInfo]);
 
   // Effect to clear dine-in order data if accessed without table info (normal link)
   useEffect(() => {
@@ -1954,12 +2013,55 @@ export default function SecondPage() {
     setShowWaitlistModal(false);
     setIsTableOccupied(false);
     localStorage.setItem("terra_serviceType", "TAKEAWAY");
+    const isOfficeFlow = isOfficeTableContext(tableInfo);
 
-    // CRITICAL: Fresh takeaway flow must not reuse previous customer's identity
-    // This prevents stale name/mobile/email from appearing on new takeaway orders.
-    localStorage.removeItem("terra_takeaway_customerName");
-    localStorage.removeItem("terra_takeaway_customerMobile");
-    localStorage.removeItem("terra_takeaway_customerEmail");
+    if (isOfficeFlow) {
+      const officeName = (tableInfo?.officeName || "").trim();
+      const officePhone = (tableInfo?.officePhone || "").trim();
+      const officeAddress = (tableInfo?.officeAddress || "").trim();
+      const officeCartId = tableInfo?.cartId || tableInfo?.cafeId || null;
+
+      if (officeName) {
+        localStorage.setItem("terra_takeaway_customerName", officeName);
+        setCustomerName(officeName);
+      } else {
+        localStorage.removeItem("terra_takeaway_customerName");
+        setCustomerName("");
+      }
+
+      if (officePhone) {
+        localStorage.setItem("terra_takeaway_customerMobile", officePhone);
+        setCustomerMobile(officePhone);
+      } else {
+        localStorage.removeItem("terra_takeaway_customerMobile");
+        setCustomerMobile("");
+      }
+
+      localStorage.removeItem("terra_takeaway_customerEmail");
+      setCustomerEmail("");
+
+      if (officeAddress) {
+        localStorage.setItem(
+          "terra_customerLocation",
+          JSON.stringify({
+            address: officeAddress,
+            fullAddress: officeAddress,
+            latitude: null,
+            longitude: null,
+          }),
+        );
+      }
+
+      if (officeCartId) {
+        localStorage.setItem("terra_selectedCartId", String(officeCartId));
+      }
+    } else {
+      // CRITICAL: Fresh takeaway flow must not reuse previous customer's identity
+      // This prevents stale name/mobile/email from appearing on new takeaway orders.
+      localStorage.removeItem("terra_takeaway_customerName");
+      localStorage.removeItem("terra_takeaway_customerMobile");
+      localStorage.removeItem("terra_takeaway_customerEmail");
+    }
 
     // Skip Customer Information form for all takeaway: table takeaway, normal takeaway link, and global takeaway (takeaway-only QR)
     const takeawaySessionToken = `TAKEAWAY-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -2648,7 +2750,7 @@ export default function SecondPage() {
                 !hasScanToken &&
                 !hasTableInfo &&
                 !hasTableInUrl;
-              return !takeawayOnly && !isNormal;
+              return !takeawayOnly && !isNormal && !isOfficeQr;
             })() && (
               <button
                 onClick={() => {
@@ -2752,7 +2854,7 @@ export default function SecondPage() {
                   accessibilityMode ? "nav-btn-accessibility" : "nav-btn-normal"
                 }`}
               >
-                {t("takeAway")}
+                {isOfficeQr ? t("orderNow") || "Order Now" : t("takeAway")}
               </button>
             )}
           </div>

@@ -676,9 +676,15 @@ export default function Landing() {
         localStorage.removeItem("terra_takeaway_cartId");
         localStorage.removeItem("terra_takeaway_only");
 
-        // CRITICAL: Explicitly set serviceType to DINE_IN when table QR is scanned
-        // This prevents Menu.jsx from detecting stale takeaway orders and redirecting
-        localStorage.setItem("terra_serviceType", "DINE_IN");
+        const qrContextType =
+          tableData.qrContextType === "OFFICE" ? "OFFICE" : "TABLE";
+
+        // TABLE QR -> DINE_IN default, OFFICE QR -> TAKEAWAY default
+        // Office QRs are fixed customer QRs and should not enter table waitlist/dine flow.
+        localStorage.setItem(
+          "terra_serviceType",
+          qrContextType === "OFFICE" ? "TAKEAWAY" : "DINE_IN",
+        );
 
         // CRITICAL: Store table data with all required fields
         // Ensure we include id, number, qrSlug, cartId, and status for proper table identification
@@ -698,6 +704,11 @@ export default function Landing() {
           originalCapacity: tableData.originalCapacity || null,
           sessionToken: tableData.sessionToken || null,
           currentOrder: tableData.currentOrder || null,
+          qrContextType,
+          officeName: tableData.officeName || null,
+          officeAddress: tableData.officeAddress || null,
+          officePhone: tableData.officePhone || null,
+          officeDeliveryCharge: Number(tableData.officeDeliveryCharge || 0),
         };
 
         // CRITICAL: Validate table number matches what we expect
@@ -1301,4 +1312,3 @@ export default function Landing() {
     </div>
   );
 }
-

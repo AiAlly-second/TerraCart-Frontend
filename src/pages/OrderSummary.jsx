@@ -136,6 +136,7 @@ const formatMoney = (value) => {
   return num.toFixed(2);
 };
 
+/*
 const toAcceptedByFromAssignedStaff = (assignedStaff) => {
   if (!assignedStaff || !assignedStaff.id) return null;
   return {
@@ -149,6 +150,8 @@ const toAcceptedByFromAssignedStaff = (assignedStaff) => {
     acceptedAt: assignedStaff.acceptedAt || null,
   };
 };
+*/
+const toAcceptedByFromAssignedStaff = () => null;
 
 const resolveAssignmentDisplayType = (orderLike) => {
   const explicit = orderLike?.assignmentDisplayType;
@@ -272,13 +275,34 @@ export default function OrderSummary() {
 
     // Define event handler
     const handleOrderUpdated = (updatedOrder) => {
-      if (updatedOrder?._id === orderId) {
-        setOrder(updatedOrder);
+      const payloadOrderId =
+        updatedOrder?._id || updatedOrder?.id || updatedOrder?.orderId;
+      if (String(payloadOrderId || "") === String(orderId || "")) {
+        const hasRichOrderShape =
+          Array.isArray(updatedOrder?.kotLines) ||
+          updatedOrder?.table ||
+          updatedOrder?.customerName ||
+          updatedOrder?.customerMobile ||
+          updatedOrder?.createdAt;
+        if (hasRichOrderShape) {
+          setOrder(updatedOrder);
+        } else {
+          setOrder((prev) => ({
+            ...(prev || {}),
+            _id: payloadOrderId || prev?._id || null,
+            status: updatedOrder?.status || prev?.status || null,
+            updatedAt: updatedOrder?.updatedAt || prev?.updatedAt || null,
+            orderType: updatedOrder?.orderType || prev?.orderType || null,
+            serviceType:
+              updatedOrder?.serviceType || prev?.serviceType || null,
+            cartId: updatedOrder?.cartId || prev?.cartId || null,
+          }));
+        }
 
         // Handle cancellation / return
         if (
-          updatedOrder.status === "Cancelled" ||
-          updatedOrder.status === "Returned"
+          updatedOrder?.status === "Cancelled" ||
+          updatedOrder?.status === "Returned"
         ) {
           persistTerminalOrderStatus(updatedOrder);
         }
@@ -326,12 +350,48 @@ export default function OrderSummary() {
 
     // Create socket connection for order updates (only when needed)
     let orderSocket = null;
+    let joinedCartId = null;
+    const normalizeCartId = (value) => {
+      if (value == null) return null;
+      if (typeof value === "string") return value;
+      if (typeof value === "object" && value._id) return String(value._id);
+      return String(value);
+    };
+    const joinCartRoom = (cartId) => {
+      if (!orderSocket) return;
+      const normalized = normalizeCartId(cartId);
+      if (!normalized || normalized === joinedCartId) return;
+      orderSocket.emit("join:cart", normalized);
+      joinedCartId = normalized;
+      if (import.meta.env.DEV) {
+        console.log("[OrderSummary] Joined cart room:", normalized);
+      }
+    };
+    const getFallbackCartId = () => {
+      const takeawayCartId = localStorage.getItem("terra_takeaway_cartId");
+      if (takeawayCartId) return takeawayCartId;
+      try {
+        const tableSelection = JSON.parse(
+          localStorage.getItem("terra_selectedTable") || "{}",
+        );
+        return (
+          tableSelection?.cartId?._id ||
+          tableSelection?.cartId ||
+          tableSelection?.cafeId?._id ||
+          tableSelection?.cafeId ||
+          null
+        );
+      } catch {
+        return null;
+      }
+    };
     try {
       orderSocket = io(nodeApi, {
         transports: ["polling", "websocket"], // Try polling first for better stability
         reconnection: true,
         reconnectionDelay: 1000,
-        reconnectionAttempts: 5,
+        // Keep retrying instead of stopping after a few attempts.
+        // reconnectionAttempts: 5,
         timeout: 20000,
         autoConnect: true,
         // Suppress connection errors in console
@@ -340,19 +400,19 @@ export default function OrderSummary() {
 
       orderSocket.on("connect", () => {
         console.log("[OrderSummary] Socket connected");
+        joinCartRoom(getFallbackCartId());
+        // Rooms are lost after reconnect; fetch and rejoin cart room every connect.
+        fetchOrder().then((orderData) => {
+          if (orderData?.cartId) {
+            joinCartRoom(orderData.cartId);
+          }
+        });
       });
 
       // Fetch order and join cart room for real-time status updates
       fetchOrder().then((orderData) => {
-        if (orderData?.cartId && orderSocket) {
-          const cartId =
-            typeof orderData.cartId === "object" && orderData.cartId != null
-              ? (orderData.cartId._id || orderData.cartId).toString()
-              : String(orderData.cartId);
-          orderSocket.emit("join:cart", cartId);
-          if (import.meta.env.DEV) {
-            console.log("[OrderSummary] Joined cart room:", cartId);
-          }
+        if (orderData?.cartId) {
+          joinCartRoom(orderData.cartId);
         }
       });
 
@@ -375,7 +435,8 @@ export default function OrderSummary() {
 
       orderSocket.on("orderUpdated", handleOrderUpdated);
       orderSocket.on("order:status:updated", handleOrderUpdated);
-      orderSocket.on("ORDER_ACCEPTED", handleOrderAccepted);
+      orderSocket.on("order:upsert", handleOrderUpdated);
+      // orderSocket.on("ORDER_ACCEPTED", handleOrderAccepted);
     } catch (err) {
       console.warn("[OrderSummary] Failed to create socket connection:", err);
     }
@@ -385,7 +446,8 @@ export default function OrderSummary() {
       if (orderSocket) {
         orderSocket.off("orderUpdated", handleOrderUpdated);
         orderSocket.off("order:status:updated", handleOrderUpdated);
-        orderSocket.off("ORDER_ACCEPTED", handleOrderAccepted);
+        orderSocket.off("order:upsert", handleOrderUpdated);
+        // orderSocket.off("ORDER_ACCEPTED", handleOrderAccepted);
         orderSocket.off("connect");
         orderSocket.off("connect_error");
         orderSocket.off("disconnect");
@@ -411,12 +473,17 @@ export default function OrderSummary() {
   const invoiceId = buildInvoiceId(order);
   const assignmentDisplayType = resolveAssignmentDisplayType(order);
   const showTeamAssignmentMessage = assignmentDisplayType === "TEAM";
+  /*
   const acceptedStaffName =
     order.acceptedBy?.employeeName || order.assignedStaff?.name;
   const acceptedStaffRole =
     order.assignedStaff?.role || order.acceptedBy?.employeeRole;
   const disabilitySupport =
     order.acceptedBy?.disability?.type || order.assignedStaff?.disability;
+  */
+  const acceptedStaffName = null;
+  const acceptedStaffRole = null;
+  const disabilitySupport = null;
   const helplineNumber =
     order.cafe?.managerHelplineNumber ||
     order.cafe?.phone ||
@@ -722,6 +789,7 @@ export default function OrderSummary() {
                     Reason: {terminalReason}
                   </p>
                 )}
+              {/*
               {showTeamAssignmentMessage && (
                 <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg text-center">
                   <p className="text-green-800 font-medium">
@@ -751,6 +819,7 @@ export default function OrderSummary() {
                   )}
                 </div>
               )}
+              */}
             </div>
 
             <div className="items-list">

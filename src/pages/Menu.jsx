@@ -138,6 +138,7 @@ const sanitizeAddonName = (value) => {
   return normalized || "Add-on";
 };
 
+/*
 const getAssignedStaffFromOrder = (order) => {
   if (!order) return null;
 
@@ -154,6 +155,8 @@ const getAssignedStaffFromOrder = (order) => {
       acceptedBy?.disability?.type || assignedStaff?.disability || null,
   };
 };
+*/
+const getAssignedStaffFromOrder = () => null;
 
 const buildInvoiceId = (order) => {
   if (!order) return "INV-NA";
@@ -1185,6 +1188,7 @@ export default function MenuPage() {
     () => (previousOrderDetail ? buildInvoiceId(previousOrderDetail) : null),
     [previousOrderDetail],
   );
+  /*
   const activeAssignedStaff = useMemo(
     () => getAssignedStaffFromOrder(currentOrderDetail),
     [currentOrderDetail],
@@ -1193,6 +1197,9 @@ export default function MenuPage() {
     () => getAssignedStaffFromOrder(previousOrderDetail),
     [previousOrderDetail],
   );
+  */
+  const activeAssignedStaff = null;
+  const previousAssignedStaff = null;
   const helplineNumber = useMemo(() => {
     const primaryFromCurrent =
       currentOrderDetail?.cafe?.primaryEmergencyContact?.phone;
@@ -5187,11 +5194,13 @@ export default function MenuPage() {
     // Create socket connection with proper error handling
     try {
       socket = io(nodeApi, {
-        transports: ["websocket", "polling"],
+        // Polling-first improves compatibility across restrictive mobile/public networks.
+        transports: ["polling", "websocket"],
         reconnection: true,
         reconnectionDelay: 1000,
         reconnectionDelayMax: 5000,
-        reconnectionAttempts: 5,
+        // Keep retrying instead of stopping after a few attempts.
+        // reconnectionAttempts: 5,
         timeout: 60000, // Match backend pingTimeout (60s)
         connectTimeout: 60000, // Match backend pingTimeout (60s)
         autoConnect: true,
@@ -5247,6 +5256,8 @@ export default function MenuPage() {
 
     // Define event handlers
     const handleOrderUpdated = (payload) => {
+      if (!payload || typeof payload !== "object") return;
+
       // Get order ID - check service-type-specific ONLY, never mix TAKEAWAY and DINE_IN
       const currentServiceType = normalizeServiceType(
         localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN",
@@ -5269,6 +5280,7 @@ export default function MenuPage() {
 
       // CRITICAL: Only process if this is our order and status actually changed
       // Also verify serviceType matches to prevent TAKEAWAY orders appearing in DINE_IN mode
+      const payloadOrderId = payload?._id || payload?.id || payload?.orderId;
       const payloadServiceType = normalizeServiceType(
         payload?.serviceType || currentServiceType,
       );
@@ -5279,7 +5291,7 @@ export default function MenuPage() {
           isTakeawayLikeServiceType(currentServiceType)
         );
       if (
-        String(payload?._id || "") === String(orderId || "") &&
+        String(payloadOrderId || "") === String(orderId || "") &&
         payload?.status &&
         !serviceTypeMismatch
       ) {
@@ -5309,7 +5321,25 @@ export default function MenuPage() {
         const nowIso = new Date().toISOString();
         setOrderStatus(payload.status);
         setOrderStatusUpdatedAt(nowIso);
-        setCurrentOrderDetail(payload);
+        const hasRichOrderShape =
+          Array.isArray(payload.kotLines) ||
+          payload.table ||
+          payload.customerName ||
+          payload.customerMobile ||
+          payload.createdAt;
+        if (hasRichOrderShape) {
+          setCurrentOrderDetail(payload);
+        } else {
+          setCurrentOrderDetail((prev) => ({
+            ...(prev || {}),
+            _id: payloadOrderId || prev?._id || null,
+            status: payload.status,
+            updatedAt: payload.updatedAt || nowIso,
+            orderType: payload.orderType || prev?.orderType || null,
+            serviceType: payload.serviceType || prev?.serviceType || null,
+            cartId: payload.cartId || prev?.cartId || null,
+          }));
+        }
         if (payload.cartId) {
           joinCartRoom(payload.cartId);
         }
@@ -5378,6 +5408,7 @@ export default function MenuPage() {
         return;
       }
 
+      /*
       if (payload.assignedStaff) {
         setCurrentOrderDetail((prev) => {
           const next = prev ? { ...prev } : { _id: acceptedOrderId };
@@ -5397,6 +5428,7 @@ export default function MenuPage() {
           return next;
         });
       }
+      */
     };
 
     const handleOrderDeleted = (payload) => {
@@ -5566,7 +5598,8 @@ export default function MenuPage() {
     if (socket) {
       socket.on("orderUpdated", handleOrderUpdated);
       socket.on("order:status:updated", handleOrderUpdated);
-      socket.on("ORDER_ACCEPTED", handleOrderAccepted);
+      socket.on("order:upsert", handleOrderUpdated);
+      // socket.on("ORDER_ACCEPTED", handleOrderAccepted);
       socket.on("orderDeleted", handleOrderDeleted);
       socket.on("table:status:updated", handleTableStatusUpdated);
     }
@@ -5579,7 +5612,8 @@ export default function MenuPage() {
       if (socket) {
         socket.off("orderUpdated", handleOrderUpdated);
         socket.off("order:status:updated", handleOrderUpdated);
-        socket.off("ORDER_ACCEPTED", handleOrderAccepted);
+        socket.off("order:upsert", handleOrderUpdated);
+        // socket.off("ORDER_ACCEPTED", handleOrderAccepted);
         socket.off("orderDeleted", handleOrderDeleted);
         socket.off("table:status:updated", handleTableStatusUpdated);
         socket.disconnect();
@@ -5917,6 +5951,7 @@ export default function MenuPage() {
                       }
                     />
                   </div>
+                  {/*
                   {activeAssignedStaff?.name && (
                     <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg text-center">
                       <p className="text-green-800 font-medium">
@@ -5934,6 +5969,7 @@ export default function MenuPage() {
                       )}
                     </div>
                   )}
+                  */}
                   {helplineNumber && (
                     <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg text-center">
                       <p className="text-blue-800 font-medium">
@@ -6142,6 +6178,7 @@ export default function MenuPage() {
                       </span>
                     )}
                   </div>
+                  {/*
                   {previousAssignedStaff?.name && (
                     <div
                       style={{
@@ -6159,6 +6196,7 @@ export default function MenuPage() {
                       )}
                     </div>
                   )}
+                  */}
                   <div style={{ marginBottom: "8px", fontSize: "0.85rem" }}>
                     <div
                       style={{

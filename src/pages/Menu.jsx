@@ -24,6 +24,10 @@ import {
   readScopedCart,
   writeScopedCart,
 } from "../utils/cartStorage";
+import {
+  buildSocketIdentityPayload,
+  ensureAnonymousSessionId,
+} from "../utils/anonymousSession";
 // import AccessibilityFooter from "../components/AccessibilityFooter";
 const nodeApi = (
   import.meta.env.VITE_NODE_API_URL || "http://localhost:5001"
@@ -46,34 +50,84 @@ const SERVICE_TYPE_KEY = "terra_serviceType";
 const TABLE_SELECTION_KEY = "terra_selectedTable";
 const FEEDBACK_SUBMITTED_ORDERS_KEY = "terra_feedbackSubmittedOrders";
 const TAKEAWAY_TOKEN_PREVIEW_KEY = "terra_takeaway_token_preview";
-const REORDER_ALLOWED_STATUSES = [
-  "Pending",
-  "Confirmed",
-  "Preparing",
-  "Ready",
-  "Served",
-  "Completed",
-  "Paid",
-  "Returned",
-  "Cancelled",
-];
-const CANCEL_ALLOWED_STATUSES = [
-  "Pending",
-  "Confirmed",
-  "Preparing",
-  "Ready",
-  "Served",
-  "Finalized",
-  "Completed",
-];
-const RETURN_ALLOWED_STATUSES = ["Paid"];
-const TERMINAL_STATUSES_TO_PRESERVE = ["Paid", "Cancelled", "Returned"];
+const CANCELLED_OR_RETURNED_STATUS_TOKENS = new Set([
+  "CANCELLED",
+  "CANCELED",
+  "RETURNED",
+]);
 const TAKEAWAY_LIKE_SERVICE_TYPES = ["TAKEAWAY", "PICKUP", "DELIVERY"];
 
 const normalizeServiceType = (value = "DINE_IN") =>
   String(value || "DINE_IN")
     .trim()
     .toUpperCase();
+
+const normalizeOrderStatus = (value) => {
+  const token = String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/_/g, " ")
+    .replace(/\s+/g, " ");
+  if (!token) return "NEW";
+  if (["NEW", "PENDING", "CONFIRMED", "ACCEPT", "ACCEPTED"].includes(token)) {
+    return "NEW";
+  }
+  if (["PREPARING", "BEING PREPARED", "BEINGPREPARED"].includes(token)) {
+    return "PREPARING";
+  }
+  if (token === "READY") return "READY";
+  if (
+    [
+      "COMPLETED",
+      "SERVED",
+      "FINALIZED",
+      "PAID",
+      "CANCELLED",
+      "CANCELED",
+      "RETURNED",
+      "REJECTED",
+      "EXIT",
+      "CLOSED",
+    ].includes(token)
+  ) {
+    return "COMPLETED";
+  }
+  return "NEW";
+};
+
+const normalizePaymentStatus = (value, { status, isPaid } = {}) => {
+  const token = String(value || "").trim().toUpperCase();
+  if (token === "PAID") return "PAID";
+  if (isPaid === true) return "PAID";
+  if (String(status || "").trim().toUpperCase() === "PAID") return "PAID";
+  return "PENDING";
+};
+
+const isCancelledOrReturnedStatus = (status) =>
+  CANCELLED_OR_RETURNED_STATUS_TOKENS.has(
+    String(status || "").trim().toUpperCase(),
+  );
+
+const isOrderSettled = ({ status, paymentStatus, isPaid } = {}) =>
+  normalizeOrderStatus(status) === "COMPLETED" &&
+  normalizePaymentStatus(paymentStatus, { status, isPaid }) === "PAID";
+
+const isOrderActiveForCustomer = ({ status, paymentStatus, isPaid } = {}) =>
+  !isCancelledOrReturnedStatus(status) &&
+  !isOrderSettled({ status, paymentStatus, isPaid });
+
+const canAddItemsToExistingOrder = ({ status, paymentStatus, isPaid } = {}) =>
+  isOrderActiveForCustomer({ status, paymentStatus, isPaid }) &&
+  normalizeOrderStatus(status) !== "COMPLETED";
+
+const shouldPreserveOrderStateWithoutActiveId = ({
+  status,
+  paymentStatus,
+  isPaid,
+} = {}) =>
+  isCancelledOrReturnedStatus(status) ||
+  normalizeOrderStatus(status) === "COMPLETED" ||
+  isOrderSettled({ status, paymentStatus, isPaid });
 
 const isTakeawayLikeServiceType = (value) =>
   TAKEAWAY_LIKE_SERVICE_TYPES.includes(normalizeServiceType(value));
@@ -555,6 +609,7 @@ export default function MenuPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
+  const anonymousSessionId = useMemo(() => ensureAnonymousSessionId(), []);
   const supportedLangs = ["en", "hi", "mr", "gu"];
   const normalizeLang = (stored) =>
     supportedLangs.includes(stored) ? stored : "en";
@@ -727,7 +782,11 @@ export default function MenuPage() {
           localStorage.getItem("terra_orderStatus")
         : localStorage.getItem("terra_orderStatus_DINE_IN") ||
           localStorage.getItem("terra_orderStatus");
-    return stored || null;
+    return stored ? normalizeOrderStatus(stored) : null;
+  });
+  const [orderPaymentStatus, setOrderPaymentStatus] = useState(() => {
+    const stored = localStorage.getItem("terra_orderPaymentStatus");
+    return normalizePaymentStatus(stored);
   });
   const [orderStatusUpdatedAt, setOrderStatusUpdatedAt] = useState(() => {
     // Check service type specific updatedAt first, then fallback to general
@@ -1088,7 +1147,9 @@ export default function MenuPage() {
       const resolvedOrderId = overrides.orderId || activeOrderId;
       if (!resolvedOrderId) return;
 
-      const resolvedStatus = overrides.status || orderStatus || "Confirmed";
+      const resolvedStatus = normalizeOrderStatus(
+        overrides.status || orderStatus || "NEW",
+      );
       const resolvedUpdatedAt =
         overrides.updatedAt || orderStatusUpdatedAt || new Date().toISOString();
 
@@ -1243,12 +1304,24 @@ export default function MenuPage() {
     } else {
       localStorage.removeItem("terra_orderStatus");
     }
+    if (orderPaymentStatus) {
+      localStorage.setItem("terra_orderPaymentStatus", orderPaymentStatus);
+    } else {
+      localStorage.removeItem("terra_orderPaymentStatus");
+    }
     if (orderStatusUpdatedAt) {
       localStorage.setItem("terra_orderStatusUpdatedAt", orderStatusUpdatedAt);
     } else {
       localStorage.removeItem("terra_orderStatusUpdatedAt");
     }
-  }, [orderStatus, orderStatusUpdatedAt]);
+  }, [orderStatus, orderPaymentStatus, orderStatusUpdatedAt]);
+
+  useEffect(() => {
+    if (!orderStatus) {
+      setOrderPaymentStatus("PENDING");
+      localStorage.removeItem("terra_orderPaymentStatus");
+    }
+  }, [orderStatus]);
 
   useEffect(() => {
     if (orderStatus && activeOrderId && previousOrder) {
@@ -1362,12 +1435,14 @@ export default function MenuPage() {
       const existingOrderStatus =
         localStorage.getItem("terra_orderStatus") ||
         localStorage.getItem("terra_orderStatus_DINE_IN");
+      const existingOrderPaymentStatus =
+        localStorage.getItem("terra_orderPaymentStatus") || "PENDING";
       const hasActiveOrderInStorage =
         existingOrderId &&
-        (!existingOrderStatus ||
-          !["Paid", "Cancelled", "Returned", "Completed"].includes(
-            existingOrderStatus,
-          ));
+        isOrderActiveForCustomer({
+          status: existingOrderStatus,
+          paymentStatus: existingOrderPaymentStatus,
+        });
 
       // If we have an order ID in storage, verify it exists on backend.
       if (existingOrderId) {
@@ -1377,13 +1452,8 @@ export default function MenuPage() {
           );
           if (orderRes.ok) {
             const orderData = await orderRes.json();
-            // Verify order is still active (not paid/cancelled/returned)
-            if (
-              orderData.status &&
-              !["Paid", "Cancelled", "Returned", "Completed"].includes(
-                orderData.status,
-              )
-            ) {
+            // Verify order is still active using canonical status + payment state.
+            if (isOrderActiveForCustomer(orderData)) {
               console.log(
                 "[Menu] User has verified active order - allowing access, skipping waitlist check",
               );
@@ -1840,12 +1910,14 @@ export default function MenuPage() {
         const existingOrderStatus =
           localStorage.getItem("terra_orderStatus") ||
           localStorage.getItem("terra_orderStatus_DINE_IN");
+        const existingOrderPaymentStatus =
+          localStorage.getItem("terra_orderPaymentStatus") || "PENDING";
         const hasActiveOrder =
           existingOrderId &&
-          existingOrderStatus &&
-          !["Paid", "Cancelled", "Returned", "Completed"].includes(
-            existingOrderStatus,
-          );
+          isOrderActiveForCustomer({
+            status: existingOrderStatus,
+            paymentStatus: existingOrderPaymentStatus,
+          });
 
         // If user has active order, verify it's still valid before skipping occupy call
         if (hasActiveOrder && existingOrderId) {
@@ -1857,10 +1929,7 @@ export default function MenuPage() {
               const orderData = await orderRes.json();
               // If order is still active and belongs to this table, skip marking as occupied
               if (
-                orderData.status &&
-                !["Paid", "Cancelled", "Returned", "Completed"].includes(
-                  orderData.status,
-                ) &&
+                isOrderActiveForCustomer(orderData) &&
                 (orderData.table?.toString() === tableId?.toString() ||
                   orderData.tableId?.toString() === tableId?.toString())
               ) {
@@ -2495,20 +2564,26 @@ export default function MenuPage() {
     let existingId = activeOrderId;
     const isTakeawayLikeFlow = isTakeawayLikeServiceType(serviceType);
 
-    // Check if existing order can accept new items
-    // Allow adding items until payment is done - only block if order is Paid, Cancelled, or Returned
+    // Check if existing order can accept new items.
+    // Do not add to settled/cancelled/returned/completed orders.
     if (existingId) {
       try {
         const orderRes = await fetch(`${nodeApi}/api/orders/${existingId}`);
         if (orderRes.ok) {
           const existingOrder = await orderRes.json();
-          // Only block adding items if order is Paid, Cancelled, or Returned
-          // Allow adding items for: Pending, Confirmed, Preparing, Ready, Served, Finalized (before payment)
-          const blockedStatuses = ["Paid", "Cancelled", "Returned"];
-          if (blockedStatuses.includes(existingOrder.status)) {
+          if (!canAddItemsToExistingOrder(existingOrder)) {
             console.log(
-              "[Menu] Existing order is in blocked status, creating new order instead:",
-              existingOrder.status,
+              "[Menu] Existing order is not eligible for add-items, creating new order instead:",
+              {
+                status: normalizeOrderStatus(existingOrder.status),
+                paymentStatus: normalizePaymentStatus(
+                  existingOrder.paymentStatus,
+                  {
+                    status: existingOrder.status,
+                    isPaid: existingOrder.isPaid,
+                  },
+                ),
+              },
             );
             // Clear the active order ID so we create a new order
             existingId = null;
@@ -2894,6 +2969,13 @@ export default function MenuPage() {
         // Include special instructions
         specialInstructions: specialInstructions,
         selectedAddons: resolvedAddons,
+        anonymousSessionId: anonymousSessionId || undefined,
+        sourceQrContext:
+          refreshedTableInfo?.qrContextType ||
+          refreshedTableInfo?.sourceQrContext ||
+          tableInfo?.qrContextType ||
+          tableInfo?.sourceQrContext ||
+          undefined,
       });
 
       const previewTakeawayToken = Number(
@@ -3309,7 +3391,16 @@ export default function MenuPage() {
         localStorage.removeItem("terra_orderId_TAKEAWAY");
       }
       setActiveOrderId(data._id);
-      setOrderStatus(data.status || "Confirmed");
+      const normalizedStatus = normalizeOrderStatus(data.status || "NEW");
+      const normalizedPaymentStatus = normalizePaymentStatus(
+        data.paymentStatus,
+        {
+          status: data.status,
+          isPaid: data.isPaid,
+        },
+      );
+      setOrderStatus(normalizedStatus);
+      setOrderPaymentStatus(normalizedPaymentStatus);
       setOrderStatusUpdatedAt(new Date().toISOString());
       setCurrentOrderDetail(data);
 
@@ -3317,7 +3408,7 @@ export default function MenuPage() {
       if (isTakeawayServiceMode) {
         localStorage.setItem(
           "terra_orderStatus_TAKEAWAY",
-          data.status || "Confirmed",
+          normalizedStatus,
         );
         localStorage.setItem(
           "terra_orderStatusUpdatedAt_TAKEAWAY",
@@ -3326,7 +3417,7 @@ export default function MenuPage() {
       } else {
         localStorage.setItem(
           "terra_orderStatus_DINE_IN",
-          data.status || "Confirmed",
+          normalizedStatus,
         );
         localStorage.setItem(
           "terra_orderStatusUpdatedAt_DINE_IN",
@@ -3672,13 +3763,8 @@ export default function MenuPage() {
           );
           if (orderRes.ok) {
             const orderData = await orderRes.json();
-            // Check if order is still active (not paid/cancelled/returned)
-            if (
-              orderData.status &&
-              ["Paid", "Cancelled", "Returned", "Completed"].includes(
-                orderData.status,
-              )
-            ) {
+            // Keep order visible/active until it is both completed and paid.
+            if (isOrderSettled(orderData)) {
               alert(
                 "This order has been completed. Please create a new order.",
               );
@@ -3690,10 +3776,18 @@ export default function MenuPage() {
             localStorage.setItem("terra_orderId_TAKEAWAY", takeawayOrderId);
             localStorage.removeItem("terra_orderId"); // Clear generic orderId
             localStorage.removeItem("terra_orderId_DINE_IN"); // Clear DINE_IN orderId
-            setOrderStatus(orderData.status || orderStatus || "Confirmed");
+            setOrderStatus(
+              normalizeOrderStatus(orderData.status || orderStatus || "NEW"),
+            );
+            setOrderPaymentStatus(
+              normalizePaymentStatus(orderData.paymentStatus, {
+                status: orderData.status,
+                isPaid: orderData.isPaid,
+              }),
+            );
             localStorage.setItem(
               "terra_orderStatus_TAKEAWAY",
-              orderData.status || orderStatus || "Confirmed",
+              normalizeOrderStatus(orderData.status || orderStatus || "NEW"),
             );
 
             if (orderData.updatedAt) {
@@ -3905,7 +3999,15 @@ export default function MenuPage() {
           localStorage.setItem("terra_orderId_DINE_IN", payload.order._id);
           localStorage.removeItem("terra_orderId_TAKEAWAY");
         }
-        setOrderStatus(payload.order.status || orderStatus || "Confirmed");
+        setOrderStatus(
+          normalizeOrderStatus(payload.order.status || orderStatus || "NEW"),
+        );
+        setOrderPaymentStatus(
+          normalizePaymentStatus(payload.order.paymentStatus, {
+            status: payload.order.status,
+            isPaid: payload.order.isPaid,
+          }),
+        );
         if (payload.order.updatedAt) {
           setOrderStatusUpdatedAt(payload.order.updatedAt);
           localStorage.setItem(
@@ -3925,7 +4027,7 @@ export default function MenuPage() {
         } else {
           // Only clear if we don't have an active order
           capturePreviousOrder({
-            status: orderStatus || "Completed",
+            status: orderStatus || "COMPLETED",
             updatedAt: orderStatusUpdatedAt || new Date().toISOString(),
             tableNumber:
               resolvedTable?.number ?? resolvedTable?.tableNumber ?? null,
@@ -4045,7 +4147,7 @@ export default function MenuPage() {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              status: "Cancelled",
+              status: "CANCELLED",
               sessionToken: sessionToken || undefined,
               reason: reasonText,
             }),
@@ -4062,7 +4164,7 @@ export default function MenuPage() {
 
         capturePreviousOrder({
           orderId: updatedOrder?._id,
-          status: "Cancelled",
+          status: "CANCELLED",
           updatedAt,
           tableNumber:
             updatedOrder?.tableNumber ??
@@ -4081,11 +4183,12 @@ export default function MenuPage() {
           persistPreviousOrderDetail(updatedOrder);
         }
 
-        setOrderStatus("Cancelled");
+        setOrderStatus("CANCELLED");
+        setOrderPaymentStatus("PENDING");
         setOrderStatusUpdatedAt(updatedAt);
         setCurrentOrderDetail(
           updatedOrder || {
-            status: "Cancelled",
+            status: "CANCELLED",
             cancellationReason: reasonText,
             updatedAt,
             serviceType,
@@ -4096,10 +4199,11 @@ export default function MenuPage() {
         // Clear order data based on service type
         if (isTakeawayLike) {
           localStorage.removeItem("terra_orderId_TAKEAWAY");
-          localStorage.setItem("terra_orderStatus_TAKEAWAY", "Cancelled");
+          localStorage.setItem("terra_orderStatus_TAKEAWAY", "CANCELLED");
           localStorage.setItem("terra_orderStatusUpdatedAt_TAKEAWAY", updatedAt);
           clearScopedCart("TAKEAWAY");
-          localStorage.setItem("terra_orderStatus", "Cancelled");
+          localStorage.setItem("terra_orderStatus", "CANCELLED");
+          localStorage.setItem("terra_orderPaymentStatus", "PENDING");
           localStorage.setItem("terra_orderStatusUpdatedAt", updatedAt);
 
           // CRITICAL: Clear takeaway customer data when order is cancelled
@@ -4112,9 +4216,10 @@ export default function MenuPage() {
         } else {
           localStorage.removeItem("terra_orderId");
           localStorage.removeItem("terra_orderId_DINE_IN");
-          localStorage.setItem("terra_orderStatus", "Cancelled");
+          localStorage.setItem("terra_orderStatus", "CANCELLED");
+          localStorage.setItem("terra_orderPaymentStatus", "PENDING");
           localStorage.setItem("terra_orderStatusUpdatedAt", updatedAt);
-          localStorage.setItem("terra_orderStatus_DINE_IN", "Cancelled");
+          localStorage.setItem("terra_orderStatus_DINE_IN", "CANCELLED");
           localStorage.setItem("terra_orderStatusUpdatedAt_DINE_IN", updatedAt);
           clearScopedCart("DINE_IN");
         }
@@ -4179,7 +4284,7 @@ export default function MenuPage() {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              status: "Returned",
+              status: "RETURNED",
               sessionToken: sessionToken || undefined,
               reason: reasonText,
             }),
@@ -4196,7 +4301,7 @@ export default function MenuPage() {
 
         capturePreviousOrder({
           orderId: updatedOrder?._id,
-          status: "Returned",
+          status: "RETURNED",
           updatedAt,
           tableNumber:
             updatedOrder?.tableNumber ??
@@ -4215,11 +4320,12 @@ export default function MenuPage() {
           persistPreviousOrderDetail(updatedOrder);
         }
 
-        setOrderStatus("Returned");
+        setOrderStatus("RETURNED");
+        setOrderPaymentStatus("PENDING");
         setOrderStatusUpdatedAt(updatedAt);
         setCurrentOrderDetail(
           updatedOrder || {
-            status: "Returned",
+            status: "RETURNED",
             cancellationReason: reasonText,
             updatedAt,
             serviceType,
@@ -4230,16 +4336,18 @@ export default function MenuPage() {
         // Clear order IDs based on service type
         if (isTakeawayLike) {
           localStorage.removeItem("terra_orderId_TAKEAWAY");
-          localStorage.setItem("terra_orderStatus_TAKEAWAY", "Returned");
+          localStorage.setItem("terra_orderStatus_TAKEAWAY", "RETURNED");
           localStorage.setItem("terra_orderStatusUpdatedAt_TAKEAWAY", updatedAt);
-          localStorage.setItem("terra_orderStatus", "Returned");
+          localStorage.setItem("terra_orderStatus", "RETURNED");
+          localStorage.setItem("terra_orderPaymentStatus", "PENDING");
           localStorage.setItem("terra_orderStatusUpdatedAt", updatedAt);
         } else {
           localStorage.removeItem("terra_orderId");
           localStorage.removeItem("terra_orderId_DINE_IN");
-          localStorage.setItem("terra_orderStatus", "Returned");
+          localStorage.setItem("terra_orderStatus", "RETURNED");
+          localStorage.setItem("terra_orderPaymentStatus", "PENDING");
           localStorage.setItem("terra_orderStatusUpdatedAt", updatedAt);
-          localStorage.setItem("terra_orderStatus_DINE_IN", "Returned");
+          localStorage.setItem("terra_orderStatus_DINE_IN", "RETURNED");
           localStorage.setItem("terra_orderStatusUpdatedAt_DINE_IN", updatedAt);
         }
 
@@ -4314,7 +4422,7 @@ export default function MenuPage() {
 
       capturePreviousOrder({
         orderId: updatedOrder?._id,
-        status: "Paid",
+        status: "COMPLETED",
         updatedAt,
         tableNumber:
           updatedOrder?.tableNumber ??
@@ -4333,9 +4441,11 @@ export default function MenuPage() {
         persistPreviousOrderDetail(updatedOrder);
       }
 
-      setOrderStatus("Paid");
+      setOrderStatus("COMPLETED");
+      setOrderPaymentStatus("PAID");
       setOrderStatusUpdatedAt(updatedAt);
-      localStorage.setItem("terra_orderStatus", "Paid");
+      localStorage.setItem("terra_orderStatus", "COMPLETED");
+      localStorage.setItem("terra_orderPaymentStatus", "PAID");
       localStorage.setItem("terra_orderStatusUpdatedAt", updatedAt);
       localStorage.setItem("terra_lastPaidOrderId", activeOrderId);
       alert("Payment confirmed successfully!");
@@ -4612,24 +4722,15 @@ export default function MenuPage() {
   }, [invoiceId, invoiceOrder, downloadingInvoice]);
 
   const handleBillingClick = useCallback(async () => {
-    // Show invoice for Preparing, Ready, Served, Finalized, and Paid orders
-    // Confirmed orders should allow payment, so they navigate to billing
-    const invoiceableStatuses = [
-      "Preparing",
-      "Ready",
-      "Served",
-      "Finalized",
-      "Paid",
-    ];
-
-    if (invoiceableStatuses.includes(orderStatus)) {
+    const normalizedStatus = normalizeOrderStatus(orderStatus);
+    if (normalizedStatus === "PREPARING" || normalizedStatus === "READY") {
       await handleViewInvoice();
       return;
     }
 
-    if (orderStatus === "Returned" || orderStatus === "Cancelled") {
+    if (isCancelledOrReturnedStatus(orderStatus)) {
       alert(
-        orderStatus === "Returned"
+        String(orderStatus || "").trim().toUpperCase() === "RETURNED"
           ? "This order has already been returned."
           : "This order has been cancelled.",
       );
@@ -4936,17 +5037,28 @@ export default function MenuPage() {
           localStorage.getItem("terra_orderStatus")
         : localStorage.getItem("terra_orderStatus_DINE_IN") ||
           localStorage.getItem("terra_orderStatus");
+      const storedPaymentStatus =
+        localStorage.getItem("terra_orderPaymentStatus") || "PENDING";
       const storedUpdatedAt = isTakeaway
         ? localStorage.getItem("terra_orderStatusUpdatedAt_TAKEAWAY") ||
           localStorage.getItem("terra_orderStatusUpdatedAt")
         : localStorage.getItem("terra_orderStatusUpdatedAt_DINE_IN") ||
           localStorage.getItem("terra_orderStatusUpdatedAt");
 
-      if (TERMINAL_STATUSES_TO_PRESERVE.includes(storedStatus || "")) {
-        setOrderStatus(storedStatus);
+      if (
+        shouldPreserveOrderStateWithoutActiveId({
+          status: storedStatus,
+          paymentStatus: storedPaymentStatus,
+        })
+      ) {
+        setOrderStatus(normalizeOrderStatus(storedStatus));
+        setOrderPaymentStatus(
+          normalizePaymentStatus(storedPaymentStatus, { status: storedStatus }),
+        );
         setOrderStatusUpdatedAt(storedUpdatedAt || null);
       } else {
         setOrderStatus(null);
+        setOrderPaymentStatus("PENDING");
         setOrderStatusUpdatedAt(null);
       }
       setCurrentOrderDetail(null);
@@ -4958,10 +5070,10 @@ export default function MenuPage() {
     }
 
     let socket;
-    let timer;
     // Track if we've already logged connection error - must be outside function to persist
     let connectionErrorLogged = false;
     let joinedCartId = null;
+    let joinedAnonymousSessionId = null;
 
     const normalizeCartId = (cartId) => {
       if (cartId == null) return null;
@@ -4976,6 +5088,21 @@ export default function MenuPage() {
       if (!normalizedCartId || joinedCartId === normalizedCartId) return;
       socket.emit("join:cart", normalizedCartId);
       joinedCartId = normalizedCartId;
+    };
+
+    const joinIdentityRoom = () => {
+      if (!socket) return;
+      const identityPayload = buildSocketIdentityPayload();
+      if (!identityPayload?.anonymousSessionId) return;
+      if (joinedAnonymousSessionId === identityPayload.anonymousSessionId) return;
+      socket.emit("join_room", identityPayload);
+      joinedAnonymousSessionId = identityPayload.anonymousSessionId;
+      if (import.meta.env.DEV) {
+        console.debug(
+          "[Menu] Joined identity room:",
+          identityPayload.anonymousSessionId
+        );
+      }
     };
 
     const fetchStatus = async () => {
@@ -5157,28 +5284,41 @@ export default function MenuPage() {
               localStorage.getItem("terra_orderStatus");
 
           // Avoid duplicate updates if status hasn't changed
-          if (currentStatus === data.status && orderStatus === data.status) {
+          const normalizedStatus = normalizeOrderStatus(data.status);
+          const normalizedPaymentStatus = normalizePaymentStatus(
+            data.paymentStatus,
+            {
+              status: data.status,
+              isPaid: data.isPaid,
+            },
+          );
+          if (currentStatus === normalizedStatus && orderStatus === normalizedStatus) {
             return;
           }
 
           const nowIso = new Date().toISOString();
-          setOrderStatus(data.status);
+          setOrderStatus(normalizedStatus);
+          setOrderPaymentStatus(normalizedPaymentStatus);
           setOrderStatusUpdatedAt(nowIso);
 
           // Update service-type-specific keys (primary storage)
           if (isTakeaway) {
-            localStorage.setItem("terra_orderStatus_TAKEAWAY", data.status);
+            localStorage.setItem("terra_orderStatus_TAKEAWAY", normalizedStatus);
             localStorage.setItem("terra_orderStatusUpdatedAt_TAKEAWAY", nowIso);
             // Also update generic key for backward compatibility
-            localStorage.setItem("terra_orderStatus", data.status);
+            localStorage.setItem("terra_orderStatus", normalizedStatus);
             localStorage.setItem("terra_orderStatusUpdatedAt", nowIso);
           } else {
-            localStorage.setItem("terra_orderStatus_DINE_IN", data.status);
+            localStorage.setItem("terra_orderStatus_DINE_IN", normalizedStatus);
             localStorage.setItem("terra_orderStatusUpdatedAt_DINE_IN", nowIso);
             // Also update generic key for backward compatibility
-            localStorage.setItem("terra_orderStatus", data.status);
+            localStorage.setItem("terra_orderStatus", normalizedStatus);
             localStorage.setItem("terra_orderStatusUpdatedAt", nowIso);
           }
+          localStorage.setItem(
+            "terra_orderPaymentStatus",
+            normalizedPaymentStatus,
+          );
         }
       } catch (err) {
         // Don't clear order data on network errors - keep existing status from localStorage
@@ -5187,9 +5327,8 @@ export default function MenuPage() {
       }
     };
 
-    // Use polling + socket so customer status stays in sync with admin in real time
+    // Bootstrap once, then rely on realtime socket updates (no polling).
     fetchStatus();
-    timer = setInterval(fetchStatus, 10000);
 
     // Create socket connection with proper error handling
     try {
@@ -5215,6 +5354,7 @@ export default function MenuPage() {
         // Reset error flags on successful connection
         socketErrorLogged = false;
         connectionErrorLogged = false;
+        joinedAnonymousSessionId = null;
         // Join cart room for real-time order assignment updates.
         const cartIdFromOrder = currentOrderDetail?.cartId;
         const cartIdFromTakeaway = localStorage.getItem("terra_takeaway_cartId");
@@ -5231,7 +5371,18 @@ export default function MenuPage() {
         } catch {
           cartIdFromTable = null;
         }
+        joinIdentityRoom();
         joinCartRoom(cartIdFromOrder || cartIdFromTakeaway || cartIdFromTable);
+        fetchStatus();
+      });
+
+      socket.on("reconnect", () => {
+        joinedCartId = null;
+        joinedAnonymousSessionId = null;
+        joinIdentityRoom();
+        const cartIdFromTakeaway = localStorage.getItem("terra_takeaway_cartId");
+        joinCartRoom(currentOrderDetail?.cartId || cartIdFromTakeaway);
+        fetchStatus();
       });
 
       socket.on("connect_error", (error) => {
@@ -5296,10 +5447,11 @@ export default function MenuPage() {
         !serviceTypeMismatch
       ) {
         const currentStatus = localStorage.getItem("terra_orderStatus");
+        const nextStatus = normalizeOrderStatus(payload.status);
         // Avoid duplicate updates if status hasn't changed
         if (
-          currentStatus === payload.status &&
-          orderStatus === payload.status
+          currentStatus === nextStatus &&
+          orderStatus === nextStatus
         ) {
           return;
         }
@@ -5318,8 +5470,42 @@ export default function MenuPage() {
           }
         }
 
+        if (isTakeawayFlow && payload.anonymousSessionId) {
+          const expectedAnonymousSessionId =
+            anonymousSessionId || ensureAnonymousSessionId();
+          if (
+            expectedAnonymousSessionId &&
+            payload.anonymousSessionId !== expectedAnonymousSessionId
+          ) {
+            return;
+          }
+        }
+
         const nowIso = new Date().toISOString();
-        setOrderStatus(payload.status);
+        const normalizedStatus = nextStatus;
+        const normalizedPaymentStatus = normalizePaymentStatus(
+          payload.paymentStatus,
+          {
+            status: payload.status,
+            isPaid: payload.isPaid,
+          },
+        );
+        if (import.meta.env.DEV) {
+          console.debug("[Menu] Realtime order status update", {
+            orderId: payloadOrderId,
+            status: normalizedStatus,
+            paymentStatus: normalizedPaymentStatus,
+            serviceType: payload.serviceType || currentServiceType,
+          });
+        }
+        console.log("[Menu] recv order_status_updated", {
+          orderId: payloadOrderId,
+          status: normalizedStatus,
+          paymentStatus: normalizedPaymentStatus,
+          updatedAt: payload.updatedAt || nowIso,
+        });
+        setOrderStatus(normalizedStatus);
+        setOrderPaymentStatus(normalizedPaymentStatus);
         setOrderStatusUpdatedAt(nowIso);
         const hasRichOrderShape =
           Array.isArray(payload.kotLines) ||
@@ -5333,7 +5519,10 @@ export default function MenuPage() {
           setCurrentOrderDetail((prev) => ({
             ...(prev || {}),
             _id: payloadOrderId || prev?._id || null,
-            status: payload.status,
+            status: normalizedStatus,
+            paymentStatus:
+              normalizedPaymentStatus || prev?.paymentStatus || "PENDING",
+            isPaid: normalizedPaymentStatus === "PAID",
             updatedAt: payload.updatedAt || nowIso,
             orderType: payload.orderType || prev?.orderType || null,
             serviceType: payload.serviceType || prev?.serviceType || null,
@@ -5344,14 +5533,18 @@ export default function MenuPage() {
           joinCartRoom(payload.cartId);
         }
         // Also update localStorage to keep it in sync
-        localStorage.setItem("terra_orderStatus", payload.status);
+        localStorage.setItem("terra_orderStatus", normalizedStatus);
+        localStorage.setItem(
+          "terra_orderPaymentStatus",
+          normalizedPaymentStatus,
+        );
         localStorage.setItem("terra_orderStatusUpdatedAt", nowIso);
         // Update service-type-specific keys
         if (isTakeawayFlow) {
-          localStorage.setItem("terra_orderStatus_TAKEAWAY", payload.status);
+          localStorage.setItem("terra_orderStatus_TAKEAWAY", normalizedStatus);
           localStorage.setItem("terra_orderStatusUpdatedAt_TAKEAWAY", nowIso);
         } else {
-          localStorage.setItem("terra_orderStatus_DINE_IN", payload.status);
+          localStorage.setItem("terra_orderStatus_DINE_IN", normalizedStatus);
           localStorage.setItem("terra_orderStatusUpdatedAt_DINE_IN", nowIso);
         }
       }
@@ -5385,12 +5578,23 @@ export default function MenuPage() {
         return;
       }
 
-      const acceptedStatus = payload.status || payload.order?.status || "Confirmed";
+      const acceptedStatus = normalizeOrderStatus(
+        payload.status || payload.order?.status || "NEW",
+      );
+      const acceptedPaymentStatus = normalizePaymentStatus(
+        payload.paymentStatus || payload.order?.paymentStatus,
+        {
+          status: payload.status || payload.order?.status,
+          isPaid: payload.isPaid || payload.order?.isPaid,
+        },
+      );
       const nowIso = new Date().toISOString();
       setOrderStatus(acceptedStatus);
+      setOrderPaymentStatus(acceptedPaymentStatus);
       setOrderStatusUpdatedAt(nowIso);
 
       localStorage.setItem("terra_orderStatus", acceptedStatus);
+      localStorage.setItem("terra_orderPaymentStatus", acceptedPaymentStatus);
       localStorage.setItem("terra_orderStatusUpdatedAt", nowIso);
       if (isTakeawayFlow) {
         localStorage.setItem("terra_orderStatus_TAKEAWAY", acceptedStatus);
@@ -5543,14 +5747,19 @@ export default function MenuPage() {
       const existingOrderStatus =
         localStorage.getItem("terra_orderStatus") ||
         localStorage.getItem("terra_orderStatus_DINE_IN");
+      const existingOrderPaymentStatus =
+        localStorage.getItem("terra_orderPaymentStatus") || "PENDING";
       const hasActiveOrder =
         existingOrderId &&
-        (!existingOrderStatus ||
-          !["Paid", "Cancelled", "Returned", "Completed"].includes(
-            existingOrderStatus,
-          ));
-      const shouldPreserveTerminalStatus = TERMINAL_STATUSES_TO_PRESERVE.includes(
-        existingOrderStatus || "",
+        isOrderActiveForCustomer({
+          status: existingOrderStatus,
+          paymentStatus: existingOrderPaymentStatus,
+        });
+      const shouldPreserveTerminalStatus = shouldPreserveOrderStateWithoutActiveId(
+        {
+          status: existingOrderStatus,
+          paymentStatus: existingOrderPaymentStatus,
+        },
       );
 
       if (updatedTable.status === "AVAILABLE") {
@@ -5594,10 +5803,9 @@ export default function MenuPage() {
       }
     };
 
-    // Register event listeners only if socket is connected (listen to both event names for real-time status)
+    // Register canonical real-time listeners.
     if (socket) {
-      socket.on("orderUpdated", handleOrderUpdated);
-      socket.on("order:status:updated", handleOrderUpdated);
+      socket.on("order_status_updated", handleOrderUpdated);
       socket.on("order:upsert", handleOrderUpdated);
       // socket.on("ORDER_ACCEPTED", handleOrderAccepted);
       socket.on("orderDeleted", handleOrderDeleted);
@@ -5605,21 +5813,18 @@ export default function MenuPage() {
     }
 
     return () => {
-      if (timer) {
-        clearInterval(timer);
-      }
       // Remove event listeners before disconnecting
       if (socket) {
-        socket.off("orderUpdated", handleOrderUpdated);
-        socket.off("order:status:updated", handleOrderUpdated);
+        socket.off("order_status_updated", handleOrderUpdated);
         socket.off("order:upsert", handleOrderUpdated);
         // socket.off("ORDER_ACCEPTED", handleOrderAccepted);
         socket.off("orderDeleted", handleOrderDeleted);
         socket.off("table:status:updated", handleTableStatusUpdated);
+        socket.off("reconnect");
         socket.disconnect();
       }
     };
-  }, [activeOrderId, isOrderingMore, serviceType]);
+  }, [activeOrderId, anonymousSessionId, isOrderingMore, serviceType]);
 
   // Sync orderStatus from localStorage when component mounts or activeOrderId changes
   // This ensures that when user navigates back from payment page or refreshes, the status is synced
@@ -5661,7 +5866,15 @@ export default function MenuPage() {
             "[Menu] Syncing orderStatus from localStorage:",
             storedStatus,
           );
-          setOrderStatus(storedStatus);
+          setOrderStatus(normalizeOrderStatus(storedStatus));
+          setOrderPaymentStatus(
+            normalizePaymentStatus(
+              localStorage.getItem("terra_orderPaymentStatus"),
+              {
+                status: storedStatus,
+              },
+            ),
+          );
         }
         if (storedUpdatedAt && storedUpdatedAt !== orderStatusUpdatedAt) {
           setOrderStatusUpdatedAt(storedUpdatedAt);
@@ -5718,7 +5931,12 @@ export default function MenuPage() {
 
       if (storedStatus) {
         // Restoring order status on mount
-        setOrderStatus(storedStatus);
+        setOrderStatus(normalizeOrderStatus(storedStatus));
+        setOrderPaymentStatus(
+          normalizePaymentStatus(localStorage.getItem("terra_orderPaymentStatus"), {
+            status: storedStatus,
+          }),
+        );
         if (storedUpdatedAt) {
           setOrderStatusUpdatedAt(storedUpdatedAt);
         }
@@ -5980,11 +6198,28 @@ export default function MenuPage() {
                   <div className="button-group status-actions">
                     {/* Row 1, Col 1: Cancel Order Button */}
                     {(() => {
-                      const statusLower = (orderStatus || "").toLowerCase();
-                      // For paid/completed orders: show Return Order
+                      const normalizedStatus = normalizeOrderStatus(orderStatus);
+                      const normalizedPaymentStatus = normalizePaymentStatus(
+                        orderPaymentStatus,
+                        {
+                          status: orderStatus,
+                          isPaid: currentOrderDetail?.isPaid,
+                        },
+                      );
+                      const isSettled = isOrderSettled({
+                        status: normalizedStatus,
+                        paymentStatus: normalizedPaymentStatus,
+                        isPaid: currentOrderDetail?.isPaid,
+                      });
+                      const rawToken = String(orderStatus || "")
+                        .trim()
+                        .toUpperCase();
+                      const isCancelledOrReturned =
+                        isCancelledOrReturnedStatus(orderStatus);
+
                       if (
-                        ["paid", "completed"].includes(statusLower) &&
-                        RETURN_ALLOWED_STATUSES.includes(orderStatus)
+                        normalizedStatus === "COMPLETED" &&
+                        normalizedPaymentStatus === "PAID"
                       ) {
                         return (
                           <button
@@ -5996,8 +6231,11 @@ export default function MenuPage() {
                           </button>
                         );
                       }
-                      // For cancellable orders: show Cancel Order
-                      if (CANCEL_ALLOWED_STATUSES.includes(orderStatus)) {
+                      if (
+                        !isCancelledOrReturned &&
+                        !isSettled &&
+                        normalizedStatus !== "COMPLETED"
+                      ) {
                         return (
                           <button
                             className="reset-button cancel-button"
@@ -6008,17 +6246,13 @@ export default function MenuPage() {
                           </button>
                         );
                       }
-                      // For Returned/Cancelled orders: show disabled button
-                      if (
-                        orderStatus === "Returned" ||
-                        orderStatus === "Cancelled"
-                      ) {
+                      if (isCancelledOrReturned) {
                         return (
                           <button
                             className="billing-button billing-button-disabled"
                             disabled
                           >
-                            {orderStatus === "Returned"
+                            {rawToken === "RETURNED"
                               ? "Order Returned"
                               : "Order Cancelled"}
                           </button>
@@ -6027,18 +6261,8 @@ export default function MenuPage() {
                       return null;
                     })()}
 
-                    {/* Row 1, Col 2: View Invoice Button - show from Order Placed (Pending/Confirmed) through Paid */}
-                    {[
-                      "Pending",
-                      "Placed",
-                      "Confirmed",
-                      "Preparing",
-                      "Ready",
-                      "Served",
-                      "Finalized",
-                      "Completed",
-                      "Paid",
-                    ].includes(orderStatus) ? (
+                    {/* Row 1, Col 2: View Invoice Button */}
+                    {orderStatus ? (
                       <button
                         className="billing-button"
                         onClick={handleViewInvoice}
@@ -6054,8 +6278,11 @@ export default function MenuPage() {
                       onClick={handleOrderAgain}
                       disabled={
                         reordering ||
-                        (orderStatus &&
-                          !REORDER_ALLOWED_STATUSES.includes(orderStatus))
+                        isOrderSettled({
+                          status: orderStatus,
+                          paymentStatus: orderPaymentStatus,
+                          isPaid: currentOrderDetail?.isPaid,
+                        })
                       }
                     >
                       {reordering ? "Please wait..." : "Order More"}
@@ -6063,9 +6290,27 @@ export default function MenuPage() {
 
                     {/* Row 2, Col 2: Complete Payment / Confirm Payment Button */}
                     {(() => {
-                      const statusLower = (orderStatus || "").toLowerCase();
-                      // For Finalized or Completed orders: show Confirm Payment button
-                      if (["Finalized", "Completed"].includes(orderStatus)) {
+                      const normalizedStatus = normalizeOrderStatus(orderStatus);
+                      const normalizedPaymentStatus = normalizePaymentStatus(
+                        orderPaymentStatus,
+                        {
+                          status: orderStatus,
+                          isPaid: currentOrderDetail?.isPaid,
+                        },
+                      );
+                      const isCancelledOrReturned =
+                        isCancelledOrReturnedStatus(orderStatus);
+                      const isSettled = isOrderSettled({
+                        status: normalizedStatus,
+                        paymentStatus: normalizedPaymentStatus,
+                        isPaid: currentOrderDetail?.isPaid,
+                      });
+
+                      if (
+                        normalizedStatus === "COMPLETED" &&
+                        normalizedPaymentStatus !== "PAID" &&
+                        !isCancelledOrReturned
+                      ) {
                         return (
                           <button
                             className="billing-button"
@@ -6078,12 +6323,7 @@ export default function MenuPage() {
                           </button>
                         );
                       }
-                      // For other active orders (not paid/completed/returned/cancelled): show Complete Payment
-                      if (
-                        orderStatus !== "Returned" &&
-                        orderStatus !== "Cancelled" &&
-                        !["paid", "completed"].includes(statusLower)
-                      ) {
+                      if (!isCancelledOrReturned && !isSettled) {
                         return (
                           <button
                             className="complete-payment-button"
@@ -6096,8 +6336,7 @@ export default function MenuPage() {
                           </button>
                         );
                       }
-                      // For paid/completed orders: show Share Feedback
-                      if (["paid", "completed"].includes(statusLower)) {
+                      if (isSettled) {
                         const orderId =
                           activeOrderId ||
                           localStorage.getItem("terra_orderId") ||

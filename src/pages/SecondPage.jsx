@@ -14,6 +14,10 @@ import {
   getAvailableCarts,
   getCartById,
 } from "../services/cartApi";
+import {
+  buildSocketIdentityPayload,
+  ensureAnonymousSessionId,
+} from "../utils/anonymousSession";
 import "./SecondPage.css";
 
 const nodeApi = (
@@ -89,6 +93,7 @@ const checkVoiceSupport = (language) => {
 
 export default function SecondPage() {
   const navigate = useNavigate();
+  useMemo(() => ensureAnonymousSessionId(), []);
 
   const [accessibilityMode, setAccessibilityMode] = useState(
     localStorage.getItem("accessibilityMode") === "true",
@@ -824,7 +829,7 @@ export default function SecondPage() {
         transports: ["websocket", "polling"],
         reconnection: true,
         reconnectionDelay: 1000,
-        reconnectionAttempts: 5,
+        reconnectionDelayMax: 20000,
         timeout: 20000,
         autoConnect: true,
         // Suppress connection errors in console
@@ -833,6 +838,10 @@ export default function SecondPage() {
 
       socket.on("connect", () => {
         console.log("[SecondPage] Waitlist socket connected");
+        const identityPayload = buildSocketIdentityPayload();
+        if (identityPayload?.anonymousSessionId) {
+          socket.emit("join_room", identityPayload);
+        }
       });
 
       socket.on("connect_error", (error) => {
@@ -1382,7 +1391,6 @@ export default function SecondPage() {
         reconnection: true,
         reconnectionDelay: 1000,
         reconnectionDelayMax: 5000,
-        reconnectionAttempts: 5,
         timeout: 60000, // Match backend pingTimeout (60s)
         connectTimeout: 60000, // Match backend pingTimeout (60s)
         autoConnect: true,
@@ -1392,6 +1400,10 @@ export default function SecondPage() {
 
       tableStatusSocket.on("connect", () => {
         console.log("[SecondPage] Table status socket connected");
+        const identityPayload = buildSocketIdentityPayload();
+        if (identityPayload?.anonymousSessionId) {
+          tableStatusSocket.emit("join_room", identityPayload);
+        }
         // Mark socket as connected for fallback refresh logic
         if (typeof window !== "undefined") {
           window.__tableStatusSocketConnected = true;

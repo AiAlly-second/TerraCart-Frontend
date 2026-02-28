@@ -1,87 +1,72 @@
 import React from "react";
 import "./OrderStatus.css";
 
-// UI shows only 3 states; all backend statuses map to one of these (updates when admin changes status)
-const DISPLAY_STEPS = {
-  DINE_IN: [
-    { key: "placed", label: "Order Placed" },
-    { key: "preparing", label: "Preparing" },
-    { key: "done", label: "Done" },
-  ],
-  TAKEAWAY: [
-    { key: "placed", label: "Order Placed" },
-    { key: "preparing", label: "Preparing" },
-    { key: "done", label: "Done" },
-  ],
+const DISPLAY_STEPS = [
+  { key: "NEW", label: "Order Placed" },
+  { key: "PREPARING", label: "Preparing" },
+  { key: "READY", label: "Ready" },
+  { key: "COMPLETED", label: "Completed" },
+];
+
+const STATUS_TO_STEP_INDEX = {
+  NEW: 0,
+  PREPARING: 1,
+  READY: 2,
+  COMPLETED: 3,
 };
 
-// Map every backend status -> display step index (0, 1, 2). When admin updates status, current step updates.
-const DINE_IN_STATUS_TO_STEP = {
-  Pending: 0,
-  Confirmed: 0,
-  Preparing: 1,
-  Ready: 1,
-  Served: 1,
-  Finalized: 1,
-  Paid: 2,
-  Cancelled: -1,
-  Returned: -1,
-};
-const TAKEAWAY_STATUS_TO_STEP = {
-  Pending: 0,
-  Confirmed: 0,
-  Accept: 1,
-  Accepted: 1,
-  "Being Prepared": 1,
-  BeingPrepared: 1,
-  Completed: 1,
-  Paid: 2,
-  Exit: 2,
-  Cancelled: -1,
-  Returned: -1,
-};
+const normalizeStatus = (value) => {
+  const token = String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/_/g, " ")
+    .replace(/\s+/g, " ");
 
-function getOrderedSteps(serviceType) {
-  const key = serviceType === "TAKEAWAY" ? "TAKEAWAY" : "DINE_IN";
-  return DISPLAY_STEPS[key];
-}
-
-function normalizeTakeawayStatus(status) {
-  if (status == null || status === "") return "Pending";
-  const s = String(status).trim();
-  if (s === "Accept") return "Accepted";
-  if (s === "BeingPrepared") return "Being Prepared";
-  return s;
-}
-
-function getCurrentIndex(status, serviceType) {
-  const safe = (status ?? "").toString().trim();
-  if (serviceType === "TAKEAWAY") {
-    const normalized = normalizeTakeawayStatus(safe);
-    const step = TAKEAWAY_STATUS_TO_STEP[normalized];
-    if (step !== undefined && step >= 0) return step;
-    return 0;
+  if (!token) return "NEW";
+  if (["NEW", "PENDING", "CONFIRMED", "ACCEPT", "ACCEPTED"].includes(token)) {
+    return "NEW";
   }
-  const step = DINE_IN_STATUS_TO_STEP[safe];
-  if (step !== undefined && step >= 0) return step;
-  return 0;
-}
+  if (["PREPARING", "BEING PREPARED", "BEINGPREPARED"].includes(token)) {
+    return "PREPARING";
+  }
+  if (token === "READY") return "READY";
+  if (
+    [
+      "COMPLETED",
+      "SERVED",
+      "FINALIZED",
+      "PAID",
+      "CANCELLED",
+      "CANCELED",
+      "RETURNED",
+      "EXIT",
+      "CLOSED",
+      "REJECTED",
+    ].includes(token)
+  ) {
+    return "COMPLETED";
+  }
+  return "NEW";
+};
+
+const normalizeTerminalStatus = (value) => {
+  const token = String(value || "").trim().toUpperCase();
+  if (token === "CANCELED") return "CANCELLED";
+  return token;
+};
 
 export default function OrderStatus({
-  status = "Pending",
+  status = "NEW",
   className = "",
   updatedAt,
-  serviceType = "DINE_IN",
   tableLabel,
   reason,
 }) {
-  const orderedSteps = getOrderedSteps(serviceType);
-  const safeStatus = status ?? "Pending";
-  const currentIndex = getCurrentIndex(safeStatus, serviceType);
-  const updatedLabel = updatedAt
-    ? new Date(updatedAt).toLocaleTimeString()
-    : null;
-  const isTerminal = ["Cancelled", "Returned"].includes(safeStatus);
+  const normalizedStatus = normalizeStatus(status);
+  const currentIndex = STATUS_TO_STEP_INDEX[normalizedStatus] ?? 0;
+  const updatedLabel = updatedAt ? new Date(updatedAt).toLocaleTimeString() : null;
+  const terminalStatus = normalizeTerminalStatus(status);
+  const isTerminal = terminalStatus === "CANCELLED" || terminalStatus === "RETURNED";
   const safeReason = typeof reason === "string" ? reason.trim() : "";
 
   if (isTerminal) {
@@ -90,11 +75,9 @@ export default function OrderStatus({
         <div className="order-status-timeline-step order-status-step-completed">
           <div className="order-status-dot order-status-dot-completed" />
           <div className="order-status-step-content">
-            <span className="order-status-step-label">{safeStatus}</span>
+            <span className="order-status-step-label">{terminalStatus}</span>
             {updatedLabel && (
-              <span className="order-status-step-meta">
-                Updated {updatedLabel}
-              </span>
+              <span className="order-status-step-meta">Updated {updatedLabel}</span>
             )}
             {safeReason && (
               <span className="order-status-step-meta">Reason: {safeReason}</span>
@@ -110,11 +93,11 @@ export default function OrderStatus({
       {updatedLabel && (
         <div className="order-status-updated-meta">Updated {updatedLabel}</div>
       )}
-      {orderedSteps.map((step, idx) => {
+      {DISPLAY_STEPS.map((step, idx) => {
         const isCompleted = idx < currentIndex;
         const isCurrent = idx === currentIndex;
         const isPending = idx > currentIndex;
-        const isLast = idx === orderedSteps.length - 1;
+        const isLast = idx === DISPLAY_STEPS.length - 1;
         const label = idx === 0 && tableLabel ? tableLabel : step.label;
 
         return (
@@ -145,14 +128,14 @@ export default function OrderStatus({
               </div>
               <div className="order-status-step-content">
                 <span
-                  className={`order-status-step-label ${isCurrent ? "order-status-step-label-active" : ""} ${isPending ? "order-status-step-label-pending" : ""}`}
+                  className={`order-status-step-label ${
+                    isCurrent ? "order-status-step-label-active" : ""
+                  } ${isPending ? "order-status-step-label-pending" : ""}`}
                 >
                   {label}
                 </span>
                 {isCurrent && updatedLabel && (
-                  <span className="order-status-step-meta">
-                    Updated {updatedLabel}
-                  </span>
+                  <span className="order-status-step-meta">Updated {updatedLabel}</span>
                 )}
               </div>
             </div>

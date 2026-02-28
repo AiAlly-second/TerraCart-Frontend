@@ -27,6 +27,8 @@ export function buildOrderPayload(cart, options = {}) {
     customerLocation, // { latitude, longitude, address }
     specialInstructions, // Special notes from customer
     selectedAddons = [], // Array of { name, price, addonId }
+    anonymousSessionId,
+    sourceQrContext,
   } = options;
   const items = Object.entries(cart)
     .filter(([name, quantity]) => {
@@ -144,6 +146,18 @@ export function buildOrderPayload(cart, options = {}) {
     gst,
     totalAmount,
   };
+
+  const normalizedAnonymousSessionId = String(
+    anonymousSessionId || ""
+  ).trim();
+  if (normalizedAnonymousSessionId) {
+    payload.anonymousSessionId = normalizedAnonymousSessionId;
+  }
+
+  const normalizedSourceQrContext = String(sourceQrContext || "").trim();
+  if (normalizedSourceQrContext) {
+    payload.sourceQrContext = normalizedSourceQrContext;
+  }
 
   // Include special instructions for all service types
   if (specialInstructions && specialInstructions.trim()) {

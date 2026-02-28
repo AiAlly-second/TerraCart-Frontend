@@ -7,6 +7,10 @@ import translations from "../data/translations/orderSummary.json";
 import floatingButtonTranslations from "../data/translations/floatingButtons.json";
 import io from "socket.io-client";
 import { clearScopedCart } from "../utils/cartStorage";
+import {
+  buildSocketIdentityPayload,
+  ensureAnonymousSessionId,
+} from "../utils/anonymousSession";
 import "./OrderSummary.css";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
@@ -136,6 +140,47 @@ const formatMoney = (value) => {
   return num.toFixed(2);
 };
 
+const normalizeOrderStatus = (value) => {
+  const token = String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/_/g, " ")
+    .replace(/\s+/g, " ");
+  if (!token) return "NEW";
+  if (["NEW", "PENDING", "CONFIRMED", "ACCEPT", "ACCEPTED"].includes(token)) {
+    return "NEW";
+  }
+  if (["PREPARING", "BEING PREPARED", "BEINGPREPARED"].includes(token)) {
+    return "PREPARING";
+  }
+  if (token === "READY") return "READY";
+  if (
+    [
+      "COMPLETED",
+      "SERVED",
+      "FINALIZED",
+      "PAID",
+      "CANCELLED",
+      "CANCELED",
+      "RETURNED",
+      "EXIT",
+      "CLOSED",
+      "REJECTED",
+    ].includes(token)
+  ) {
+    return "COMPLETED";
+  }
+  return "NEW";
+};
+
+const normalizePaymentStatus = (value, { status, isPaid } = {}) => {
+  const token = String(value || "").trim().toUpperCase();
+  if (token === "PAID") return "PAID";
+  if (isPaid === true) return "PAID";
+  if (String(status || "").trim().toUpperCase() === "PAID") return "PAID";
+  return "PENDING";
+};
+
 /*
 const toAcceptedByFromAssignedStaff = (assignedStaff) => {
   if (!assignedStaff || !assignedStaff.id) return null;
@@ -173,20 +218,13 @@ export default function OrderSummary() {
   );
 
   const statusMessages = {
-    Pending: "📝 Order is being processed...",
-    Accepted: "✅ Your order has been accepted! A staff member is assisting you.",
-    Confirmed: "👨‍🍳 Order confirmed! Kitchen is getting ready.",
-    Preparing: "🔥 Your food is being prepared",
-    "Being Prepared": "🔥 Your food is being prepared",
-    BeingPrepared: "🔥 Your food is being prepared",
-    Ready: "✨ Your food is ready to be served",
-    Completed: "📦 Your order is ready for pickup!",
-    Served: "🍽️ Enjoy your meal!",
-    Finalized: "📋 Order completed, preparing bill",
-    Paid: "✅ Thank you for dining with us!",
-    Cancelled: "❌ Order has been cancelled",
-    Returned:
-      "↩️ Order has been returned. Please contact staff if you need assistance.",
+    NEW: "Order received",
+    PREPARING: "Your food is being prepared",
+    READY: "Your food is ready",
+    COMPLETED: "Order completed",
+    CANCELLED: "Order has been cancelled",
+    RETURNED:
+      "Order has been returned. Please contact staff if you need assistance.",
   };
 
   const language = localStorage.getItem("language") || "en";
@@ -259,11 +297,26 @@ export default function OrderSummary() {
           alert(translations[language]?.noOrderFound || "No order found");
           return null;
         }
-        setOrder(data);
+        const normalizedStatus = normalizeOrderStatus(data?.status);
+        const normalizedPaymentStatus = normalizePaymentStatus(
+          data?.paymentStatus,
+          {
+            status: data?.status,
+            isPaid: data?.isPaid,
+          },
+        );
+        setOrder({
+          ...data,
+          status: normalizedStatus,
+          lifecycleStatus: normalizedStatus,
+          paymentStatus: normalizedPaymentStatus,
+          isPaid: normalizedPaymentStatus === "PAID",
+        });
 
         // Keep terminal statuses visible on customer frontend
-        if (data.status === "Cancelled" || data.status === "Returned") {
-          persistTerminalOrderStatus(data);
+        const terminalStatus = String(data?.status || "").toUpperCase();
+        if (terminalStatus === "CANCELLED" || terminalStatus === "RETURNED") {
+          persistTerminalOrderStatus({ ...data, status: terminalStatus });
         }
         return data;
       } catch (err) {
@@ -275,9 +328,33 @@ export default function OrderSummary() {
 
     // Define event handler
     const handleOrderUpdated = (updatedOrder) => {
+      const expectedAnonymousSessionId = ensureAnonymousSessionId();
+      if (
+        updatedOrder?.anonymousSessionId &&
+        expectedAnonymousSessionId &&
+        updatedOrder.anonymousSessionId !== expectedAnonymousSessionId
+      ) {
+        return;
+      }
+
       const payloadOrderId =
         updatedOrder?._id || updatedOrder?.id || updatedOrder?.orderId;
       if (String(payloadOrderId || "") === String(orderId || "")) {
+        console.log("[OrderSummary] recv order_status_updated", {
+          orderId: payloadOrderId,
+          status: updatedOrder?.status || null,
+          paymentStatus: updatedOrder?.paymentStatus || null,
+          updatedAt: updatedOrder?.updatedAt || null,
+        });
+
+        const normalizedStatus = normalizeOrderStatus(updatedOrder?.status);
+        const normalizedPaymentStatus = normalizePaymentStatus(
+          updatedOrder?.paymentStatus,
+          {
+            status: updatedOrder?.status,
+            isPaid: updatedOrder?.isPaid,
+          },
+        );
         const hasRichOrderShape =
           Array.isArray(updatedOrder?.kotLines) ||
           updatedOrder?.table ||
@@ -285,12 +362,21 @@ export default function OrderSummary() {
           updatedOrder?.customerMobile ||
           updatedOrder?.createdAt;
         if (hasRichOrderShape) {
-          setOrder(updatedOrder);
+          setOrder({
+            ...updatedOrder,
+            status: normalizedStatus,
+            lifecycleStatus: normalizedStatus,
+            paymentStatus: normalizedPaymentStatus,
+            isPaid: normalizedPaymentStatus === "PAID",
+          });
         } else {
           setOrder((prev) => ({
             ...(prev || {}),
             _id: payloadOrderId || prev?._id || null,
-            status: updatedOrder?.status || prev?.status || null,
+            status: normalizedStatus || prev?.status || "NEW",
+            lifecycleStatus: normalizedStatus || prev?.lifecycleStatus || "NEW",
+            paymentStatus: normalizedPaymentStatus || prev?.paymentStatus || "PENDING",
+            isPaid: normalizedPaymentStatus === "PAID",
             updatedAt: updatedOrder?.updatedAt || prev?.updatedAt || null,
             orderType: updatedOrder?.orderType || prev?.orderType || null,
             serviceType:
@@ -300,57 +386,21 @@ export default function OrderSummary() {
         }
 
         // Handle cancellation / return
-        if (
-          updatedOrder?.status === "Cancelled" ||
-          updatedOrder?.status === "Returned"
-        ) {
-          persistTerminalOrderStatus(updatedOrder);
+        const terminalStatus = String(updatedOrder?.status || "").toUpperCase();
+        if (terminalStatus === "CANCELLED" || terminalStatus === "RETURNED") {
+          persistTerminalOrderStatus({
+            ...updatedOrder,
+            status: terminalStatus,
+          });
         }
-      }
-    };
-
-    const handleOrderAccepted = (payload) => {
-      if (!payload) return;
-      const acceptedOrderId =
-        payload.orderId || payload.order?._id || payload.order?.id;
-      if (String(acceptedOrderId || "") !== String(orderId || "")) return;
-
-      // Prefer full order payload when available, else patch local order state.
-      if (payload.order && typeof payload.order === "object") {
-        setOrder({
-          ...payload.order,
-          assignedStaff:
-            payload.assignedStaff || payload.order.assignedStaff || null,
-          assignmentDisplayType:
-            payload.assignmentDisplayType ||
-            payload.order.assignmentDisplayType ||
-            null,
-        });
-        return;
-      }
-
-      if (payload.assignedStaff) {
-        setOrder((prev) => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            status: payload.status || prev.status,
-            assignedStaff: payload.assignedStaff,
-            assignmentDisplayType:
-              payload.assignmentDisplayType ||
-              prev.assignmentDisplayType ||
-              null,
-            acceptedBy:
-              toAcceptedByFromAssignedStaff(payload.assignedStaff) ||
-              prev.acceptedBy,
-          };
-        });
       }
     };
 
     // Create socket connection for order updates (only when needed)
     let orderSocket = null;
     let joinedCartId = null;
+    let joinedAnonymousSessionId = null;
+    ensureAnonymousSessionId();
     const normalizeCartId = (value) => {
       if (value == null) return null;
       if (typeof value === "string") return value;
@@ -365,6 +415,22 @@ export default function OrderSummary() {
       joinedCartId = normalized;
       if (import.meta.env.DEV) {
         console.log("[OrderSummary] Joined cart room:", normalized);
+      }
+    };
+    const joinIdentityRoom = () => {
+      if (!orderSocket) return;
+      const identityPayload = buildSocketIdentityPayload();
+      if (!identityPayload?.anonymousSessionId) return;
+      if (joinedAnonymousSessionId === identityPayload.anonymousSessionId) {
+        return;
+      }
+      orderSocket.emit("join_room", identityPayload);
+      joinedAnonymousSessionId = identityPayload.anonymousSessionId;
+      if (import.meta.env.DEV) {
+        console.log(
+          "[OrderSummary] Joined identity room:",
+          identityPayload.anonymousSessionId
+        );
       }
     };
     const getFallbackCartId = () => {
@@ -390,6 +456,7 @@ export default function OrderSummary() {
         transports: ["polling", "websocket"], // Try polling first for better stability
         reconnection: true,
         reconnectionDelay: 1000,
+        reconnectionDelayMax: 20000,
         // Keep retrying instead of stopping after a few attempts.
         // reconnectionAttempts: 5,
         timeout: 20000,
@@ -400,6 +467,8 @@ export default function OrderSummary() {
 
       orderSocket.on("connect", () => {
         console.log("[OrderSummary] Socket connected");
+        joinedAnonymousSessionId = null;
+        joinIdentityRoom();
         joinCartRoom(getFallbackCartId());
         // Rooms are lost after reconnect; fetch and rejoin cart room every connect.
         fetchOrder().then((orderData) => {
@@ -407,6 +476,13 @@ export default function OrderSummary() {
             joinCartRoom(orderData.cartId);
           }
         });
+      });
+
+      orderSocket.on("reconnect", () => {
+        joinedCartId = null;
+        joinedAnonymousSessionId = null;
+        joinIdentityRoom();
+        joinCartRoom(getFallbackCartId());
       });
 
       // Fetch order and join cart room for real-time status updates
@@ -433,10 +509,8 @@ export default function OrderSummary() {
         }
       });
 
-      orderSocket.on("orderUpdated", handleOrderUpdated);
-      orderSocket.on("order:status:updated", handleOrderUpdated);
+      orderSocket.on("order_status_updated", handleOrderUpdated);
       orderSocket.on("order:upsert", handleOrderUpdated);
-      // orderSocket.on("ORDER_ACCEPTED", handleOrderAccepted);
     } catch (err) {
       console.warn("[OrderSummary] Failed to create socket connection:", err);
     }
@@ -444,11 +518,10 @@ export default function OrderSummary() {
     // Cleanup: Remove event listener and disconnect on unmount
     return () => {
       if (orderSocket) {
-        orderSocket.off("orderUpdated", handleOrderUpdated);
-        orderSocket.off("order:status:updated", handleOrderUpdated);
+        orderSocket.off("order_status_updated", handleOrderUpdated);
         orderSocket.off("order:upsert", handleOrderUpdated);
-        // orderSocket.off("ORDER_ACCEPTED", handleOrderAccepted);
         orderSocket.off("connect");
+        orderSocket.off("reconnect");
         orderSocket.off("connect_error");
         orderSocket.off("disconnect");
         orderSocket.disconnect();
@@ -464,6 +537,7 @@ export default function OrderSummary() {
   }
 
   const combinedItems = mergeOrderItems(order);
+  const displayStatus = normalizeOrderStatus(order.status);
   const totals = sumTotals(order, combinedItems);
   const totalQty = combinedItems.reduce((n, i) => n + i.quantity, 0);
   const isTakeaway = order.serviceType === "TAKEAWAY";
@@ -776,19 +850,19 @@ export default function OrderSummary() {
             <div className="mb-6">
               <OrderStatus
                 status={order.status}
-                serviceType={order.serviceType}
+                updatedAt={order.updatedAt}
                 reason={terminalReason}
                 className="mb-2"
               />
               <p className="text-lg text-center font-medium text-gray-700">
-                {statusMessages[order.status] || statusMessages.Pending}
+                {statusMessages[displayStatus] ||
+                  statusMessages.CANCELLED}
               </p>
-              {(order.status === "Cancelled" || order.status === "Returned") &&
-                terminalReason && (
-                  <p className="text-sm text-center text-gray-600 mt-1">
-                    Reason: {terminalReason}
-                  </p>
-                )}
+              {terminalReason && (
+                <p className="text-sm text-center text-gray-600 mt-1">
+                  Reason: {terminalReason}
+                </p>
+              )}
               {/*
               {showTeamAssignmentMessage && (
                 <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg text-center">

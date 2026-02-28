@@ -96,6 +96,8 @@ export default function Landing() {
       localStorage.removeItem("terra_takeaway_customerName");
       localStorage.removeItem("terra_takeaway_customerMobile");
       localStorage.removeItem("terra_takeaway_customerEmail");
+      // Also clear stale delivery location from previous users.
+      localStorage.removeItem("terra_customerLocation");
       localStorage.setItem("terra_serviceType", "TAKEAWAY");
       const takeawaySessionToken = `TAKEAWAY-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       localStorage.setItem("terra_takeaway_sessionToken", takeawaySessionToken);
@@ -709,6 +711,13 @@ export default function Landing() {
           officeAddress: tableData.officeAddress || null,
           officePhone: tableData.officePhone || null,
           officeDeliveryCharge: Number(tableData.officeDeliveryCharge || 0),
+          officePaymentMode:
+            String(tableData.officePaymentMode || "").toUpperCase() === "COD"
+              ? "COD"
+              : String(tableData.officePaymentMode || "").toUpperCase() ===
+                  "BOTH"
+                ? "BOTH"
+              : "ONLINE",
         };
 
         // CRITICAL: Validate table number matches what we expect
@@ -753,6 +762,14 @@ export default function Landing() {
           } catch (e) {
             console.error("[Landing] Failed to verify stored table data:", e);
           }
+        }
+
+        // OFFICE QR is takeaway-only: skip all table/waitlist logic.
+        if (qrContextType === "OFFICE") {
+          localStorage.removeItem("terra_waitToken");
+          localStorage.removeItem("terra_sessionToken");
+          sessionStorage.removeItem("terra_table_param");
+          return;
         }
 
         // STRONG LOGIC: Check table status from response

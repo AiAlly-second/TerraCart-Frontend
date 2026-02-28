@@ -81,6 +81,21 @@ const isOfficeTableContext = (table) => {
   );
 };
 
+const resolveOfficePaymentMode = (table) => {
+  if (!isOfficeTableContext(table)) return null;
+  const normalized = String(table?.officePaymentMode || "")
+    .trim()
+    .toUpperCase();
+  if (normalized === "COD") return "COD";
+  if (normalized === "BOTH") return "BOTH";
+  return "ONLINE";
+};
+
+const isActiveCustomerOrderStatus = (status) => {
+  const normalized = String(status || "").trim();
+  return !!normalized && !["Paid", "Cancelled", "Returned", "Completed"].includes(normalized);
+};
+
 const checkVoiceSupport = (language) => {
   const voices = window.speechSynthesis.getVoices();
   const langPrefix =
@@ -201,6 +216,7 @@ export default function SecondPage() {
     () => localStorage.getItem("terra_takeaway_only") === "true",
   );
   const selectedCartRef = useRef(null);
+  const hasAutoStartedOfficeTakeawayRef = useRef(false);
 
   // Check if this is a normal link (not from QR scan)
   // Pickup/Delivery should only show on normal links, not QR scans
@@ -1307,6 +1323,11 @@ export default function SecondPage() {
     if (!tableInfo || (!tableInfo.id && !tableInfo._id)) {
       return;
     }
+    if (isOfficeQr) {
+      setIsTableOccupied(false);
+      setShowWaitlistModal(false);
+      return;
+    }
 
     const handleTableStatusUpdated = (updatedTable) => {
       // Only update if this is the same table
@@ -1494,10 +1515,16 @@ export default function SecondPage() {
         if (tableStatusSocket.connected) tableStatusSocket.disconnect();
       }
     };
-  }, [tableInfo]);
+  }, [tableInfo, isOfficeQr]);
 
   const startServiceFlow = useCallback(
     async (serviceType = "DINE_IN") => {
+      if (isOfficeQr && serviceType !== "TAKEAWAY") {
+        serviceType = "TAKEAWAY";
+        localStorage.setItem("terra_serviceType", "TAKEAWAY");
+        localStorage.removeItem("terra_waitToken");
+      }
+
       const isTakeaway = serviceType === "TAKEAWAY";
 
       // For TAKEAWAY orders (both regular and takeaway-only QR):
@@ -1998,7 +2025,7 @@ export default function SecondPage() {
         }
       }
     },
-    [navigate, waitlistToken, sessionToken],
+    [navigate, waitlistToken, sessionToken, isOfficeQr],
   );
 
   const startDineInFlow = useCallback(
@@ -2014,6 +2041,43 @@ export default function SecondPage() {
     setIsTableOccupied(false);
     localStorage.setItem("terra_serviceType", "TAKEAWAY");
     const isOfficeFlow = isOfficeTableContext(tableInfo);
+    const officePaymentMode = resolveOfficePaymentMode(tableInfo);
+    const existingTakeawayOrderId =
+      localStorage.getItem("terra_orderId_TAKEAWAY") ||
+      localStorage.getItem("terra_orderId");
+    const existingTakeawayStatus =
+      localStorage.getItem("terra_orderStatus_TAKEAWAY") ||
+      localStorage.getItem("terra_orderStatus");
+    const existingTakeawaySession = localStorage.getItem(
+      "terra_takeaway_sessionToken",
+    );
+    const hasActiveTakeawayOrder =
+      !!existingTakeawayOrderId &&
+      isActiveCustomerOrderStatus(existingTakeawayStatus);
+
+    // OFFICE QR ONLINE: preserve active unpaid order when customer returns via second page.
+    if (
+      isOfficeFlow &&
+      officePaymentMode === "ONLINE" &&
+      hasActiveTakeawayOrder &&
+      existingTakeawaySession
+    ) {
+      navigate("/menu", { state: { serviceType: "TAKEAWAY" } });
+      return;
+    }
+
+    // OFFICE QR: clear stale order keys before starting a fresh office takeaway flow.
+    if (isOfficeFlow) {
+      localStorage.removeItem("terra_orderId_TAKEAWAY");
+      localStorage.removeItem("terra_orderStatus_TAKEAWAY");
+      localStorage.removeItem("terra_orderStatusUpdatedAt_TAKEAWAY");
+      localStorage.removeItem("terra_orderId");
+      localStorage.removeItem("terra_orderStatus");
+      localStorage.removeItem("terra_orderStatusUpdatedAt");
+      localStorage.removeItem("terra_orderId_DINE_IN");
+      localStorage.removeItem("terra_orderStatus_DINE_IN");
+      localStorage.removeItem("terra_orderStatusUpdatedAt_DINE_IN");
+    }
 
     if (isOfficeFlow) {
       const officeName = (tableInfo?.officeName || "").trim();
@@ -2061,6 +2125,10 @@ export default function SecondPage() {
       localStorage.removeItem("terra_takeaway_customerName");
       localStorage.removeItem("terra_takeaway_customerMobile");
       localStorage.removeItem("terra_takeaway_customerEmail");
+      localStorage.removeItem("terra_customerLocation");
+      localStorage.removeItem("terra_specialInstructions");
+      setCustomerLocation(null);
+      setSpecialInstructions("");
     }
 
     // Skip Customer Information form for all takeaway: table takeaway, normal takeaway link, and global takeaway (takeaway-only QR)
@@ -2073,6 +2141,13 @@ export default function SecondPage() {
     localStorage.removeItem("terra_orderType");
     navigate("/menu", { state: { serviceType: "TAKEAWAY" } });
   }, [navigate, tableInfo]);
+
+  useEffect(() => {
+    if (!isOfficeQr || !tableInfo) return;
+    if (hasAutoStartedOfficeTakeawayRef.current) return;
+    hasAutoStartedOfficeTakeawayRef.current = true;
+    startTakeawayFlow();
+  }, [isOfficeQr, tableInfo, startTakeawayFlow]);
 
   // Handle customer info modal submit for takeaway orders (fields OPTIONAL)
   // Works for both regular takeaway and takeaway-only QR flows
@@ -2846,7 +2921,7 @@ export default function SecondPage() {
                 !hasScanToken &&
                 !hasTableInfo &&
                 !hasTableInUrl;
-              return !isNormal;
+              return !isNormal && !isOfficeQr;
             })() && (
               <button
                 onClick={startTakeawayFlow}
@@ -2854,7 +2929,7 @@ export default function SecondPage() {
                   accessibilityMode ? "nav-btn-accessibility" : "nav-btn-normal"
                 }`}
               >
-                {isOfficeQr ? t("orderNow") || "Order Now" : t("takeAway")}
+                {t("takeAway")}
               </button>
             )}
           </div>

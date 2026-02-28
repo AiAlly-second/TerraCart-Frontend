@@ -10,6 +10,11 @@ import "./Payment.css";
 const nodeApi = (
   import.meta.env.VITE_NODE_API_URL || "http://localhost:5001"
 ).replace(/\/$/, "");
+const PAYMENT_GATE_ORDER_ID_KEY = "terra_payment_gate_order_id";
+const PAYMENT_GATE_MODE_KEY = "terra_payment_gate_mode";
+const RAZORPAY_CHECKOUT_SCRIPT = "https://checkout.razorpay.com/v1/checkout.js";
+
+let razorpayScriptPromise = null;
 
 /** Build full URL for uploaded QR image (handles relative path or absolute URL). */
 function qrImageSrc(qrImageUrl) {
@@ -48,6 +53,35 @@ function parseUpiPayload(upiPayload) {
   }
 }
 
+function hasOfficeQrMetadata(tableContext) {
+  if (!tableContext || typeof tableContext !== "object") return false;
+  if (tableContext.qrContextType === "OFFICE") return true;
+
+  const hasOfficeName = String(tableContext.officeName || "").trim().length > 0;
+  const hasOfficeAddress =
+    String(tableContext.officeAddress || "").trim().length > 0;
+  const hasOfficePhone = String(tableContext.officePhone || "").trim().length > 0;
+  const hasOfficeDeliveryCharge =
+    Number(tableContext.officeDeliveryCharge || 0) > 0;
+
+  return (
+    hasOfficeName ||
+    hasOfficeAddress ||
+    hasOfficePhone ||
+    hasOfficeDeliveryCharge
+  );
+}
+
+function resolveOfficePaymentMode(tableContext) {
+  if (!hasOfficeQrMetadata(tableContext)) return null;
+  const normalized = String(tableContext?.officePaymentMode || "")
+    .trim()
+    .toUpperCase();
+  if (normalized === "COD") return "COD";
+  if (normalized === "BOTH") return "BOTH";
+  return "ONLINE";
+}
+
 function buildFallbackUpiPayload({ upiId, payeeName, amount, orderId }) {
   if (!upiId) return null;
 
@@ -67,10 +101,49 @@ function buildFallbackUpiPayload({ upiId, payeeName, amount, orderId }) {
   )}&pn=${encodeURIComponent(normalizedPayeeName)}&tn=${note}${amountParam}&cu=INR`;
 }
 
+function isRazorpayPayment(payment) {
+  const gateway = String(payment?.metadata?.gateway || "")
+    .trim()
+    .toUpperCase();
+  return gateway === "RAZORPAY" || Boolean(payment?.metadata?.razorpayOrderId);
+}
+
+function loadRazorpayCheckoutScript() {
+  if (typeof window === "undefined") return Promise.resolve(false);
+  if (window.Razorpay) return Promise.resolve(true);
+
+  if (razorpayScriptPromise) {
+    return razorpayScriptPromise;
+  }
+
+  razorpayScriptPromise = new Promise((resolve) => {
+    const existingScript = document.querySelector(
+      `script[src="${RAZORPAY_CHECKOUT_SCRIPT}"]`
+    );
+    if (existingScript) {
+      existingScript.addEventListener("load", () =>
+        resolve(Boolean(window.Razorpay))
+      );
+      existingScript.addEventListener("error", () => resolve(false));
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = RAZORPAY_CHECKOUT_SCRIPT;
+    script.async = true;
+    script.onload = () => resolve(Boolean(window.Razorpay));
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
+
+  return razorpayScriptPromise;
+}
+
 export default function Payment() {
   const navigate = useNavigate();
   const [creating, setCreating] = useState(false);
   const [canceling, setCanceling] = useState(false);
+  const [verifyingRazorpay, setVerifyingRazorpay] = useState(false);
   const [payment, setPayment] = useState(null);
   const [loading, setLoading] = useState(true);
   const [uploadedQR, setUploadedQR] = useState(null);
@@ -95,6 +168,16 @@ export default function Payment() {
     () => localStorage.getItem("terra_serviceType") || "DINE_IN",
     []
   );
+  const officePaymentMode = useMemo(() => {
+    try {
+      const tableRaw = localStorage.getItem("terra_selectedTable");
+      if (!tableRaw) return null;
+      const table = JSON.parse(tableRaw);
+      return resolveOfficePaymentMode(table);
+    } catch {
+      return null;
+    }
+  }, []);
   const orderId = useMemo(() => {
     const currentServiceType = localStorage.getItem("terra_serviceType") || "DINE_IN";
     const isTakeawayLike =
@@ -106,6 +189,73 @@ export default function Payment() {
         localStorage.getItem("terra_orderId")
       : localStorage.getItem("terra_orderId");
   }, []);
+  const paymentGateOrderId = useMemo(
+    () => localStorage.getItem(PAYMENT_GATE_ORDER_ID_KEY) || "",
+    []
+  );
+  const paymentGateMode = useMemo(
+    () => localStorage.getItem(PAYMENT_GATE_MODE_KEY) || "",
+    []
+  );
+  const forceOnlineForCurrentOrder = useMemo(
+    () =>
+      paymentGateMode === "ONLINE" &&
+      !!orderId &&
+      paymentGateOrderId === orderId,
+    [paymentGateMode, paymentGateOrderId, orderId]
+  );
+  const isChoiceGateCurrentOrder = useMemo(
+    () =>
+      paymentGateMode === "CHOICE" &&
+      !!orderId &&
+      paymentGateOrderId === orderId,
+    [paymentGateMode, paymentGateOrderId, orderId]
+  );
+  const isPaymentGateCurrentOrder = useMemo(
+    () => forceOnlineForCurrentOrder || isChoiceGateCurrentOrder,
+    [forceOnlineForCurrentOrder, isChoiceGateCurrentOrder]
+  );
+  const showOnlineOption = useMemo(() => {
+    if (forceOnlineForCurrentOrder) return true;
+    return officePaymentMode !== "COD";
+  }, [forceOnlineForCurrentOrder, officePaymentMode]);
+  const isPickupCashChoiceOrder = useMemo(() => {
+    if (forceOnlineForCurrentOrder) return false;
+    if (officePaymentMode === "ONLINE") return false;
+    return serviceType === "PICKUP";
+  }, [forceOnlineForCurrentOrder, officePaymentMode, serviceType]);
+  const showCashOption = useMemo(() => {
+    if (forceOnlineForCurrentOrder) return false;
+    if (officePaymentMode === "ONLINE") return false;
+    if (serviceType === "DELIVERY") return false;
+    return true;
+  }, [forceOnlineForCurrentOrder, officePaymentMode, serviceType]);
+  const paymentModeHint = useMemo(() => {
+    if (forceOnlineForCurrentOrder) {
+      return "Online payment is required for this order. The order proceeds only after payment confirmation.";
+    }
+    if (isChoiceGateCurrentOrder) {
+      return "Choose Online Payment or Cash. If you choose Online, your order proceeds after payment confirmation.";
+    }
+    if (officePaymentMode === "ONLINE") {
+      return "This office QR allows online payment only.";
+    }
+    if (officePaymentMode === "COD") {
+      return "This office QR allows Cash on Delivery only.";
+    }
+    if (officePaymentMode === "BOTH") {
+      return "This office QR allows both online payment and Cash on Delivery.";
+    }
+    if (isPickupCashChoiceOrder) {
+      return "For pickup orders, you can pay online now or choose Cash on Pickup.";
+    }
+    return null;
+  }, [
+    forceOnlineForCurrentOrder,
+    isChoiceGateCurrentOrder,
+    officePaymentMode,
+    isPickupCashChoiceOrder,
+  ]);
 
   const paymentPending = useMemo(
     () =>
@@ -201,37 +351,84 @@ export default function Payment() {
     }
   }, [orderId, resolveCartScopeId]);
 
-  const handleCompleteAndRedirect = useCallback(() => {
+  const clearPaymentGate = useCallback(() => {
+    localStorage.removeItem(PAYMENT_GATE_ORDER_ID_KEY);
+    localStorage.removeItem(PAYMENT_GATE_MODE_KEY);
+  }, []);
+
+  const clearOrderStorageForCurrentFlow = useCallback(() => {
+    const currentServiceType =
+      localStorage.getItem("terra_serviceType") || "DINE_IN";
+    const isTakeawayLike =
+      currentServiceType === "TAKEAWAY" ||
+      currentServiceType === "PICKUP" ||
+      currentServiceType === "DELIVERY";
+
+    localStorage.removeItem("terra_orderId");
+    localStorage.removeItem("terra_orderStatus");
+    localStorage.removeItem("terra_orderStatusUpdatedAt");
+
+    if (isTakeawayLike) {
+      localStorage.removeItem("terra_orderId_TAKEAWAY");
+      localStorage.removeItem("terra_orderStatus_TAKEAWAY");
+      localStorage.removeItem("terra_orderStatusUpdatedAt_TAKEAWAY");
+    } else {
+      localStorage.removeItem("terra_orderId_DINE_IN");
+      localStorage.removeItem("terra_orderStatus_DINE_IN");
+      localStorage.removeItem("terra_orderStatusUpdatedAt_DINE_IN");
+    }
+  }, []);
+
+  const handleCompleteAndRedirect = useCallback(async () => {
     // Prevent multiple calls
     if (hasHandledPayment) {
       console.log("[Payment] Payment already handled, skipping");
       return;
     }
-    
+
     setHasHandledPayment(true);
+    clearPaymentGate();
     const currentServiceType =
       localStorage.getItem("terra_serviceType") || "DINE_IN";
-    
+    const defaultStatusAfterPayment =
+      officePaymentMode === "ONLINE" ? "Confirmed" : "Paid";
+    const nowIso = new Date().toISOString();
+
     if (orderId) {
+      let resolvedOrderStatus = defaultStatusAfterPayment;
+      try {
+        const orderRes = await fetch(`${nodeApi}/api/orders/${orderId}`);
+        if (orderRes.ok) {
+          const latestOrder = await orderRes.json();
+          const latestStatus = String(latestOrder?.status || "").trim();
+          if (latestStatus) {
+            resolvedOrderStatus = latestStatus;
+          }
+        }
+      } catch (error) {
+        console.warn("[Payment] Unable to fetch latest order status:", error);
+      }
+
       // CRITICAL: Preserve orderId so Menu page can display order data
       localStorage.setItem("terra_orderId", orderId);
-      localStorage.setItem("terra_orderStatus", "Paid");
-      localStorage.setItem(
-        "terra_orderStatusUpdatedAt",
-        new Date().toISOString()
-      );
-      localStorage.setItem("terra_lastPaidOrderId", orderId);
+      localStorage.setItem("terra_orderStatus", resolvedOrderStatus);
+      localStorage.setItem("terra_orderStatusUpdatedAt", nowIso);
+      if (resolvedOrderStatus === "Paid") {
+        localStorage.setItem("terra_lastPaidOrderId", orderId);
+      } else {
+        localStorage.removeItem("terra_lastPaidOrderId");
+      }
 
       // Also set service-type-specific keys if needed
       const orderType = localStorage.getItem("terra_orderType") || null; // PICKUP or DELIVERY
       const isPickupOrDelivery = orderType === "PICKUP" || orderType === "DELIVERY";
-      
+
       if (currentServiceType === "TAKEAWAY" || currentServiceType === "PICKUP" || currentServiceType === "DELIVERY") {
         localStorage.setItem("terra_orderId_TAKEAWAY", orderId);
-        localStorage.setItem("terra_orderStatus_TAKEAWAY", "Paid");
+        localStorage.setItem("terra_orderStatus_TAKEAWAY", resolvedOrderStatus);
         localStorage.setItem(
           "terra_orderStatusUpdatedAt_TAKEAWAY",
-          new Date().toISOString()
+          nowIso
         );
 
         // CRITICAL: Only clear customer data for regular TAKEAWAY orders
@@ -249,10 +446,10 @@ export default function Payment() {
         }
       } else {
         localStorage.setItem("terra_orderId_DINE_IN", orderId);
-        localStorage.setItem("terra_orderStatus_DINE_IN", "Paid");
+        localStorage.setItem("terra_orderStatus_DINE_IN", resolvedOrderStatus);
         localStorage.setItem(
           "terra_orderStatusUpdatedAt_DINE_IN",
-          new Date().toISOString()
+          nowIso
         );
       }
     }
@@ -263,19 +460,30 @@ export default function Payment() {
     // This will trigger session clearing when user scans a new table QR after refresh
     localStorage.setItem("terra_paymentCompleted", "true");
     console.log("[Payment] Payment completed - flag set for session clearing on next table scan");
-    
+
     navigate("/menu");
-  }, [orderId, navigate, hasHandledPayment]);
+  }, [orderId, navigate, hasHandledPayment, officePaymentMode, clearPaymentGate]);
 
   useEffect(() => {
     if (!orderId) {
+      clearPaymentGate();
       alert(t("noOrderFound") || "No order found for payment.");
       navigate("/menu");
       return;
     }
     fetchLatestPayment();
     fetchUploadedQR();
-  }, [orderId, fetchLatestPayment, fetchUploadedQR, navigate, t]);
+  }, [orderId, fetchLatestPayment, fetchUploadedQR, navigate, t, clearPaymentGate]);
+
+  useEffect(() => {
+    if (
+      paymentGateOrderId &&
+      orderId &&
+      paymentGateOrderId !== orderId
+    ) {
+      clearPaymentGate();
+    }
+  }, [paymentGateOrderId, orderId, clearPaymentGate]);
 
   useEffect(() => {
     if (!paymentPending) return;
@@ -292,8 +500,118 @@ export default function Payment() {
     }
   }, [payment?.status, handleCompleteAndRedirect, hasHandledPayment]);
 
+  const launchRazorpayCheckout = useCallback(
+    async (paymentPayload) => {
+      if (!paymentPayload?.id || !isRazorpayPayment(paymentPayload)) {
+        return;
+      }
+
+      const razorpayOrderId =
+        paymentPayload?.metadata?.razorpayOrderId ||
+        paymentPayload?.providerReference ||
+        "";
+      const razorpayKeyId =
+        paymentPayload?.metadata?.razorpayKeyId ||
+        import.meta.env.VITE_RAZORPAY_KEY_ID ||
+        "";
+
+      if (!razorpayOrderId || !razorpayKeyId) {
+        alert("Unable to start Razorpay checkout. Missing gateway configuration.");
+        return;
+      }
+
+      const scriptLoaded = await loadRazorpayCheckoutScript();
+      if (
+        !scriptLoaded ||
+        typeof window === "undefined" ||
+        typeof window.Razorpay !== "function"
+      ) {
+        alert("Unable to load Razorpay checkout. Please try again.");
+        return;
+      }
+
+      const amountInPaise = Math.max(
+        0,
+        Math.round(Number(paymentPayload?.amount || 0) * 100)
+      );
+
+      const options = {
+        key: razorpayKeyId,
+        order_id: razorpayOrderId,
+        amount: amountInPaise || undefined,
+        currency: paymentPayload?.metadata?.razorpayCurrency || "INR",
+        name: "Terra Cart",
+        description:
+          paymentPayload?.description ||
+          `Payment for order ${paymentPayload?.orderId || orderId}`,
+        notes: {
+          orderId: paymentPayload?.orderId || orderId || "",
+          receipt: paymentPayload?.metadata?.razorpayReceipt || "",
+        },
+        handler: async (response) => {
+          setVerifyingRazorpay(true);
+          try {
+            const verifyRes = await fetch(
+              `${nodeApi}/api/payments/${paymentPayload.id}/verify-razorpay`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  razorpay_payment_id: response?.razorpay_payment_id,
+                  razorpay_order_id: response?.razorpay_order_id,
+                  razorpay_signature: response?.razorpay_signature,
+                }),
+              }
+            );
+
+            const verifyData = await verifyRes.json().catch(() => ({}));
+            if (!verifyRes.ok) {
+              throw new Error(
+                verifyData?.message || "Payment verification failed. Please try again."
+              );
+            }
+
+            setPayment(verifyData || null);
+          } catch (error) {
+            alert(error.message || "Payment verification failed.");
+            await fetchLatestPayment();
+          } finally {
+            setVerifyingRazorpay(false);
+          }
+        },
+        modal: {
+          ondismiss: async () => {
+            await fetchLatestPayment();
+          },
+        },
+        theme: {
+          color: "#2563eb",
+        },
+      };
+
+      const razorpayCheckout = new window.Razorpay(options);
+      razorpayCheckout.on("payment.failed", async () => {
+        await fetchLatestPayment();
+      });
+      razorpayCheckout.open();
+    },
+    [fetchLatestPayment, orderId]
+  );
+
   const createPaymentIntent = async (method) => {
     if (!orderId) return;
+    if (forceOnlineForCurrentOrder && method !== "ONLINE") {
+      alert("Only online payment is allowed for this order.");
+      return;
+    }
+    if (method === "ONLINE" && !showOnlineOption) {
+      alert("Online payment is not available for this order.");
+      return;
+    }
+    if (method === "CASH" && !showCashOption) {
+      alert("Cash payment is not available for this order.");
+      return;
+    }
     setCreating(true);
     try {
       const res = await fetch(`${nodeApi}/api/payments/create`, {
@@ -306,6 +624,57 @@ export default function Payment() {
         throw new Error(data?.message || "Unable to create payment");
       }
       setPayment(data);
+
+      if (method === "ONLINE" && isRazorpayPayment(data)) {
+        await launchRazorpayCheckout(data);
+      }
+
+      if (
+        method === "CASH" &&
+        (isChoiceGateCurrentOrder || isPickupCashChoiceOrder)
+      ) {
+        const currentServiceType =
+          localStorage.getItem("terra_serviceType") || "DINE_IN";
+        const nowIso = new Date().toISOString();
+        let resolvedOrderStatus = "Confirmed";
+
+        try {
+          const orderRes = await fetch(`${nodeApi}/api/orders/${orderId}`);
+          if (orderRes.ok) {
+            const latestOrder = await orderRes.json();
+            const latestStatus = String(latestOrder?.status || "").trim();
+            if (latestStatus) {
+              resolvedOrderStatus = latestStatus;
+            }
+          }
+        } catch (error) {
+          console.warn("[Payment] Unable to fetch latest order status after cash choice:", error);
+        }
+
+        localStorage.setItem("terra_orderId", orderId);
+        localStorage.setItem("terra_orderStatus", resolvedOrderStatus);
+        localStorage.setItem("terra_orderStatusUpdatedAt", nowIso);
+        localStorage.removeItem("terra_lastPaidOrderId");
+
+        if (
+          currentServiceType === "TAKEAWAY" ||
+          currentServiceType === "PICKUP" ||
+          currentServiceType === "DELIVERY"
+        ) {
+          localStorage.setItem("terra_orderId_TAKEAWAY", orderId);
+          localStorage.setItem("terra_orderStatus_TAKEAWAY", resolvedOrderStatus);
+          localStorage.setItem("terra_orderStatusUpdatedAt_TAKEAWAY", nowIso);
+        } else {
+          localStorage.setItem("terra_orderId_DINE_IN", orderId);
+          localStorage.setItem("terra_orderStatus_DINE_IN", resolvedOrderStatus);
+          localStorage.setItem("terra_orderStatusUpdatedAt_DINE_IN", nowIso);
+        }
+
+        setHasHandledPayment(true);
+        clearPaymentGate();
+        clearScopedCart(currentServiceType);
+        navigate("/menu");
+      }
     } catch (err) {
       alert(err.message || "Unable to create payment");
     } finally {
@@ -314,27 +683,78 @@ export default function Payment() {
   };
 
   // Keep order pending when customer goes back without paying.
-  // Order should remain visible until admin confirms payment.
+  // Allow returning to menu even for payment-compulsory flows.
   const handleBackWithoutPayment = useCallback(async () => {
-    const isTakeawayLike =
-      serviceType === "TAKEAWAY" ||
-      serviceType === "PICKUP" ||
-      serviceType === "DELIVERY";
-    if (
-      !isTakeawayLike ||
-      !orderId ||
-      hasHandledPayment ||
-      payment?.status === "PAID"
-    ) {
+    if (!orderId || hasHandledPayment || payment?.status === "PAID") {
+      clearPaymentGate();
       navigate("/menu");
       return;
     }
+
+    // If a payment intent exists, cancel it before leaving (best effort).
+    if (payment?.id) {
+      try {
+        await fetch(`${nodeApi}/api/payments/${payment.id}/cancel`, {
+          method: "POST",
+        });
+      } catch (err) {
+        console.warn("[Payment] Cancel payment on menu back:", err);
+      }
+    }
+
+    if (isPaymentGateCurrentOrder) {
+      try {
+        const currentServiceType =
+          localStorage.getItem("terra_serviceType") || "DINE_IN";
+        const isTakeawayLike =
+          currentServiceType === "TAKEAWAY" ||
+          currentServiceType === "PICKUP" ||
+          currentServiceType === "DELIVERY";
+        const sessionToken = isTakeawayLike
+          ? localStorage.getItem("terra_takeaway_sessionToken")
+          : localStorage.getItem("terra_sessionToken");
+
+        const res = await fetch(`${nodeApi}/api/orders/${orderId}/customer-status`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            ...(sessionToken
+              ? {
+                  "x-session-token": sessionToken,
+                }
+              : {}),
+          },
+          body: JSON.stringify({
+            status: "Cancelled",
+            reason: "Customer exited before payment completion",
+            sessionToken: sessionToken || undefined,
+          }),
+        });
+
+        if (!res.ok) {
+          console.warn(
+            `[Payment] Failed to cancel payment-gated order ${orderId} on back-to-menu.`
+          );
+        }
+      } catch (err) {
+        console.warn("[Payment] Cancel unpaid order on menu back:", err);
+      }
+
+      clearOrderStorageForCurrentFlow();
+      clearPaymentGate();
+      navigate("/menu");
+      return;
+    }
+
     navigate("/menu");
   }, [
-    serviceType,
     orderId,
     hasHandledPayment,
     payment?.status,
+    payment?.id,
+    isPaymentGateCurrentOrder,
+    clearPaymentGate,
+    clearOrderStorageForCurrentFlow,
     navigate,
   ]);
 
@@ -366,25 +786,6 @@ export default function Payment() {
       setCanceling(false);
     }
   };
-
-  // Back to payment method selection (cancel current payment intent, no confirm). Used when user clicks back from QR/Cash screen.
-  const handleBackToMethodSelection = useCallback(async () => {
-    if (!payment?.id) {
-      setPayment(null);
-      return;
-    }
-    setCanceling(true);
-    try {
-      await fetch(`${nodeApi}/api/payments/${payment.id}/cancel`, {
-        method: "POST",
-      });
-    } catch (err) {
-      console.warn("[Payment] Cancel payment on back:", err);
-    } finally {
-      setPayment(null);
-      setCanceling(false);
-    }
-  }, [payment?.id]);
 
   const renderPaymentStatus = () => {
     if (!payment) return null;
@@ -424,7 +825,8 @@ export default function Payment() {
     const showOnline = payment?.method === "ONLINE";
     const showCash =
       payment?.method === "CASH" || payment?.status === "CASH_PENDING";
-    const shouldShowQrSection = showOnline || showCash;
+    const isRazorpayOnline = showOnline && isRazorpayPayment(payment);
+    const shouldShowQrSection = showCash || (showOnline && !isRazorpayOnline);
     const hasUploadedQr = Boolean(uploadedQR?.qrImageUrl);
     const parsedPaymentUpi = parseUpiPayload(payment?.upiPayload);
     const resolvedUpiId = (
@@ -446,7 +848,7 @@ export default function Payment() {
         orderId: payment?.orderId || orderId,
       });
     const hasGeneratedUpiQr = Boolean(upiLaunchUrl);
-    const canOpenUpi = showOnline && Boolean(upiLaunchUrl);
+    const canOpenUpi = showOnline && !isRazorpayOnline && Boolean(upiLaunchUrl);
 
     return (
       <div className="payment-status-card">
@@ -454,7 +856,11 @@ export default function Payment() {
           {showCash ? t("cashPendingTitle") : t("pendingPaymentTitle")}
         </p>
         <p className="payment-status-text">
-          {showCash ? t("cashInstructions") : t("onlineInstructions")}
+          {showCash
+            ? t("cashInstructions")
+            : isRazorpayOnline
+              ? "Tap Pay with Razorpay to complete your payment."
+              : t("onlineInstructions")}
         </p>
 
         {shouldShowQrSection && (hasUploadedQr || hasGeneratedUpiQr) && (
@@ -610,6 +1016,17 @@ export default function Payment() {
         )}
 
         <div className="payment-action-buttons">
+          {isRazorpayOnline && (
+            <button
+              className={`payment-button primary ${
+                verifyingRazorpay ? "disabled" : ""
+              }`}
+              onClick={() => launchRazorpayCheckout(payment)}
+              disabled={verifyingRazorpay}
+            >
+              {verifyingRazorpay ? "Verifying..." : "Pay with Razorpay"}
+            </button>
+          )}
           <button
             className={`payment-button danger ${canceling ? "disabled" : ""}`}
             onClick={handleCancelPayment}
@@ -630,20 +1047,15 @@ export default function Payment() {
     >
       <button
         onClick={() => {
-          const isTakeaway =
-            serviceType === "TAKEAWAY" ||
-            serviceType === "PICKUP" ||
-            serviceType === "DELIVERY";
-          if (isTakeaway && orderId && !hasHandledPayment) {
-            // If user already chose a method (QR/Cash) and is on that screen, back = return to method selection
-            if (payment?.id) {
-              handleBackToMethodSelection();
-            } else {
-              handleBackWithoutPayment();
-            }
-          } else {
+          const unpaidOrder =
+            orderId && !hasHandledPayment && payment?.status !== "PAID";
+
+          if (!unpaidOrder) {
             navigate(-1);
+            return;
           }
+
+          handleBackWithoutPayment();
         }}
         disabled={canceling}
         className={`back-button ${
@@ -677,25 +1089,30 @@ export default function Payment() {
           renderPaymentStatus()
         ) : (
           <div className="payment-options">
+            {paymentModeHint && (
+              <p className="payment-status-text" style={{ marginBottom: "8px" }}>
+                {paymentModeHint}
+              </p>
+            )}
             <p className="payment-status-text">
               Choose how you'd like to complete your payment.
             </p>
             <div className="payment-buttons">
-              <motion.button
-                whileHover={{ scale: creating ? 1 : 1.03 }}
-                whileTap={{ scale: creating ? 1 : 0.97 }}
-                onClick={() => createPaymentIntent("ONLINE")}
-                disabled={creating}
-                className={`payment-button ${
-                  accessibilityMode ? "accessibility-mode" : ""
-                }`}
-              >
-                <FaQrcode size={20} />
-                {creating ? "Starting..." : t("createOnline")}
-              </motion.button>
-
-              {/* Show "Pay with cash" only for DINE_IN and TAKEAWAY; hide for PICKUP and DELIVERY */}
-              {serviceType !== "PICKUP" && serviceType !== "DELIVERY" && (
+              {showOnlineOption && (
+                <motion.button
+                  whileHover={{ scale: creating ? 1 : 1.03 }}
+                  whileTap={{ scale: creating ? 1 : 0.97 }}
+                  onClick={() => createPaymentIntent("ONLINE")}
+                  disabled={creating}
+                  className={`payment-button ${
+                    accessibilityMode ? "accessibility-mode" : ""
+                  }`}
+                >
+                  <FaQrcode size={20} />
+                  {creating ? "Starting..." : t("createOnline")}
+                </motion.button>
+              )}
+              {showCashOption && (
                 <motion.button
                   whileHover={{ scale: creating ? 1 : 1.03 }}
                   whileTap={{ scale: creating ? 1 : 0.97 }}

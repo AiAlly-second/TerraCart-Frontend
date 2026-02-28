@@ -21,6 +21,8 @@ const nodeApi = (
   import.meta.env.VITE_NODE_API_URL || "http://localhost:5001"
 ).replace(/\/$/, "");
 const TAKEAWAY_TOKEN_PREVIEW_KEY = "terra_takeaway_token_preview";
+const PAYMENT_GATE_ORDER_ID_KEY = "terra_payment_gate_order_id";
+const PAYMENT_GATE_MODE_KEY = "terra_payment_gate_mode";
 const sanitizeAddonName = (value) => {
   const normalized = String(value || "")
     .replace(/^\(\s*\+\s*\)\s*/u, "")
@@ -56,6 +58,23 @@ const hasOfficeQrMetadata = (tableContext) => {
   );
 };
 
+const resolveOfficePaymentMode = (tableContext) => {
+  if (!hasOfficeQrMetadata(tableContext)) return null;
+  const normalized = String(tableContext?.officePaymentMode || "")
+    .trim()
+    .toUpperCase();
+  if (normalized === "COD") return "COD";
+  if (normalized === "BOTH") return "BOTH";
+  return "ONLINE";
+};
+const resolveOrderStatusValue = (...candidates) => {
+  for (const candidate of candidates) {
+    const normalized = String(candidate || "").trim();
+    if (normalized) return normalized;
+  }
+  return "Confirmed";
+};
+
 function getImageUrl(imagePath) {
   if (!imagePath) return null;
   if (imagePath.startsWith("http://") || imagePath.startsWith("https://"))
@@ -66,23 +85,24 @@ function getImageUrl(imagePath) {
 
 async function getCartId(searchParams) {
   try {
+    const tableData = parseJsonSafely(
+      localStorage.getItem("terra_selectedTable") ||
+        localStorage.getItem("terra_table_selection") ||
+        "{}",
+      {},
+    );
+    const isOfficeQrFlow = hasOfficeQrMetadata(tableData);
     const serviceType = (
       localStorage.getItem("terra_serviceType") || "DINE_IN"
     )
       .toString()
       .trim()
       .toUpperCase();
-    const storedOrderType = (
-      localStorage.getItem("terra_orderType") || ""
-    )
-      .toString()
-      .trim()
-      .toUpperCase();
+    const isPickupOrDeliveryServiceType =
+      serviceType === "PICKUP" || serviceType === "DELIVERY";
     const isPickupOrDeliveryFlow =
-      serviceType === "PICKUP" ||
-      serviceType === "DELIVERY" ||
-      storedOrderType === "PICKUP" ||
-      storedOrderType === "DELIVERY";
+      isPickupOrDeliveryServiceType ||
+      isOfficeQrFlow;
 
     // Priority 1: URL parameter "cart" or "cartId" (explicit override)
     const urlCartId = searchParams?.get("cart") || searchParams?.get("cartId");
@@ -111,11 +131,6 @@ async function getCartId(searchParams) {
     }
 
     // Priority 3: check selected table context
-    const tableData = JSON.parse(
-      localStorage.getItem("terra_selectedTable") ||
-        localStorage.getItem("terra_table_selection") ||
-        "{}",
-    );
     let id = tableData.cartId || tableData.cafeId || "";
     let finalId = "";
     if (id != null && id !== "") {
@@ -471,6 +486,50 @@ export default function CartPage() {
     if (processOpen) return;
     placeOrderInFlightRef.current = true;
 
+    let requiresPaymentChoiceStep = false;
+    try {
+      const tableContext = parseJsonSafely(
+        localStorage.getItem("terra_selectedTable") || "{}",
+        {},
+      );
+      const isOfficeQrFlow = hasOfficeQrMetadata(tableContext);
+      const currentServiceType = (
+        localStorage.getItem("terra_serviceType") || "DINE_IN"
+      )
+        .toString()
+        .trim()
+        .toUpperCase();
+      const isPickupOrDeliveryFlow =
+        currentServiceType === "PICKUP" ||
+        currentServiceType === "DELIVERY";
+      const isTakeawayLikeFlow =
+        currentServiceType === "TAKEAWAY" || isPickupOrDeliveryFlow;
+      const activeOrderId = isTakeawayLikeFlow
+        ? localStorage.getItem("terra_orderId_TAKEAWAY")
+        : localStorage.getItem("terra_orderId_DINE_IN") ||
+          localStorage.getItem("terra_orderId");
+      const activeOrderStatus = isTakeawayLikeFlow
+        ? localStorage.getItem("terra_orderStatus_TAKEAWAY")
+        : localStorage.getItem("terra_orderStatus_DINE_IN") ||
+          localStorage.getItem("terra_orderStatus");
+      const blockedStatuses = new Set([
+        "Paid",
+        "Cancelled",
+        "Returned",
+        "Completed",
+        "Finalized",
+      ]);
+      const isFreshOrderFlow =
+        !activeOrderId || blockedStatuses.has(activeOrderStatus);
+      requiresPaymentChoiceStep =
+        !isOfficeQrFlow &&
+        !isPickupOrDeliveryFlow &&
+        isFreshOrderFlow &&
+        (currentServiceType === "DINE_IN" || currentServiceType === "TAKEAWAY");
+    } catch (paymentChoiceErr) {
+      console.warn("[CartPage] Failed to resolve payment choice flow:", paymentChoiceErr);
+    }
+
     saveAddonsForCart(selectedAddOns);
 
     // Reset Steps
@@ -495,19 +554,30 @@ export default function CartPage() {
       await wait(DUR.beforeSend);
 
       // --- AGGREGATE ORDER CONTEXT ---
-      const serviceType = (
+      let tableInfo = parseJsonSafely(
+        localStorage.getItem("terra_selectedTable") || "{}",
+        {},
+      );
+      const isOfficeQrFlow = hasOfficeQrMetadata(tableInfo);
+      let serviceType = (
         localStorage.getItem("terra_serviceType") || "DINE_IN"
       )
         .toString()
         .trim()
         .toUpperCase();
+      if (isOfficeQrFlow && serviceType === "DINE_IN") {
+        serviceType = "TAKEAWAY";
+        localStorage.setItem("terra_serviceType", "TAKEAWAY");
+        localStorage.removeItem("terra_orderType");
+        localStorage.removeItem("terra_waitToken");
+      }
       // Ignore stale pickup/delivery subtype when current flow is DINE_IN.
-      const storedOrderType =
-        serviceType !== "DINE_IN"
-          ? localStorage.getItem("terra_orderType")
-          : null;
       const isPickupOrDeliveryServiceType =
         serviceType === "PICKUP" || serviceType === "DELIVERY";
+      const storedOrderType =
+        isPickupOrDeliveryServiceType
+          ? localStorage.getItem("terra_orderType")
+          : null;
       const effectiveOrderType =
         storedOrderType === "PICKUP" || storedOrderType === "DELIVERY"
           ? storedOrderType
@@ -515,13 +585,20 @@ export default function CartPage() {
             ? serviceType
             : undefined;
       const isTakeawayLike =
-        serviceType === "TAKEAWAY" || isPickupOrDeliveryServiceType;
+        isOfficeQrFlow ||
+        serviceType === "TAKEAWAY" ||
+        isPickupOrDeliveryServiceType;
+      const officePaymentMode = resolveOfficePaymentMode(tableInfo);
+      const requiresPaymentChoiceBeforePlacement =
+        requiresPaymentChoiceStep &&
+        !isOfficeQrFlow &&
+        !isPickupOrDeliveryServiceType &&
+        (serviceType === "DINE_IN" || serviceType === "TAKEAWAY");
       const requiresImmediatePayment =
-        effectiveOrderType === "PICKUP" || effectiveOrderType === "DELIVERY";
-      let tableInfo = JSON.parse(
-        localStorage.getItem("terra_selectedTable") || "{}",
-      );
-      const isOfficeQrFlow = hasOfficeQrMetadata(tableInfo);
+        effectiveOrderType === "PICKUP" ||
+        effectiveOrderType === "DELIVERY" ||
+        (isOfficeQrFlow && officePaymentMode === "ONLINE") ||
+        requiresPaymentChoiceBeforePlacement;
       const shouldIncludeCustomerInfo =
         effectiveOrderType === "PICKUP" ||
         effectiveOrderType === "DELIVERY" ||
@@ -591,7 +668,11 @@ export default function CartPage() {
       }
 
       let customerLocation = null;
-      const customerLocationStr = isTakeawayLike
+      const shouldIncludeCustomerLocation =
+        effectiveOrderType === "PICKUP" ||
+        effectiveOrderType === "DELIVERY" ||
+        isOfficeQrFlow;
+      const customerLocationStr = shouldIncludeCustomerLocation
         ? localStorage.getItem("terra_customerLocation")
         : null;
       if (customerLocationStr) {
@@ -649,13 +730,20 @@ export default function CartPage() {
           : undefined,
         customerLocation: customerLocation,
         sourceQrType: isOfficeQrFlow ? "OFFICE" : "TABLE",
+        officeName: isOfficeQrFlow
+          ? String(tableInfo?.officeName || "").trim() || undefined
+          : undefined,
         officeDeliveryCharge: isOfficeQrFlow
           ? Number(tableInfo?.officeDeliveryCharge || 0)
           : undefined,
+        officePaymentMode: officePaymentMode || undefined,
         cartId: cartId,
         specialInstructions: effectiveSpecialInstructions,
         selectedAddons: resolvedAddons,
       });
+      if (requiresPaymentChoiceBeforePlacement) {
+        orderPayload.paymentRequiredBeforeProceeding = true;
+      }
 
       // Simple Validation
       if (!orderPayload.items || orderPayload.items.length === 0) {
@@ -776,12 +864,16 @@ export default function CartPage() {
 
       // Update LocalStorage to reflect new order state for Menu.jsx
       if (data._id) {
+        const resolvedOrderStatus = resolveOrderStatusValue(
+          data.status,
+          activeOrderStatus,
+        );
         if (isTakeawayLike) {
           localStorage.setItem("terra_orderId_TAKEAWAY", data._id);
           localStorage.removeItem(TAKEAWAY_TOKEN_PREVIEW_KEY);
           localStorage.setItem(
             "terra_orderStatus_TAKEAWAY",
-            data.status || "Confirmed",
+            resolvedOrderStatus,
           );
           localStorage.setItem(
             "terra_orderStatusUpdatedAt_TAKEAWAY",
@@ -790,10 +882,10 @@ export default function CartPage() {
         } else {
           localStorage.setItem("terra_orderId", data._id);
           localStorage.setItem("terra_orderId_DINE_IN", data._id);
-          localStorage.setItem("terra_orderStatus", data.status || "Confirmed");
+          localStorage.setItem("terra_orderStatus", resolvedOrderStatus);
           localStorage.setItem(
             "terra_orderStatus_DINE_IN",
-            data.status || "Confirmed",
+            resolvedOrderStatus,
           );
           localStorage.setItem(
             "terra_orderStatusUpdatedAt",
@@ -803,6 +895,19 @@ export default function CartPage() {
             "terra_orderStatusUpdatedAt_DINE_IN",
             new Date().toISOString(),
           );
+        }
+        const requiresPaymentGate =
+          requiresPaymentChoiceBeforePlacement ||
+          (isOfficeQrFlow && officePaymentMode === "ONLINE");
+        if (requiresPaymentGate) {
+          localStorage.setItem(PAYMENT_GATE_ORDER_ID_KEY, data._id);
+          localStorage.setItem(
+            PAYMENT_GATE_MODE_KEY,
+            requiresPaymentChoiceBeforePlacement ? "CHOICE" : "ONLINE",
+          );
+        } else {
+          localStorage.removeItem(PAYMENT_GATE_ORDER_ID_KEY);
+          localStorage.removeItem(PAYMENT_GATE_MODE_KEY);
         }
         // For pickup/delivery, keep cart until payment completes so back-from-payment shows items
         if (!requiresImmediatePayment) {

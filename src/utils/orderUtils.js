@@ -28,7 +28,9 @@ export function buildOrderPayload(cart, options = {}) {
     specialInstructions, // Special notes from customer
     selectedAddons = [], // Array of { name, price, addonId }
     sourceQrType,
+    officeName,
     officeDeliveryCharge,
+    officePaymentMode,
   } = options;
   const items = Object.entries(cart)
     .filter(([name, quantity]) => {
@@ -229,6 +231,18 @@ export function buildOrderPayload(cart, options = {}) {
 
     if (sourceQrType === "OFFICE") {
       payload.sourceQrType = "OFFICE";
+      if (officeName && String(officeName).trim()) {
+        payload.officeName = String(officeName).trim();
+      }
+      const normalizedOfficePaymentMode = String(officePaymentMode || "")
+        .trim()
+        .toUpperCase();
+      payload.officePaymentMode =
+        normalizedOfficePaymentMode === "COD"
+          ? "COD"
+          : normalizedOfficePaymentMode === "BOTH"
+            ? "BOTH"
+            : "ONLINE";
     }
     const officeChargeValue = Number(officeDeliveryCharge);
     if (Number.isFinite(officeChargeValue) && officeChargeValue > 0) {

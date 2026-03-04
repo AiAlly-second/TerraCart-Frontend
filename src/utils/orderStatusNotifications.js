@@ -2,17 +2,17 @@ const RECENT_NOTIFICATION_WINDOW_MS = 10000;
 const _recentNotificationKeys = new Map();
 
 const ORDER_STATUS_LABELS = Object.freeze({
-  NEW: "Order Received",
   PREPARING: "Order Preparing",
   READY: "Order Ready",
-  COMPLETED: "Order Completed",
+  SERVED: "Order Served",
+  PAID: "Order Paid",
 });
 
 const ORDER_STATUS_BODIES = Object.freeze({
-  NEW: "Your order has been received by the restaurant.",
   PREPARING: "Your order is now being prepared.",
   READY: "Your order is ready.",
-  COMPLETED: "Your order has been completed.",
+  SERVED: "Your order has been served.",
+  PAID: "Your order payment is complete.",
 });
 
 const normalizeOrderStatus = (value) => {
@@ -21,20 +21,20 @@ const normalizeOrderStatus = (value) => {
     .toUpperCase()
     .replace(/_/g, " ")
     .replace(/\s+/g, " ");
-  if (!token) return "NEW";
+  if (!token) return "PREPARING";
   if (["NEW", "PENDING", "CONFIRMED", "ACCEPT", "ACCEPTED"].includes(token)) {
-    return "NEW";
+    return "PREPARING";
   }
   if (["PREPARING", "BEING PREPARED", "BEINGPREPARED"].includes(token)) {
     return "PREPARING";
   }
   if (token === "READY") return "READY";
+  if (token === "PAID") return "PAID";
   if (
     [
       "COMPLETED",
       "SERVED",
       "FINALIZED",
-      "PAID",
       "CANCELLED",
       "CANCELED",
       "RETURNED",
@@ -43,9 +43,9 @@ const normalizeOrderStatus = (value) => {
       "CLOSED",
     ].includes(token)
   ) {
-    return "COMPLETED";
+    return "SERVED";
   }
-  return "NEW";
+  return "PREPARING";
 };
 
 const canUseBrowserNotifications = () =>
@@ -129,9 +129,10 @@ export const notifyOrderStatusUpdate = ({
   paymentStatus,
   serviceType,
 } = {}) => {
-  const normalizedStatus = normalizeOrderStatus(status);
-  const title = ORDER_STATUS_LABELS[normalizedStatus] || "Order Update";
   const paymentToken = String(paymentStatus || "").trim().toUpperCase();
+  const normalizedStatus =
+    paymentToken === "PAID" ? "PAID" : normalizeOrderStatus(status);
+  const title = ORDER_STATUS_LABELS[normalizedStatus] || "Order Update";
   const serviceToken = String(serviceType || "").trim().toUpperCase();
   const bodyFromStatus =
     ORDER_STATUS_BODIES[normalizedStatus] || "Your order status has changed.";

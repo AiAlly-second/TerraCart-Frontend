@@ -4,6 +4,8 @@ import blindEyeIcon from "../assets/images/disabled-sign.png";
 import blindAssistantTranslations from "../data/translations/blindAssistant.json";
 import {
   getCurrentLanguage,
+  setCurrentLanguage,
+  LANGUAGE_OPTIONS,
   subscribeToLanguageChanges,
 } from "../utils/language";
 
@@ -12,6 +14,29 @@ const langSpeechMap = {
   mr: { recognition: "mr-IN", speech: "mr-IN" },
   gu: { recognition: "gu-IN", speech: "gu-IN" },
   en: { recognition: "en-IN", speech: "en-IN" },
+};
+
+const languageChoiceMatchers = {
+  en: ["english", "inglish", "angreji", "eng"],
+  hi: ["hindi", "hindee", "hind"],
+  mr: ["marathi", "marati"],
+  gu: ["gujarati", "gujrati", "gujarat"],
+};
+
+const detectLanguageFromSpeech = (spokenText) => {
+  const normalized = String(spokenText || "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z\s]/g, " ");
+  if (!normalized) return null;
+
+  for (const [languageCode, keywords] of Object.entries(languageChoiceMatchers)) {
+    if (keywords.some((keyword) => normalized.includes(keyword))) {
+      return languageCode;
+    }
+  }
+
+  return null;
 };
 
 const pageStyle = {
@@ -86,6 +111,37 @@ const buttonClass = (variant = "secondary") => {
   }
 };
 
+const selectPreferredFemaleVoice = (speechLang = "en-IN") => {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) return null;
+  const voices = window.speechSynthesis.getVoices();
+  if (!Array.isArray(voices) || voices.length === 0) return null;
+
+  const langPrefix = String(speechLang || "en-IN").split("-")[0].toLowerCase();
+  const femaleHint =
+    /(female|woman|zira|samantha|susan|karen|moira|heera|priya|google uk english female)/i;
+
+  return (
+    voices.find(
+      (voice) =>
+        String(voice?.lang || "").toLowerCase().startsWith(langPrefix) &&
+        femaleHint.test(String(voice?.name || "")),
+    ) ||
+    voices.find(
+      (voice) =>
+        String(voice?.lang || "").toLowerCase().startsWith("en") &&
+        femaleHint.test(String(voice?.name || "")),
+    ) ||
+    voices.find((voice) =>
+      String(voice?.lang || "").toLowerCase().startsWith(langPrefix),
+    ) ||
+    voices.find((voice) =>
+      String(voice?.lang || "").toLowerCase().startsWith("en"),
+    ) ||
+    voices[0] ||
+    null
+  );
+};
+
 const speakMessage = (text, speechLang = "en-IN") => {
   if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
   if (!text) return;
@@ -93,6 +149,10 @@ const speakMessage = (text, speechLang = "en-IN") => {
   utter.lang = speechLang;
   utter.rate = 0.95;
   utter.pitch = 1;
+  const selectedVoice = selectPreferredFemaleVoice(speechLang);
+  if (selectedVoice) {
+    utter.voice = selectedVoice;
+  }
   window.speechSynthesis.cancel();
   window.speechSynthesis.speak(utter);
 };
@@ -103,13 +163,19 @@ export default function BlindAssistantPage() {
   const [listening, setListening] = useState(false);
   const [error, setError] = useState("");
   const [language, setLanguage] = useState(getCurrentLanguage());
+  const [showLanguagePreference, setShowLanguagePreference] = useState(true);
+  const [languagePreferenceError, setLanguagePreferenceError] = useState("");
+  const [languagePreferenceListening, setLanguagePreferenceListening] =
+    useState(false);
   const t = (key) =>
     blindAssistantTranslations[language]?.[key] ||
     blindAssistantTranslations.en?.[key] ||
     key;
+  const initialGreetingMessage = t("initialGreeting");
 
   const transcriptEndRef = useRef(null);
   const recognitionRef = useRef(null);
+  const languagePreferenceRecognitionRef = useRef(null);
   const restartRef = useRef(false);
 
   useEffect(() => {
@@ -123,6 +189,92 @@ export default function BlindAssistantPage() {
     () => langSpeechMap[language] || langSpeechMap.en,
     [language],
   );
+
+  const stopLanguagePreferenceRecognition = useCallback(() => {
+    if (languagePreferenceRecognitionRef.current) {
+      try {
+        languagePreferenceRecognitionRef.current.onresult = null;
+        languagePreferenceRecognitionRef.current.onerror = null;
+        languagePreferenceRecognitionRef.current.onend = null;
+        languagePreferenceRecognitionRef.current.stop();
+      } catch (_err) {
+        // Ignore stop race conditions when recognition has already ended.
+      }
+      languagePreferenceRecognitionRef.current = null;
+    }
+    setLanguagePreferenceListening(false);
+  }, []);
+
+  const applyLanguagePreference = useCallback(
+    (nextLanguage) => {
+      stopLanguagePreferenceRecognition();
+      const normalizedLanguage = setCurrentLanguage(nextLanguage);
+      setLanguage(normalizedLanguage);
+      setShowLanguagePreference(false);
+      setLanguagePreferenceError("");
+    },
+    [stopLanguagePreferenceRecognition],
+  );
+
+  const startLanguagePreferenceRecognition = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const RecognitionCtor =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (!RecognitionCtor) {
+      setLanguagePreferenceError(t("voiceNotSupported"));
+      speakMessage(t("voiceNotAvailable"), speechLang);
+      return;
+    }
+
+    stopLanguagePreferenceRecognition();
+    setLanguagePreferenceError("");
+
+    const recognizer = new RecognitionCtor();
+    recognizer.lang = "en-IN";
+    recognizer.continuous = false;
+    recognizer.interimResults = false;
+    recognizer.maxAlternatives = 3;
+
+    recognizer.onresult = (event) => {
+      const spokenText = String(event?.results?.[0]?.[0]?.transcript || "").trim();
+      const detectedLanguage = detectLanguageFromSpeech(spokenText);
+      if (detectedLanguage) {
+        applyLanguagePreference(detectedLanguage);
+        return;
+      }
+      setLanguagePreferenceError(t("languageNotDetected"));
+      speakMessage(t("languageNotDetected"), speechLang);
+    };
+
+    recognizer.onerror = (event) => {
+      setLanguagePreferenceError(
+        event.error === "not-allowed"
+          ? t("micPermissionDenied")
+          : t("voiceCaptureFailed"),
+      );
+      setLanguagePreferenceListening(false);
+    };
+
+    recognizer.onend = () => {
+      languagePreferenceRecognitionRef.current = null;
+      setLanguagePreferenceListening(false);
+    };
+
+    try {
+      recognizer.start();
+      languagePreferenceRecognitionRef.current = recognizer;
+      setLanguagePreferenceListening(true);
+    } catch (_err) {
+      setLanguagePreferenceListening(false);
+      setLanguagePreferenceError(t("unableStartListening"));
+    }
+  }, [
+    applyLanguagePreference,
+    speechLang,
+    stopLanguagePreferenceRecognition,
+    t,
+  ]);
 
   const tableInfo = useMemo(() => {
     try {
@@ -154,6 +306,7 @@ export default function BlindAssistantPage() {
   }, []);
 
   const startRecognition = useCallback(() => {
+    if (showLanguagePreference) return;
     if (typeof window === "undefined") return;
     const RecognitionCtor =
       window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -213,14 +366,28 @@ export default function BlindAssistantPage() {
       setError(t("unableStartListening"));
       setListening(false);
     }
-  }, [recognitionLang, speechLang, t]);
+  }, [recognitionLang, showLanguagePreference, speechLang, t]);
 
   useEffect(() => {
-    speakMessage(t("initialGreeting"), speechLang);
+    if (showLanguagePreference) {
+      speakMessage(
+        "Welcome to TerraCart. Please choose your language.",
+        "en-IN",
+      );
+      return;
+    }
+
+    speakMessage(initialGreetingMessage, speechLang);
     return () => {
       stopRecognition();
     };
-  }, [speechLang, stopRecognition, t]);
+  }, [initialGreetingMessage, showLanguagePreference, speechLang, stopRecognition]);
+
+  useEffect(() => {
+    return () => {
+      stopLanguagePreferenceRecognition();
+    };
+  }, [stopLanguagePreferenceRecognition]);
 
   useEffect(() => {
     if (transcriptEndRef.current) {
@@ -229,6 +396,7 @@ export default function BlindAssistantPage() {
   }, [entries]);
 
   const handleClose = () => {
+    stopLanguagePreferenceRecognition();
     stopRecognition();
     navigate(-1);
   };
@@ -287,88 +455,133 @@ export default function BlindAssistantPage() {
           </button>
         </div>
 
-        <div
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            gap: "8px",
-            marginBottom: "16px",
-          }}
-        >
-          <div style={chipStyle}>
-            <span
-              style={{
-                width: 12,
-                height: 12,
-                borderRadius: "50%",
-                background: listening ? "#22c55e" : "#f97316",
-                display: "inline-block",
-              }}
-            />
-            {listening ? t("listening") : t("paused")}
-          </div>
-          {tableInfo?.number && (
-            <div style={{ ...chipStyle, background: "#ecfeff", color: "#0e7490" }}>
-              {t("tableLabel")} {tableInfo.number}
-            </div>
-          )}
-        </div>
+        {showLanguagePreference ? (
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <h2 className="text-lg font-semibold text-slate-900">
+              {t("languagePromptTitle")}
+            </h2>
+            <p className="mt-2 text-sm text-slate-600">
+              {t("languagePromptDescription")}
+            </p>
 
-        {error && (
-          <div className="mb-4 px-4 py-3 rounded-lg bg-red-50 text-red-600 text-sm border border-red-100">
-            {error}
-          </div>
-        )}
-
-        <div
-          style={transcriptBoxStyle}
-          aria-live="polite"
-          aria-label={t("transcriptAria")}
-        >
-          {entries.length === 0 && (
-            <div className="h-full flex flex-col items-center justify-center text-slate-400 text-center p-4">
-              <p className="mb-2 text-3xl">MIC</p>
-              <p>{t("emptyPromptLine1")}</p>
-              <p className="text-sm mt-2">{t("emptyPromptLine2")}</p>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              {LANGUAGE_OPTIONS.map((option) => (
+                <button
+                  key={option.code}
+                  className={buttonClass("secondary")}
+                  onClick={() => applyLanguagePreference(option.code)}
+                >
+                  {option.label}
+                </button>
+              ))}
             </div>
-          )}
-          {entries.map((entry) => (
-            <div
-              key={entry.id}
-              className="mb-3 rounded-lg bg-white shadow-sm border border-slate-200 p-3 text-slate-800"
-            >
-              <div className="text-xs text-slate-400 mb-1">
-                {entry.timestamp}
+
+            <div className="mt-3">
+              <button
+                className={buttonClass("primary")}
+                onClick={startLanguagePreferenceRecognition}
+                disabled={languagePreferenceListening}
+              >
+                {languagePreferenceListening
+                  ? t("languagePromptListening")
+                  : t("languagePromptVoiceButton")}
+              </button>
+            </div>
+
+            {languagePreferenceError && (
+              <div className="mt-3 rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-600">
+                {languagePreferenceError}
               </div>
-              <div className="text-lg leading-relaxed">{entry.text}</div>
+            )}
+          </div>
+        ) : (
+          <>
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: "8px",
+                marginBottom: "16px",
+              }}
+            >
+              <div style={chipStyle}>
+                <span
+                  style={{
+                    width: 12,
+                    height: 12,
+                    borderRadius: "50%",
+                    background: listening ? "#22c55e" : "#f97316",
+                    display: "inline-block",
+                  }}
+                />
+                {listening ? t("listening") : t("paused")}
+              </div>
+              {tableInfo?.number && (
+                <div
+                  style={{ ...chipStyle, background: "#ecfeff", color: "#0e7490" }}
+                >
+                  {t("tableLabel")} {tableInfo.number}
+                </div>
+              )}
             </div>
-          ))}
-          <div ref={transcriptEndRef} />
-        </div>
 
-        <div style={controlsStyle}>
-          <button
-            className={buttonClass("primary")}
-            onClick={handlePauseResume}
-            style={{ minWidth: "160px" }}
-          >
-            {listening ? t("pauseListening") : t("startListening")}
-          </button>
-          <button
-            className={buttonClass()}
-            onClick={handleCopy}
-            disabled={!entries.length}
-          >
-            {t("copyNotes")}
-          </button>
-          <button
-            className={buttonClass()}
-            onClick={handleClear}
-            disabled={!entries.length}
-          >
-            {t("clearNotes")}
-          </button>
-        </div>
+            {error && (
+              <div className="mb-4 px-4 py-3 rounded-lg bg-red-50 text-red-600 text-sm border border-red-100">
+                {error}
+              </div>
+            )}
+
+            <div
+              style={transcriptBoxStyle}
+              aria-live="polite"
+              aria-label={t("transcriptAria")}
+            >
+              {entries.length === 0 && (
+                <div className="h-full flex flex-col items-center justify-center text-slate-400 text-center p-4">
+                  <p className="mb-2 text-3xl">MIC</p>
+                  <p>{t("emptyPromptLine1")}</p>
+                  <p className="text-sm mt-2">{t("emptyPromptLine2")}</p>
+                </div>
+              )}
+              {entries.map((entry) => (
+                <div
+                  key={entry.id}
+                  className="mb-3 rounded-lg bg-white shadow-sm border border-slate-200 p-3 text-slate-800"
+                >
+                  <div className="text-xs text-slate-400 mb-1">
+                    {entry.timestamp}
+                  </div>
+                  <div className="text-lg leading-relaxed">{entry.text}</div>
+                </div>
+              ))}
+              <div ref={transcriptEndRef} />
+            </div>
+
+            <div style={controlsStyle}>
+              <button
+                className={buttonClass("primary")}
+                onClick={handlePauseResume}
+                style={{ minWidth: "160px" }}
+              >
+                {listening ? t("pauseListening") : t("startListening")}
+              </button>
+              <button
+                className={buttonClass()}
+                onClick={handleCopy}
+                disabled={!entries.length}
+              >
+                {t("copyNotes")}
+              </button>
+              <button
+                className={buttonClass()}
+                onClick={handleClear}
+                disabled={!entries.length}
+              >
+                {t("clearNotes")}
+              </button>
+            </div>
+          </>
+        )}
       </div>
 
       <p className="text-slate-500 text-sm mt-8 text-center max-w-md">

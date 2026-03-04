@@ -93,7 +93,12 @@ const resolveOfficePaymentMode = (table) => {
 
 const isActiveCustomerOrderStatus = (status) => {
   const normalized = String(status || "").trim();
-  return !!normalized && !["Paid", "Cancelled", "Returned", "Completed"].includes(normalized);
+  return (
+    !!normalized &&
+    !["Paid", "Cancelled", "Returned", "Served", "Completed"].includes(
+      normalized,
+    )
+  );
 };
 
 const checkVoiceSupport = (language) => {
@@ -218,6 +223,10 @@ export default function SecondPage() {
   );
   const selectedCartRef = useRef(null);
   const hasAutoStartedOfficeTakeawayRef = useRef(false);
+
+  const handleBlindAssistantOpen = useCallback(() => {
+    navigate("/blind-assistant");
+  }, [navigate]);
 
   // Check if this is a normal link (not from QR scan)
   // Pickup/Delivery should only show on normal links, not QR scans
@@ -741,7 +750,7 @@ export default function SecondPage() {
     const hasActiveOrder =
       existingOrderId &&
       existingOrderStatus &&
-      !["Paid", "Cancelled", "Returned", "Completed"].includes(
+      !["Paid", "Cancelled", "Returned", "Served", "Completed"].includes(
         existingOrderStatus,
       );
 
@@ -1019,7 +1028,7 @@ export default function SecondPage() {
           const hasActiveOrder =
             existingOrderId &&
             existingOrderStatus &&
-            !["Paid", "Cancelled", "Returned", "Completed"].includes(
+            !["Paid", "Cancelled", "Returned", "Served", "Completed"].includes(
               existingOrderStatus,
             );
 
@@ -1288,7 +1297,7 @@ export default function SecondPage() {
             const hasActiveOrder =
               existingOrderId &&
               existingOrderStatus &&
-              !["Paid", "Cancelled", "Returned", "Completed"].includes(
+              !["Paid", "Cancelled", "Returned", "Served", "Completed"].includes(
                 existingOrderStatus,
               );
 
@@ -1368,7 +1377,7 @@ export default function SecondPage() {
       const hasActiveOrder =
         existingOrderId &&
         existingOrderStatus &&
-        !["Paid", "Cancelled", "Returned", "Completed"].includes(
+        !["Paid", "Cancelled", "Returned", "Served", "Completed"].includes(
           existingOrderStatus,
         );
 
@@ -1557,7 +1566,7 @@ export default function SecondPage() {
 
         const isActiveStatus =
           existingTakeawayStatus &&
-          !["Cancelled", "Returned", "Paid", "Completed"].includes(
+          !["Cancelled", "Returned", "Paid", "Served", "Completed"].includes(
             existingTakeawayStatus,
           );
 
@@ -1607,7 +1616,7 @@ export default function SecondPage() {
       const hasActiveOrder =
         existingOrderId &&
         existingOrderStatus &&
-        !["Paid", "Cancelled", "Returned", "Completed"].includes(
+        !["Paid", "Cancelled", "Returned", "Served", "Completed"].includes(
           existingOrderStatus,
         );
 
@@ -2848,7 +2857,7 @@ export default function SecondPage() {
                   const hasActiveOrder =
                     existingOrderId &&
                     existingOrderStatus &&
-                    !["Paid", "Cancelled", "Returned", "Completed"].includes(
+                    !["Paid", "Cancelled", "Returned", "Served", "Completed"].includes(
                       existingOrderStatus,
                     );
 
@@ -3341,7 +3350,7 @@ export default function SecondPage() {
         <motion.button
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.9 }}
-          onClick={() => navigate("/blind-assistant")}
+          onClick={handleBlindAssistantOpen}
           className="fixed rounded-full shadow-lg bg-orange-500 text-white hover:bg-orange-600 focus:outline-none blind-eye-btn"
           style={{
             position: "fixed",

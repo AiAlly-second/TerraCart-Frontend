@@ -207,14 +207,31 @@ export default function Payment() {
       paymentGateOrderId === orderId,
     [paymentGateMode, paymentGateOrderId, orderId]
   );
+  const isCashGateCurrentOrder = useMemo(
+    () =>
+      paymentGateMode === "CASH" &&
+      !!orderId &&
+      paymentGateOrderId === orderId,
+    [paymentGateMode, paymentGateOrderId, orderId]
+  );
   const isPaymentGateCurrentOrder = useMemo(
-    () => forceOnlineForCurrentOrder || isChoiceGateCurrentOrder,
-    [forceOnlineForCurrentOrder, isChoiceGateCurrentOrder]
+    () =>
+      forceOnlineForCurrentOrder ||
+      isChoiceGateCurrentOrder ||
+      isCashGateCurrentOrder,
+    [forceOnlineForCurrentOrder, isChoiceGateCurrentOrder, isCashGateCurrentOrder]
   );
   const showOnlineOption = useMemo(() => {
     if (forceOnlineForCurrentOrder) return true;
+    if (isChoiceGateCurrentOrder) return true;
+    if (isCashGateCurrentOrder) return false;
     return officePaymentMode !== "COD";
-  }, [forceOnlineForCurrentOrder, officePaymentMode]);
+  }, [
+    forceOnlineForCurrentOrder,
+    isChoiceGateCurrentOrder,
+    isCashGateCurrentOrder,
+    officePaymentMode,
+  ]);
   const isPickupCashChoiceOrder = useMemo(() => {
     if (forceOnlineForCurrentOrder) return false;
     if (officePaymentMode === "ONLINE") return false;
@@ -222,16 +239,26 @@ export default function Payment() {
   }, [forceOnlineForCurrentOrder, officePaymentMode, serviceType]);
   const showCashOption = useMemo(() => {
     if (forceOnlineForCurrentOrder) return false;
+    if (isCashGateCurrentOrder || isChoiceGateCurrentOrder) return true;
     if (officePaymentMode === "ONLINE") return false;
     if (serviceType === "DELIVERY") return false;
     return true;
-  }, [forceOnlineForCurrentOrder, officePaymentMode, serviceType]);
+  }, [
+    forceOnlineForCurrentOrder,
+    isCashGateCurrentOrder,
+    isChoiceGateCurrentOrder,
+    officePaymentMode,
+    serviceType,
+  ]);
   const paymentModeHint = useMemo(() => {
     if (forceOnlineForCurrentOrder) {
       return "Online payment is required for this order. The order proceeds only after payment confirmation.";
     }
     if (isChoiceGateCurrentOrder) {
       return "Choose Online Payment or Cash. If you choose Online, your order proceeds after payment confirmation.";
+    }
+    if (isCashGateCurrentOrder) {
+      return "Cash confirmation is required to proceed with this order.";
     }
     if (officePaymentMode === "ONLINE") {
       return "This office QR allows online payment only.";
@@ -249,6 +276,7 @@ export default function Payment() {
   }, [
     forceOnlineForCurrentOrder,
     isChoiceGateCurrentOrder,
+    isCashGateCurrentOrder,
     officePaymentMode,
     isPickupCashChoiceOrder,
   ]);
@@ -627,7 +655,9 @@ export default function Payment() {
 
       if (
         method === "CASH" &&
-        (isChoiceGateCurrentOrder || isPickupCashChoiceOrder)
+        (isChoiceGateCurrentOrder ||
+          isCashGateCurrentOrder ||
+          isPickupCashChoiceOrder)
       ) {
         const currentServiceType =
           localStorage.getItem("terra_serviceType") || "DINE_IN";

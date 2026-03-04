@@ -147,20 +147,20 @@ const normalizeOrderStatus = (value) => {
     .toUpperCase()
     .replace(/_/g, " ")
     .replace(/\s+/g, " ");
-  if (!token) return "NEW";
+  if (!token) return "PREPARING";
   if (["NEW", "PENDING", "CONFIRMED", "ACCEPT", "ACCEPTED"].includes(token)) {
-    return "NEW";
+    return "PREPARING";
   }
   if (["PREPARING", "BEING PREPARED", "BEINGPREPARED"].includes(token)) {
     return "PREPARING";
   }
   if (token === "READY") return "READY";
+  if (token === "PAID") return "PAID";
   if (
     [
       "COMPLETED",
       "SERVED",
       "FINALIZED",
-      "PAID",
       "CANCELLED",
       "CANCELED",
       "RETURNED",
@@ -169,9 +169,9 @@ const normalizeOrderStatus = (value) => {
       "REJECTED",
     ].includes(token)
   ) {
-    return "COMPLETED";
+    return "SERVED";
   }
-  return "NEW";
+  return "PREPARING";
 };
 
 const normalizePaymentStatus = (value, { status, isPaid } = {}) => {
@@ -219,10 +219,10 @@ export default function OrderSummary() {
   );
 
   const statusMessages = {
-    NEW: "Order received",
     PREPARING: "Your food is being prepared",
     READY: "Your food is ready",
-    COMPLETED: "Order completed",
+    SERVED: "Order served",
+    PAID: "Order paid",
     CANCELLED: "Order has been cancelled",
     RETURNED:
       "Order has been returned. Please contact staff if you need assistance.",
@@ -544,7 +544,19 @@ export default function OrderSummary() {
   }
 
   const combinedItems = mergeOrderItems(order);
-  const displayStatus = normalizeOrderStatus(order.status);
+  const rawStatusToken = String(order.status || "").trim().toUpperCase();
+  const isCancelledOrReturned =
+    rawStatusToken === "CANCELLED" ||
+    rawStatusToken === "CANCELED" ||
+    rawStatusToken === "RETURNED";
+  const displayStatus =
+    !isCancelledOrReturned &&
+    normalizePaymentStatus(order.paymentStatus, {
+      status: order.status,
+      isPaid: order.isPaid,
+    }) === "PAID"
+      ? "PAID"
+      : normalizeOrderStatus(order.status);
   const totals = sumTotals(order, combinedItems);
   const totalQty = combinedItems.reduce((n, i) => n + i.quantity, 0);
   const isTakeaway = order.serviceType === "TAKEAWAY";
@@ -857,6 +869,8 @@ export default function OrderSummary() {
             <div className="mb-6">
               <OrderStatus
                 status={order.status}
+                paymentStatus={order.paymentStatus}
+                isPaid={order.isPaid}
                 updatedAt={order.updatedAt}
                 reason={terminalReason}
                 className="mb-2"

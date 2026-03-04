@@ -2,17 +2,17 @@ import React from "react";
 import "./OrderStatus.css";
 
 const DISPLAY_STEPS = [
-  { key: "NEW", label: "Order Placed" },
   { key: "PREPARING", label: "Preparing" },
   { key: "READY", label: "Ready" },
-  { key: "COMPLETED", label: "Completed" },
+  { key: "SERVED", label: "Served" },
+  { key: "PAID", label: "Paid" },
 ];
 
 const STATUS_TO_STEP_INDEX = {
-  NEW: 0,
-  PREPARING: 1,
-  READY: 2,
-  COMPLETED: 3,
+  PREPARING: 0,
+  READY: 1,
+  SERVED: 2,
+  PAID: 3,
 };
 
 const normalizeStatus = (value) => {
@@ -22,20 +22,20 @@ const normalizeStatus = (value) => {
     .replace(/_/g, " ")
     .replace(/\s+/g, " ");
 
-  if (!token) return "NEW";
+  if (!token) return "PREPARING";
   if (["NEW", "PENDING", "CONFIRMED", "ACCEPT", "ACCEPTED"].includes(token)) {
-    return "NEW";
+    return "PREPARING";
   }
   if (["PREPARING", "BEING PREPARED", "BEINGPREPARED"].includes(token)) {
     return "PREPARING";
   }
   if (token === "READY") return "READY";
+  if (token === "PAID") return "PAID";
   if (
     [
       "COMPLETED",
       "SERVED",
       "FINALIZED",
-      "PAID",
       "CANCELLED",
       "CANCELED",
       "RETURNED",
@@ -44,9 +44,9 @@ const normalizeStatus = (value) => {
       "REJECTED",
     ].includes(token)
   ) {
-    return "COMPLETED";
+    return "SERVED";
   }
-  return "NEW";
+  return "PREPARING";
 };
 
 const normalizeTerminalStatus = (value) => {
@@ -56,13 +56,17 @@ const normalizeTerminalStatus = (value) => {
 };
 
 export default function OrderStatus({
-  status = "NEW",
+  status = "PREPARING",
+  paymentStatus,
+  isPaid = false,
   className = "",
   updatedAt,
   tableLabel,
   reason,
 }) {
-  const normalizedStatus = normalizeStatus(status);
+  const paymentToken = String(paymentStatus || "").trim().toUpperCase();
+  const normalizedStatus =
+    paymentToken === "PAID" || isPaid === true ? "PAID" : normalizeStatus(status);
   const currentIndex = STATUS_TO_STEP_INDEX[normalizedStatus] ?? 0;
   const updatedLabel = updatedAt ? new Date(updatedAt).toLocaleTimeString() : null;
   const terminalStatus = normalizeTerminalStatus(status);

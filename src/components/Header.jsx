@@ -14,6 +14,7 @@ import {
 export default function Header({
   showNavigationTabs = true,
   isFixed = true,
+  onBack,
   onClickCart,
   cartCount = 0,
 }) {
@@ -74,6 +75,13 @@ export default function Header({
   const handleVoiceInput = async () => {
     // ... (Your voice input logic remains the same)
   };
+  const handleBack = () => {
+    if (typeof onBack === "function") {
+      onBack();
+      return;
+    }
+    navigate(-1);
+  };
 
   // CHANGE 2: Define conditional classes based on the 'isFixed' prop.
   const positionClasses = isFixed
@@ -91,7 +99,7 @@ export default function Header({
         <div className="w-full flex items-center justify-center relative h-20">
           {location.pathname !== "/" && (
             <button
-              onClick={() => navigate(-1)}
+              onClick={handleBack}
               className={`absolute left-4 p-2 rounded-full transition ${
                 accessibilityMode
                   ? "text-white hover:text-blue-400"

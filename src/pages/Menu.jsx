@@ -4078,9 +4078,24 @@ export default function MenuPage() {
             const orderData = await orderRes.json();
             // Keep order visible/active until it is both completed and paid.
             if (isOrderSettled(orderData)) {
-              alert(
-                "This order has been completed. Please create a new order.",
-              );
+              setActiveOrderId(null);
+              setOrderStatus(null);
+              setOrderPaymentStatus("PENDING");
+              setOrderStatusUpdatedAt(null);
+              setCurrentOrderDetail(null);
+              localStorage.removeItem("terra_orderId");
+              localStorage.removeItem("terra_orderId_DINE_IN");
+              localStorage.removeItem("terra_orderId_TAKEAWAY");
+              localStorage.removeItem("terra_orderStatus");
+              localStorage.removeItem("terra_orderStatus_DINE_IN");
+              localStorage.removeItem("terra_orderStatus_TAKEAWAY");
+              localStorage.removeItem("terra_orderStatusUpdatedAt");
+              localStorage.removeItem("terra_orderStatusUpdatedAt_DINE_IN");
+              localStorage.removeItem("terra_orderStatusUpdatedAt_TAKEAWAY");
+              localStorage.removeItem("terra_orderPaymentStatus");
+              setCart({});
+              clearScopedCart(currentServiceType);
+              alert("Previous order is settled. You can place a new order now.");
               return;
             }
 
@@ -4332,7 +4347,14 @@ export default function MenuPage() {
       } else {
         // If no order returned but we have an activeOrderId, keep the existing order status
         // Don't clear it - the user might be ordering more items to the same order
-        if (activeOrderId) {
+        if (
+          activeOrderId &&
+          !isOrderSettled({
+            status: orderStatus,
+            paymentStatus: orderPaymentStatus,
+            isPaid: currentOrderDetail?.isPaid,
+          })
+        ) {
           // Keep existing order status - user is adding more items to existing order
           console.log(
             "No order returned from table lookup, keeping existing order status",
@@ -6737,14 +6759,7 @@ export default function MenuPage() {
                     <button
                       className="confirm-button"
                       onClick={handleOrderAgain}
-                      disabled={
-                        reordering ||
-                        isOrderSettled({
-                          status: orderStatus,
-                          paymentStatus: orderPaymentStatus,
-                          isPaid: currentOrderDetail?.isPaid,
-                        })
-                      }
+                      disabled={reordering}
                     >
                       {reordering ? "Please wait..." : "Order More"}
                     </button>

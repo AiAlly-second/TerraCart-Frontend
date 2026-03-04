@@ -11,6 +11,7 @@ import {
   buildSocketIdentityPayload,
   ensureAnonymousSessionId,
 } from "../utils/anonymousSession";
+import { notifyOrderStatusUpdate } from "../utils/orderStatusNotifications";
 import "./OrderSummary.css";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
@@ -384,6 +385,12 @@ export default function OrderSummary() {
             cartId: updatedOrder?.cartId || prev?.cartId || null,
           }));
         }
+        notifyOrderStatusUpdate({
+          orderId: payloadOrderId || orderId,
+          status: normalizedStatus,
+          paymentStatus: normalizedPaymentStatus,
+          serviceType: updatedOrder?.serviceType || "DINE_IN",
+        });
 
         // Handle cancellation / return
         const terminalStatus = String(updatedOrder?.status || "").toUpperCase();

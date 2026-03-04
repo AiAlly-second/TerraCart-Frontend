@@ -96,6 +96,8 @@ export default function Landing() {
       localStorage.removeItem("terra_takeaway_customerName");
       localStorage.removeItem("terra_takeaway_customerMobile");
       localStorage.removeItem("terra_takeaway_customerEmail");
+      // Also clear stale delivery location from previous users.
+      localStorage.removeItem("terra_customerLocation");
       localStorage.setItem("terra_serviceType", "TAKEAWAY");
       const takeawaySessionToken = `TAKEAWAY-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       localStorage.setItem("terra_takeaway_sessionToken", takeawaySessionToken);
@@ -676,9 +678,15 @@ export default function Landing() {
         localStorage.removeItem("terra_takeaway_cartId");
         localStorage.removeItem("terra_takeaway_only");
 
-        // CRITICAL: Explicitly set serviceType to DINE_IN when table QR is scanned
-        // This prevents Menu.jsx from detecting stale takeaway orders and redirecting
-        localStorage.setItem("terra_serviceType", "DINE_IN");
+        const qrContextType =
+          tableData.qrContextType === "OFFICE" ? "OFFICE" : "TABLE";
+
+        // TABLE QR -> DINE_IN default, OFFICE QR -> TAKEAWAY default
+        // Office QRs are fixed customer QRs and should not enter table waitlist/dine flow.
+        localStorage.setItem(
+          "terra_serviceType",
+          qrContextType === "OFFICE" ? "TAKEAWAY" : "DINE_IN",
+        );
 
         // CRITICAL: Store table data with all required fields
         // Ensure we include id, number, qrSlug, cartId, and status for proper table identification
@@ -698,6 +706,14 @@ export default function Landing() {
           originalCapacity: tableData.originalCapacity || null,
           sessionToken: tableData.sessionToken || null,
           currentOrder: tableData.currentOrder || null,
+          qrContextType,
+          officeName: tableData.officeName || null,
+          officeAddress: tableData.officeAddress || null,
+          officePhone: tableData.officePhone || null,
+          officeDeliveryCharge: Number(tableData.officeDeliveryCharge || 0),
+          officePaymentMode:
+            // Business rule: OFFICE QR orders are prepaid-only for now.
+            "ONLINE",
         };
 
         // CRITICAL: Validate table number matches what we expect
@@ -742,6 +758,14 @@ export default function Landing() {
           } catch (e) {
             console.error("[Landing] Failed to verify stored table data:", e);
           }
+        }
+
+        // OFFICE QR is takeaway-only: skip all table/waitlist logic.
+        if (qrContextType === "OFFICE") {
+          localStorage.removeItem("terra_waitToken");
+          localStorage.removeItem("terra_sessionToken");
+          sessionStorage.removeItem("terra_table_param");
+          return;
         }
 
         // STRONG LOGIC: Check table status from response
@@ -1301,4 +1325,3 @@ export default function Landing() {
     </div>
   );
 }
-

@@ -29,6 +29,11 @@ export function buildOrderPayload(cart, options = {}) {
     selectedAddons = [], // Array of { name, price, addonId }
     anonymousSessionId,
     sourceQrContext,
+    sourceQrType,
+    officeName,
+    officeDeliveryCharge,
+    officePaymentMode,
+    paymentRequiredBeforeProceeding,
   } = options;
   const items = Object.entries(cart)
     .filter(([name, quantity]) => {
@@ -147,6 +152,10 @@ export function buildOrderPayload(cart, options = {}) {
     totalAmount,
   };
 
+  if (paymentRequiredBeforeProceeding === true) {
+    payload.paymentRequiredBeforeProceeding = true;
+  }
+
   const normalizedAnonymousSessionId = String(
     anonymousSessionId || ""
   ).trim();
@@ -195,6 +204,12 @@ export function buildOrderPayload(cart, options = {}) {
     serviceType === "PICKUP" ||
     serviceType === "DELIVERY"
   ) {
+    // Keep table reference when available so backend can infer QR context safely.
+    if (tableId) payload.tableId = tableId;
+    if (tableNumber !== undefined && tableNumber !== null) {
+      payload.tableNumber = String(tableNumber);
+    }
+
     // PICKUP/DELIVERY orders don't need table information
     // Set serviceType and orderType.
     // Fallback: if orderType is missing but serviceType is PICKUP/DELIVERY, preserve subtype from serviceType.
@@ -232,6 +247,26 @@ export function buildOrderPayload(cart, options = {}) {
 
     // Include cartId (required for PICKUP/DELIVERY)
     if (cartId) payload.cartId = cartId;
+
+    if (sourceQrType === "OFFICE") {
+      payload.sourceQrType = "OFFICE";
+      if (officeName && String(officeName).trim()) {
+        payload.officeName = String(officeName).trim();
+      }
+      const normalizedOfficePaymentMode = String(officePaymentMode || "")
+        .trim()
+        .toUpperCase();
+      payload.officePaymentMode =
+        normalizedOfficePaymentMode === "COD"
+          ? "COD"
+          : normalizedOfficePaymentMode === "BOTH"
+            ? "BOTH"
+            : "ONLINE";
+    }
+    const officeChargeValue = Number(officeDeliveryCharge);
+    if (Number.isFinite(officeChargeValue) && officeChargeValue > 0) {
+      payload.officeDeliveryCharge = Number(officeChargeValue.toFixed(2));
+    }
   } else {
     payload.tableNumber = String(tableNumber || "TAKEAWAY");
   }

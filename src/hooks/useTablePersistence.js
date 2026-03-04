@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
+import { useLocation, useSearchParams } from 'react-router-dom';
 
 /**
  * Custom hook to persist table parameter across navigation
@@ -9,9 +9,48 @@ import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 export const useTablePersistence = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
-  const navigate = useNavigate();
+
+  const isOfficeQrContext = () => {
+    try {
+      const storedTable = localStorage.getItem('terra_selectedTable');
+      if (!storedTable) return false;
+      const parsed = JSON.parse(storedTable);
+      if (!parsed || typeof parsed !== 'object') return false;
+      if (parsed.qrContextType === 'OFFICE') return true;
+
+      const hasOfficeName = String(parsed.officeName || '').trim().length > 0;
+      const hasOfficeAddress =
+        String(parsed.officeAddress || '').trim().length > 0;
+      const hasOfficePhone = String(parsed.officePhone || '').trim().length > 0;
+      const hasOfficeDeliveryCharge =
+        Number(parsed.officeDeliveryCharge || 0) > 0;
+      return (
+        hasOfficeName ||
+        hasOfficeAddress ||
+        hasOfficePhone ||
+        hasOfficeDeliveryCharge
+      );
+    } catch {
+      return false;
+    }
+  };
 
   useEffect(() => {
+    // Office QR is takeaway-only: never persist table query params across pages.
+    if (isOfficeQrContext()) {
+      if (sessionStorage.getItem('terra_table_param')) {
+        sessionStorage.removeItem('terra_table_param');
+        console.log('[TablePersistence] Office QR detected, cleared persisted table parameter');
+      }
+
+      if (searchParams.get('table') && location.pathname !== '/') {
+        const newParams = new URLSearchParams(searchParams);
+        newParams.delete('table');
+        setSearchParams(newParams, { replace: true });
+      }
+      return;
+    }
+
     // Get table parameter from URL
     const tableParam = searchParams.get('table');
 
@@ -47,6 +86,7 @@ export const useTablePersistence = () => {
 
   // Get the current table parameter
   const getTableParam = () => {
+    if (isOfficeQrContext()) return null;
     return searchParams.get('table') || sessionStorage.getItem('terra_table_param');
   };
 

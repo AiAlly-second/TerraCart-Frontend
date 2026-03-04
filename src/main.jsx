@@ -7,6 +7,7 @@ import {
   buildIdentityHeaders,
   ensureAnonymousSessionId,
 } from "./utils/anonymousSession";
+import { initializeCustomerPush } from "./services/customerPushService";
 
 const nodeApiBase = (
   import.meta.env.VITE_NODE_API_URL || "http://localhost:5001"
@@ -20,6 +21,11 @@ const shouldAttachIdentityHeaders = (url) => {
 };
 
 ensureAnonymousSessionId();
+initializeCustomerPush().catch((error) => {
+  if (import.meta.env.DEV) {
+    console.warn("[Push] Customer push init skipped:", error);
+  }
+});
 
 if (typeof window !== "undefined" && !window.__terraIdentityFetchPatched) {
   const originalFetch = window.fetch.bind(window);

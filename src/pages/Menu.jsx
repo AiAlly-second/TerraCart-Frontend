@@ -28,6 +28,8 @@ import {
   buildSocketIdentityPayload,
   ensureAnonymousSessionId,
 } from "../utils/anonymousSession";
+import { refreshCustomerPushToken } from "../services/customerPushService";
+import { notifyOrderStatusUpdate } from "../utils/orderStatusNotifications";
 // import AccessibilityFooter from "../components/AccessibilityFooter";
 const nodeApi = (
   import.meta.env.VITE_NODE_API_URL || "http://localhost:5001"
@@ -131,6 +133,31 @@ const shouldPreserveOrderStateWithoutActiveId = ({
 
 const isTakeawayLikeServiceType = (value) =>
   TAKEAWAY_LIKE_SERVICE_TYPES.includes(normalizeServiceType(value));
+const hasOfficeQrMetadata = (tableContext) => {
+  if (!tableContext || typeof tableContext !== "object") return false;
+  if (tableContext.qrContextType === "OFFICE") return true;
+
+  const hasOfficeName = String(tableContext.officeName || "").trim().length > 0;
+  const hasOfficeAddress =
+    String(tableContext.officeAddress || "").trim().length > 0;
+  const hasOfficePhone =
+    String(tableContext.officePhone || "").trim().length > 0;
+  const hasOfficeDeliveryCharge =
+    Number(tableContext.officeDeliveryCharge || 0) > 0;
+
+  return (
+    hasOfficeName ||
+    hasOfficeAddress ||
+    hasOfficePhone ||
+    hasOfficeDeliveryCharge
+  );
+};
+
+const resolveOfficePaymentMode = (tableContext) => {
+  if (!hasOfficeQrMetadata(tableContext)) return null;
+  // Business rule: OFFICE QR orders are prepaid-only for now.
+  return "ONLINE";
+};
 
 const paiseToRupees = (value) => {
   if (value === undefined || value === null) return 0;
@@ -311,7 +338,13 @@ const aggregateOrderItems = (order) => {
 
 const computeOrderTotals = (order, aggregatedItems) => {
   if (!order) {
-    return { subtotal: 0, gst: 0, totalAmount: 0, totalItems: 0 };
+    return {
+      subtotal: 0,
+      gst: 0,
+      officeDeliveryCharge: 0,
+      totalAmount: 0,
+      totalItems: 0,
+    };
   }
   const items = Array.isArray(aggregatedItems)
     ? aggregatedItems
@@ -329,13 +362,18 @@ const computeOrderTotals = (order, aggregatedItems) => {
 
   // No GST calculation
   const gst = 0;
+  const officeDeliveryChargeRaw = Number(order?.officeDeliveryCharge);
+  const officeDeliveryCharge =
+    Number.isFinite(officeDeliveryChargeRaw) && officeDeliveryChargeRaw > 0
+      ? Number(officeDeliveryChargeRaw.toFixed(2))
+      : 0;
 
-  // Total amount equals subtotal (no GST added)
-  const totalAmount = subtotalRounded;
+  const totalAmount = Number((subtotalRounded + officeDeliveryCharge).toFixed(2));
 
   return {
     subtotal: subtotalRounded,
     gst: gst,
+    officeDeliveryCharge,
     totalAmount: totalAmount,
     totalItems: items.reduce((sum, item) => {
       if (!item) return sum;
@@ -617,7 +655,7 @@ export default function MenuPage() {
     normalizeLang(localStorage.getItem("language") || "en")
   );
 
-  // Listen for storage changes to update language (no remount – menu stays loaded)
+  // Listen for storage changes to update language (no remount - menu stays loaded)
   useEffect(() => {
     const handleStorageChange = () => {
       setLang(normalizeLang(localStorage.getItem("language") || "en"));
@@ -694,7 +732,6 @@ export default function MenuPage() {
   const [reordering, setReordering] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [returning, setReturning] = useState(false);
-  const [confirmingPayment, setConfirmingPayment] = useState(false);
   const [isOrderingMore, setIsOrderingMore] = useState(false);
   const [openCategory, setOpenCategory] = useState(null);
   const [showCart, setShowCart] = useState(false);
@@ -822,6 +859,18 @@ export default function MenuPage() {
   const [sessionToken, setSessionToken] = useState(() =>
     localStorage.getItem("terra_sessionToken"),
   );
+  const isOfficeQrFlow = hasOfficeQrMetadata(tableInfo);
+
+  // Office QR is takeaway-only. Enforce takeaway service mode and clear waitlist state.
+  useEffect(() => {
+    if (!isOfficeQrFlow) return;
+    if (serviceType !== "TAKEAWAY") {
+      setServiceType("TAKEAWAY");
+    }
+    localStorage.setItem(SERVICE_TYPE_KEY, "TAKEAWAY");
+    localStorage.removeItem("terra_orderType");
+    localStorage.removeItem("terra_waitToken");
+  }, [isOfficeQrFlow, serviceType]);
 
   useEffect(() => {
     const scopedCart = readScopedCart(serviceType);
@@ -1069,7 +1118,7 @@ export default function MenuPage() {
     };
   }, [serviceType, activeOrderId]);
 
-  // Customer name form removed for all takeaway flows (global takeaway, normal link, table takeaway) – no redirect
+  // Customer name form removed for all takeaway flows (global takeaway, normal link, table takeaway) - no redirect
   useEffect(() => {
     if (serviceType === "DINE_IN") return;
     return;
@@ -1208,7 +1257,13 @@ export default function MenuPage() {
     () =>
       invoiceOrder
         ? computeOrderTotals(invoiceOrder, invoiceItems)
-        : { subtotal: 0, gst: 0, totalAmount: 0, totalItems: 0 },
+        : {
+            subtotal: 0,
+            gst: 0,
+            officeDeliveryCharge: 0,
+            totalAmount: 0,
+            totalItems: 0,
+          },
     [invoiceOrder, invoiceItems],
   );
 
@@ -1236,7 +1291,13 @@ export default function MenuPage() {
     () =>
       previousOrderDetail
         ? computeOrderTotals(previousOrderDetail, previousDetailItems)
-        : { subtotal: 0, gst: 0, totalAmount: 0, totalItems: 0 },
+        : {
+            subtotal: 0,
+            gst: 0,
+            officeDeliveryCharge: 0,
+            totalAmount: 0,
+            totalItems: 0,
+          },
     [previousOrderDetail, previousDetailItems],
   );
 
@@ -1279,11 +1340,28 @@ export default function MenuPage() {
   const takeawayTokenForDisplay = useMemo(() => {
     const token =
       currentOrderDetail?.takeawayToken ??
-      previousOrderDetail?.takeawayToken ??
-      takeawayTokenPreview;
-    return token !== undefined && token !== null && token !== "" ? token : null;
-  }, [currentOrderDetail, previousOrderDetail, takeawayTokenPreview]);
-
+      previousOrderDetail?.takeawayToken;
+    if ((token === undefined || token === null || token === "") && !orderStatus) {
+      return null;
+    }
+    const fallbackPreview =
+      takeawayTokenPreview !== undefined &&
+      takeawayTokenPreview !== null &&
+      takeawayTokenPreview !== ""
+        ? takeawayTokenPreview
+        : null;
+    const resolvedToken = token ?? fallbackPreview;
+    return resolvedToken !== undefined &&
+      resolvedToken !== null &&
+      resolvedToken !== ""
+      ? resolvedToken
+      : null;
+  }, [
+    currentOrderDetail,
+    previousOrderDetail,
+    orderStatus,
+    takeawayTokenPreview,
+  ]);
   const menuHeading = t("manualEntry", "Menu");
   const smartServe = t("smartServe", "Smart Serve");
   const aiOrdered = t("aiOrdered", "AI Ordered:");
@@ -1417,6 +1495,20 @@ export default function MenuPage() {
 
     // CRITICAL: Check waitlist status - block access if user is in WAITING status
     const checkWaitlistAccess = async () => {
+      const selectedTableRaw = localStorage.getItem("terra_selectedTable");
+      if (selectedTableRaw) {
+        try {
+          const selectedTable = JSON.parse(selectedTableRaw);
+          if (hasOfficeQrMetadata(selectedTable)) {
+            localStorage.setItem(SERVICE_TYPE_KEY, "TAKEAWAY");
+            localStorage.removeItem("terra_waitToken");
+            return true;
+          }
+        } catch {
+          // Ignore parse errors and continue with default flow
+        }
+      }
+
       const currentServiceType =
         localStorage.getItem(SERVICE_TYPE_KEY) ||
         location.state?.serviceType ||
@@ -1578,6 +1670,20 @@ export default function MenuPage() {
     // CRITICAL: Mark table as OCCUPIED ONLY when user enters menu page for DINE_IN (not on landing/second page)
     const markTableOccupied = async () => {
       try {
+        const selectedTableRaw = localStorage.getItem("terra_selectedTable");
+        if (selectedTableRaw) {
+          try {
+            const selectedTable = JSON.parse(selectedTableRaw);
+            if (hasOfficeQrMetadata(selectedTable)) {
+              localStorage.setItem(SERVICE_TYPE_KEY, "TAKEAWAY");
+              localStorage.removeItem("terra_waitToken");
+              return;
+            }
+          } catch {
+            // Ignore parse errors and continue with default flow
+          }
+        }
+
         // IMPORTANT: Only mark table as occupied for DINE_IN orders.
         const currentServiceType = normalizeServiceType(
           localStorage.getItem(SERVICE_TYPE_KEY) ||
@@ -2108,14 +2214,9 @@ export default function MenuPage() {
         const currentServiceType = normalizeServiceType(
           localStorage.getItem(SERVICE_TYPE_KEY) || serviceType || "DINE_IN",
         );
-        const storedOrderType = normalizeServiceType(
-          localStorage.getItem("terra_orderType") || "",
-        );
         const isPickupOrDeliveryFlow =
           currentServiceType === "PICKUP" ||
-          currentServiceType === "DELIVERY" ||
-          storedOrderType === "PICKUP" ||
-          storedOrderType === "DELIVERY";
+          currentServiceType === "DELIVERY";
 
         const selectedCartId = localStorage.getItem("terra_selectedCartId");
         const qrCartId = localStorage.getItem("terra_takeaway_cartId");
@@ -2553,6 +2654,13 @@ export default function MenuPage() {
         return;
       }
 
+      // OFFICE QR: enforce checkout/payment from View Cart flow.
+      if (isOfficeQrFlow) {
+        setProcessOpen(false);
+        navigate("/cart");
+        return;
+      }
+
       // Proceed with order creation
       await proceedWithOrder();
     } finally {
@@ -2700,12 +2808,12 @@ export default function MenuPage() {
       // Get order type and location for PICKUP/DELIVERY (only for non-DINE_IN orders)
       // CRITICAL: Only read orderType for TAKEAWAY/PICKUP/DELIVERY, not for DINE_IN
       // This prevents leftover orderType values from previous orders affecting DINE_IN orders
-      const storedOrderType =
-        serviceType !== "DINE_IN"
-          ? localStorage.getItem("terra_orderType") || null
-          : null; // PICKUP or DELIVERY (only for non-DINE_IN)
       const isPickupOrDeliveryServiceType =
         serviceType === "PICKUP" || serviceType === "DELIVERY";
+      const storedOrderType =
+        isPickupOrDeliveryServiceType
+          ? localStorage.getItem("terra_orderType") || null
+          : null; // PICKUP or DELIVERY (only for pickup/delivery flow)
       // Robust fallback: preserve subtype from serviceType if localStorage orderType is missing.
       const effectiveOrderType =
         storedOrderType === "PICKUP" || storedOrderType === "DELIVERY"
@@ -2715,12 +2823,30 @@ export default function MenuPage() {
             : null;
       const isTakeawayServiceMode =
         serviceType === "TAKEAWAY" || isPickupOrDeliveryServiceType;
+      const tableContextForOrder =
+        refreshedTableInfo ||
+        tableInfo ||
+        (() => {
+          try {
+            const raw = localStorage.getItem(TABLE_SELECTION_KEY);
+            return raw ? JSON.parse(raw) : null;
+          } catch {
+            return null;
+          }
+        })();
+      const isOfficeQrFlow = hasOfficeQrMetadata(tableContextForOrder);
+      const officePaymentMode = resolveOfficePaymentMode(tableContextForOrder);
       const requiresImmediatePayment =
-        effectiveOrderType === "PICKUP" || effectiveOrderType === "DELIVERY";
-      const customerLocationStr =
-        serviceType !== "DINE_IN"
-          ? localStorage.getItem("terra_customerLocation")
-          : null;
+        effectiveOrderType === "PICKUP" ||
+        effectiveOrderType === "DELIVERY" ||
+        (isOfficeQrFlow && officePaymentMode === "ONLINE");
+      const shouldIncludeCustomerLocation =
+        effectiveOrderType === "PICKUP" ||
+        effectiveOrderType === "DELIVERY" ||
+        isOfficeQrFlow;
+      const customerLocationStr = shouldIncludeCustomerLocation
+        ? localStorage.getItem("terra_customerLocation")
+        : null;
       let customerLocation = null;
       if (customerLocationStr) {
         try {
@@ -2742,7 +2868,9 @@ export default function MenuPage() {
         effectiveOrderType === "PICKUP" ||
         effectiveOrderType === "DELIVERY";
       const shouldIncludeCustomerInfo =
-        effectiveOrderType === "PICKUP" || effectiveOrderType === "DELIVERY";
+        effectiveOrderType === "PICKUP" ||
+        effectiveOrderType === "DELIVERY" ||
+        isOfficeQrFlow;
       const storedCustomerName = isTakeawayType
         ? localStorage.getItem("terra_takeaway_customerName") || ""
         : "";
@@ -2959,6 +3087,14 @@ export default function MenuPage() {
           shouldIncludeCustomerInfo && storedCustomerEmail?.trim()
             ? storedCustomerEmail.trim()
             : undefined,
+        sourceQrType: isOfficeQrFlow ? "OFFICE" : "TABLE",
+        officeName: isOfficeQrFlow
+          ? String(tableContextForOrder?.officeName || "").trim() || undefined
+          : undefined,
+        officeDeliveryCharge: isOfficeQrFlow
+          ? Number(tableContextForOrder?.officeDeliveryCharge || 0)
+          : undefined,
+        officePaymentMode: officePaymentMode || undefined,
         // Include cartId for takeaway/pickup/delivery orders
         cartId:
           isTakeawayType || effectiveOrderType
@@ -3266,7 +3402,7 @@ export default function MenuPage() {
         console.log("[Menu] Order created successfully:", data._id);
         // Continue to success flow below
       } else {
-        // Backend failed → mark error on step 2
+        // Backend failed -> mark error on step 2
         setStepState(2, "error");
 
         // Handle 403 Forbidden errors
@@ -3403,6 +3539,9 @@ export default function MenuPage() {
       setOrderPaymentStatus(normalizedPaymentStatus);
       setOrderStatusUpdatedAt(new Date().toISOString());
       setCurrentOrderDetail(data);
+      refreshCustomerPushToken().catch(() => {
+        // Best effort only; order flow must not fail for push setup issues.
+      });
 
       // Store status in service-type-specific keys
       if (isTakeawayServiceMode) {
@@ -3430,8 +3569,7 @@ export default function MenuPage() {
         persistPreviousOrderDetail(data);
       }
 
-      // Clear cart for dine-in and regular takeaway.
-      // Keep cart only for pickup/delivery until payment completes.
+      // Keep cart for payment-first flows until payment page completes.
       if (!requiresImmediatePayment) {
         setCart({});
         clearScopedCart(serviceType);
@@ -3462,16 +3600,16 @@ export default function MenuPage() {
       // await wait(DUR.summary);
       setStepState(4, "done");
 
-      // For pickup/delivery: payment is compulsory — redirect to Payment page
+      // For payment-first takeaway/delivery flows, move to payment page.
       if (requiresImmediatePayment) {
         setProcessOpen(false);
         navigate("/payment");
         return;
       }
-      // Dine-in: close overlay and stay on Menu page
+      // Dine-in and non-payment-first flows stay on Menu page.
       setProcessOpen(false);
     } catch (err) {
-      // Network or unexpected error → mark backend step as error
+      // Network or unexpected error -> mark backend step as error
       setStepState(2, "error");
       alert("❌ Server Error");
       console.error(err);
@@ -3521,12 +3659,12 @@ export default function MenuPage() {
       recognition.onstart = () => {
         setRecording(true);
         setOrderText("");
-        console.log("🎤 Voice recognition started");
+        console.log("ðŸŽ¤ Voice recognition started");
       };
 
       recognition.onresult = async (event) => {
         const transcript = event.results[0][0].transcript;
-        console.log("📝 Transcribed:", transcript);
+        console.log("ðŸ“ Transcribed:", transcript);
         setOrderText(transcript);
         setRecording(false);
 
@@ -4383,80 +4521,6 @@ export default function MenuPage() {
     }
   };
 
-  const handleConfirmPayment = async () => {
-    if (!activeOrderId) {
-      alert("No active order found.");
-      return;
-    }
-    if (
-      !(await window.confirm(
-        "Confirm that payment has been completed for this order?",
-      ))
-    ) {
-      return;
-    }
-
-    setConfirmingPayment(true);
-    try {
-      const sessionToken = localStorage.getItem("terra_sessionToken");
-      const res = await fetch(
-        `${nodeApi}/api/orders/${activeOrderId}/confirm-payment`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            paymentMethod: "CASH",
-            sessionToken:
-              serviceType === "DINE_IN" ? sessionToken || undefined : undefined,
-          }),
-        },
-      );
-
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data?.message || "Failed to confirm payment");
-      }
-
-      const updatedOrder = data?._id ? data : null;
-      const updatedAt = updatedOrder?.updatedAt || new Date().toISOString();
-
-      capturePreviousOrder({
-        orderId: updatedOrder?._id,
-        status: "COMPLETED",
-        updatedAt,
-        tableNumber:
-          updatedOrder?.tableNumber ??
-          tableInfo?.number ??
-          tableInfo?.tableNumber ??
-          null,
-        tableSlug:
-          updatedOrder?.table?.qrSlug ??
-          tableInfo?.qrSlug ??
-          localStorage.getItem("terra_scanToken") ??
-          null,
-        tableInfo: updatedOrder?.table || tableInfo,
-      });
-
-      if (updatedOrder) {
-        persistPreviousOrderDetail(updatedOrder);
-      }
-
-      setOrderStatus("COMPLETED");
-      setOrderPaymentStatus("PAID");
-      setOrderStatusUpdatedAt(updatedAt);
-      localStorage.setItem("terra_orderStatus", "COMPLETED");
-      localStorage.setItem("terra_orderPaymentStatus", "PAID");
-      localStorage.setItem("terra_orderStatusUpdatedAt", updatedAt);
-      localStorage.setItem("terra_lastPaidOrderId", activeOrderId);
-      alert("Payment confirmed successfully!");
-    } catch (err) {
-      console.error("handleConfirmPayment error", err);
-      alert(err.message || "Unable to confirm payment. Please contact staff.");
-    } finally {
-      setConfirmingPayment(false);
-    }
-  };
-
   const handleViewInvoice = useCallback(async () => {
     if (!activeOrderId) {
       alert("We couldn't locate your order. Please contact staff.");
@@ -4471,7 +4535,7 @@ export default function MenuPage() {
       }
 
       // Debug logging
-      console.log("📄 Invoice order data:", {
+      console.log("ðŸ“„ Invoice order data:", {
         orderId: data._id,
         franchiseId: data.franchiseId,
         cafeId: data.cafeId,
@@ -4909,21 +4973,21 @@ export default function MenuPage() {
       "checkout",
       "submit order",
       "confirm my order",
-      "ऑर्डर कन्फर्म",
-      "ऑर्डर करो",
-      "ऑर्डर प्लेस",
-      "ऑર્ડર कન્ફર્મ",
-      "ઓર્ડર મૂકો",
+      "à¤‘à¤°à¥à¤¡à¤° à¤•à¤¨à¥à¤«à¤°à¥à¤®",
+      "à¤‘à¤°à¥à¤¡à¤° à¤•à¤°à¥‹",
+      "à¤‘à¤°à¥à¤¡à¤° à¤ªà¥à¤²à¥‡à¤¸",
+      "à¤‘àª°à«àª¡àª° à¤•àª¨à«àª«àª°à«àª®",
+      "àª“àª°à«àª¡àª° àª®à«‚àª•à«‹",
     ];
-    const cartKeywords = ["open cart", "show cart", "go to cart", "cart kholo", "कार्ट", "કાર્ટ"];
+    const cartKeywords = ["open cart", "show cart", "go to cart", "cart kholo", "à¤•à¤¾à¤°à¥à¤Ÿ", "àª•àª¾àª°à«àªŸ"];
     const clearCartKeywords = [
       "clear cart",
       "empty cart",
       "reset cart",
       "remove all",
       "cart clear",
-      "कार्ट खाली",
-      "કાર્ટ ખાલી",
+      "à¤•à¤¾à¤°à¥à¤Ÿ à¤–à¤¾à¤²à¥€",
+      "àª•àª¾àª°à«àªŸ àª–àª¾àª²à«€",
     ];
 
     if (allowStop && contains(stopKeywords)) {
@@ -5507,6 +5571,12 @@ export default function MenuPage() {
         setOrderStatus(normalizedStatus);
         setOrderPaymentStatus(normalizedPaymentStatus);
         setOrderStatusUpdatedAt(nowIso);
+        notifyOrderStatusUpdate({
+          orderId: payloadOrderId || orderId,
+          status: normalizedStatus,
+          paymentStatus: normalizedPaymentStatus,
+          serviceType: payload.serviceType || currentServiceType,
+        });
         const hasRichOrderShape =
           Array.isArray(payload.kotLines) ||
           payload.table ||
@@ -5807,7 +5877,7 @@ export default function MenuPage() {
     if (socket) {
       socket.on("order_status_updated", handleOrderUpdated);
       socket.on("order:upsert", handleOrderUpdated);
-      // socket.on("ORDER_ACCEPTED", handleOrderAccepted);
+      socket.on("ORDER_ACCEPTED", handleOrderAccepted);
       socket.on("orderDeleted", handleOrderDeleted);
       socket.on("table:status:updated", handleTableStatusUpdated);
     }
@@ -5817,7 +5887,7 @@ export default function MenuPage() {
       if (socket) {
         socket.off("order_status_updated", handleOrderUpdated);
         socket.off("order:upsert", handleOrderUpdated);
-        // socket.off("ORDER_ACCEPTED", handleOrderAccepted);
+        socket.off("ORDER_ACCEPTED", handleOrderAccepted);
         socket.off("orderDeleted", handleOrderDeleted);
         socket.off("table:status:updated", handleTableStatusUpdated);
         socket.off("reconnect");
@@ -6050,7 +6120,7 @@ export default function MenuPage() {
                   <div className="order-header-badge">
                     {serviceType === "DINE_IN" ? (
                       <>
-                        <span className="order-header-icon">📍</span>
+                        <span className="order-header-icon">ðŸ“</span>
                         <span>
                           {tableInfo?.number
                             ? `${t("dineIn", "Dine-In")} - ${t("table", "Table")} ${tableInfo.number}`
@@ -6063,7 +6133,7 @@ export default function MenuPage() {
                   </div>
                   {serviceType === "DINE_IN" && (
                     <div className="guest-count-badge">
-                      <span className="guest-icon">👥</span>
+                      <span className="guest-icon">ðŸ‘¥</span>
                       <span>
                         {tableInfo?.seats || tableInfo?.capacity || 2}
                       </span>
@@ -6288,7 +6358,7 @@ export default function MenuPage() {
                       {reordering ? "Please wait..." : "Order More"}
                     </button>
 
-                    {/* Row 2, Col 2: Complete Payment / Confirm Payment Button */}
+                    {/* Row 2, Col 2: Post-settlement action */}
                     {(() => {
                       const normalizedStatus = normalizeOrderStatus(orderStatus);
                       const normalizedPaymentStatus = normalizePaymentStatus(
@@ -6306,36 +6376,7 @@ export default function MenuPage() {
                         isPaid: currentOrderDetail?.isPaid,
                       });
 
-                      if (
-                        normalizedStatus === "COMPLETED" &&
-                        normalizedPaymentStatus !== "PAID" &&
-                        !isCancelledOrReturned
-                      ) {
-                        return (
-                          <button
-                            className="billing-button"
-                            onClick={handleConfirmPayment}
-                            disabled={confirmingPayment}
-                          >
-                            {confirmingPayment
-                              ? "Confirming..."
-                              : "Confirm Payment"}
-                          </button>
-                        );
-                      }
-                      if (!isCancelledOrReturned && !isSettled) {
-                        return (
-                          <button
-                            className="complete-payment-button"
-                            onClick={() => {
-                              // Always navigate to billing page for payment flow
-                              navigate("/billing");
-                            }}
-                          >
-                            Payment
-                          </button>
-                        );
-                      }
+                      if (!isCancelledOrReturned && !isSettled) return null;
                       if (isSettled) {
                         const orderId =
                           activeOrderId ||
@@ -6505,7 +6546,7 @@ export default function MenuPage() {
               {/* Filter Pills - Commented out as per request */}
               {/* <div className="filter-pills-container">
                 <button className="filter-pill veg-filter">
-                  <span className="filter-icon">🌿</span>
+                  <span className="filter-icon">ðŸŒ¿</span>
                   <span>{t("vegOnly", "Veg Only")}</span>
                 </button>
                 <button className="filter-pill popular-filter">
@@ -6514,7 +6555,7 @@ export default function MenuPage() {
 
                 </button>
                 <button className="filter-pill spicy-filter">
-                  <span className="filter-icon">🌶️</span>
+                  <span className="filter-icon">ðŸŒ¶ï¸</span>
                   <span>{t("spicy", "Spicy")}</span>
                 </button>
               </div> */}
@@ -6606,7 +6647,7 @@ export default function MenuPage() {
                   disabled={!invoiceOrder || downloadingInvoice}
                   className="invoice-action-btn download"
                 >
-                  {downloadingInvoice ? "Preparing…" : "Download"}
+                  {downloadingInvoice ? "Preparing..." : "Download"}
                 </button>
                 <button
                   onClick={closeInvoiceModal}
@@ -6712,6 +6753,12 @@ export default function MenuPage() {
                           <span>{invoiceOrder.customerMobile}</span>
                         </div>
                       )}
+                      {invoiceOrder.customerLocation?.address && (
+                        <div className="meta-line">
+                          <span>Address:</span>
+                          <span>{invoiceOrder.customerLocation.address}</span>
+                        </div>
+                      )}
                     </>
                   )}
 
@@ -6785,6 +6832,12 @@ export default function MenuPage() {
                   <span>Subtotal</span>
                   <span>₹{formatMoney(invoiceTotals.subtotal)}</span>
                 </div>
+                {Number(invoiceTotals.officeDeliveryCharge || 0) > 0 && (
+                  <div className="meta-line">
+                    <span>Delivery Charge</span>
+                    <span>₹{formatMoney(invoiceTotals.officeDeliveryCharge)}</span>
+                  </div>
+                )}
 
                 <div className="meta-line total">
                   <span>Total</span>
@@ -6926,3 +6979,4 @@ export default function MenuPage() {
     </div>
   );
 }
+

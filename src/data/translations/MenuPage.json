@@ -29,7 +29,9 @@
     "vegOnly": "Veg Only",
     "popular": "Popular",
     "spicy": "Spicy",
-    "token": "Token"
+    "token": "Token",
+    "hotCold": "Hot / Cold",
+    "contactUs": "Contact us"
   },
   "hi": {
     "manualEntry": "मेनू",
@@ -61,7 +63,9 @@
     "vegOnly": "केवल शाकाहारी",
     "popular": "लोकप्रिय",
     "spicy": "मसालेदार",
-    "token": "टोकन"
+    "token": "टोकन",
+    "hotCold": "गरम / ठंडा",
+    "contactUs": "संपर्क करें"
   },
   "mr": {
     "manualEntry": "मेनू",
@@ -93,7 +97,9 @@
     "vegOnly": "फक्त शाकाहारी",
     "popular": "लोकप्रिय",
     "spicy": "तिखट",
-    "token": "टोकन"
+    "token": "टोकन",
+    "hotCold": "गरम / थंड",
+    "contactUs": "संपर्क करा"
   },
   "gu": {
     "manualEntry": "મેનુ",
@@ -125,6 +131,8 @@
     "vegOnly": "માત્ર શાકાहारी",
     "popular": "લોકપ્રિય",
     "spicy": "મસાલેદાર",
-    "token": "ટોકન"
+    "token": "ટોકન",
+    "hotCold": "ગરમ / ઠંડુ",
+    "contactUs": "સંપર્ક કરો"
   }
 }

@@ -1023,6 +1023,7 @@ export default function Landing() {
 
   const recognitionRef = useRef(null);
   const shouldContinueListeningRef = useRef(false);
+  const ttsPrimedRef = useRef(false);
 
   const stopLanguageListening = () => {
     shouldContinueListeningRef.current = false;
@@ -1200,6 +1201,20 @@ export default function Landing() {
       return;
     }
 
+    const synth = window.speechSynthesis;
+
+    // Prime TTS once on user gesture to improve reliability on mobile/webview browsers.
+    if (!ttsPrimedRef.current) {
+      try {
+        const silentUtterance = new SpeechSynthesisUtterance(" ");
+        silentUtterance.volume = 0;
+        synth.speak(silentUtterance);
+      } catch (err) {
+        console.warn("[Landing] Failed to prime speech synthesis:", err);
+      }
+      ttsPrimedRef.current = true;
+    }
+
     const texts = [
       t("voiceReadWelcome"),
       t("voiceReadSelectLanguage"),
@@ -1208,28 +1223,70 @@ export default function Landing() {
       t("voiceOptionMarathi"),
       t("voiceOptionGujarati"),
       t("voiceNowSayChoice"),
-    ];
+    ].filter((entry) => String(entry || "").trim().length > 0);
+
+    if (texts.length === 0) {
+      startListening();
+      return;
+    }
 
     shouldContinueListeningRef.current = true;
-    window.speechSynthesis.cancel();
+    synth.cancel();
+    if (typeof synth.resume === "function") {
+      synth.resume();
+    }
     const preferredVoice = selectPreferredFemaleVoice("en-IN");
 
     const speakWithPause = (index) => {
+      if (!shouldContinueListeningRef.current) return;
+
       if (index >= texts.length) {
         startListening();
         return;
       }
 
-      const utterance = new SpeechSynthesisUtterance(texts[index]);
+      const currentText = String(texts[index] || "").trim();
+      if (!currentText) {
+        speakWithPause(index + 1);
+        return;
+      }
+
+      const utterance = new SpeechSynthesisUtterance(currentText);
       utterance.voice = preferredVoice || null;
       utterance.lang = preferredVoice?.lang || "en-IN";
       utterance.rate = 1;
       utterance.pitch = 1;
-      utterance.onend = () => {
+
+      let advanced = false;
+      let fallbackTimer = null;
+      const proceed = () => {
+        if (advanced) return;
+        advanced = true;
+        if (fallbackTimer) clearTimeout(fallbackTimer);
         setTimeout(() => speakWithPause(index + 1), 80);
       };
 
-      window.speechSynthesis.speak(utterance);
+      utterance.onend = proceed;
+      utterance.onerror = (err) => {
+        console.warn("[Landing] TTS utterance error:", err);
+        proceed();
+      };
+
+      // Some browsers fail to emit onend consistently; advance safely if that happens.
+      fallbackTimer = setTimeout(
+        proceed,
+        Math.max(2500, Math.min(12000, currentText.length * 120)),
+      );
+
+      try {
+        if (typeof synth.resume === "function") {
+          synth.resume();
+        }
+        synth.speak(utterance);
+      } catch (err) {
+        console.warn("[Landing] Failed to speak read-aloud text:", err);
+        proceed();
+      }
     };
 
     speakWithPause(0);

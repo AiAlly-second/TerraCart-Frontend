@@ -422,6 +422,13 @@ const toTranslationLookupKey = (value) =>
     .trim()
     .toLowerCase();
 
+const STATIC_MENU_TEXT_TRANSLATION_KEYS = {
+  "hot / cold": "hotCold",
+  "hot/cold": "hotCold",
+  "hot & cold": "hotCold",
+  "hot and cold": "hotCold",
+};
+
 const TranslatedItem = ({
   item,
   onAdd,
@@ -726,12 +733,17 @@ export default function MenuPage() {
       if (lang === "en") return source;
 
       const key = toTranslationLookupKey(source);
+      const staticTranslationKey = STATIC_MENU_TEXT_TRANSLATION_KEYS[key];
+      if (staticTranslationKey) {
+        return t(staticTranslationKey, source);
+      }
+
       const aiTranslated = menuTranslations[key];
       if (aiTranslated) return aiTranslated;
 
       return source;
     },
-    [lang, menuTranslations],
+    [lang, menuTranslations, t],
   );
 
   useEffect(() => {
@@ -6294,6 +6306,21 @@ export default function MenuPage() {
     }
   }, [searchParams, menuLoading, menuCatalog, menuError]);
 
+  const handleMenuBack = useCallback(() => {
+    if (isOfficeQrFlow) {
+      // Match office QR back navigation with the normal takeaway entry flow.
+      localStorage.removeItem(TABLE_SELECTION_KEY);
+      localStorage.removeItem("terra_scanToken");
+      localStorage.removeItem("terra_waitToken");
+      localStorage.removeItem("terra_sessionToken");
+      localStorage.removeItem(SERVICE_TYPE_KEY);
+      localStorage.removeItem("terra_orderType");
+      navigate("/secondpage");
+      return;
+    }
+    navigate(-1);
+  }, [isOfficeQrFlow, navigate]);
+
   return (
     <div
       className={`menu-root ${accessibilityMode ? "accessibility-mode" : ""}`}
@@ -6308,6 +6335,7 @@ export default function MenuPage() {
 
       <Header
         accessibilityMode={accessibilityMode}
+        onBack={handleMenuBack}
         onClickCart={() => navigate("/cart")}
         cartCount={cartItemCount}
       />

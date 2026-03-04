@@ -2,9 +2,7 @@ import Header from "../components/Header";
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { FiMic, FiMicOff } from "react-icons/fi";
-import { useAITranslation } from "../hooks/useAITranslation";
 import menuPageTranslations from "../data/translations/MenuPage.json";
-import menuItemsTranslations from "../data/translations/menuTranslations.json";
 import fallbackMenuItems from "../data/menuData";
 import restaurantBg from "../assets/images/restaurant-img.jpg";
 import { HiSpeakerWave } from "react-icons/hi2";
@@ -28,6 +26,9 @@ import {
 const nodeApi = (
   import.meta.env.VITE_NODE_API_URL || "http://localhost:5001"
 ).replace(/\/$/, "");
+const TAP_TO_ORDER_AI_ENDPOINT = `${nodeApi}/api/voice-order/tap-to-order`;
+const MENU_PAGE_TRANSLATION_ENDPOINT = `${nodeApi}/api/translations/menu-page`;
+const TAP_TO_ORDER_SILENCE_MS = 5000;
 // Helper function to normalize image URLs
 // If image URL is relative (starts with /), prepend API base URL
 // If it's already absolute (http:// or https://), use as-is
@@ -416,27 +417,23 @@ const getSpiceLevelValue = (item) => {
   return SPICE_LEVEL_LABELS[level] ? level : "";
 };
 
-const TranslatedItem = ({ item, onAdd, onRemove, count, lang }) => {
+const toTranslationLookupKey = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase();
+
+const TranslatedItem = ({
+  item,
+  onAdd,
+  onRemove,
+  count,
+  translateText,
+}) => {
   if (!item) return null;
-
-  const language = lang || localStorage.getItem("language") || "en";
-  let staticTranslation = null;
-
-  // Try to lookup in static translations first
-  if (menuItemsTranslations[language]?.items) {
-    // Normalize item name to key format (lowercase, underscores)
-    // e.g. "Veg Sandwich" -> "veg_sandwich"
-    const key = item.name
-      ?.toLowerCase()
-      .replace(/[^a-z0-9]+/g, "_")
-      .replace(/^_+|_+$/g, "");
-    staticTranslation = menuItemsTranslations[language].items[key];
-    // Debug log
-    // console.log(`[TranslatedItem] Lang: ${language}, Item: ${item.name}, Key: ${key}, Found: ${!!staticTranslation}, Val: ${staticTranslation}`);
-  }
-
-  const [aiTranslation] = useAITranslation(item.name || "");
-  const translatedName = staticTranslation || aiTranslation;
+  const translatedName =
+    typeof translateText === "function"
+      ? translateText(item?.name || "", "item")
+      : item?.name || "";
   const isAvailable = item.isAvailable !== false;
   const isSpecial = item?.isFeatured === true;
   const spiceLevel = getSpiceLevelValue(item);
@@ -516,20 +513,11 @@ const TranslatedItem = ({ item, onAdd, onRemove, count, lang }) => {
   );
 };
 
-const TranslatedSummaryItem = ({ item, qty }) => {
-  const language = localStorage.getItem("language") || "en";
-  let staticTranslation = null;
-
-  if (menuItemsTranslations[language]?.items) {
-    const key = item
-      ?.toLowerCase()
-      .replace(/[^a-z0-9]+/g, "_")
-      .replace(/^_+|_+$/g, "");
-    staticTranslation = menuItemsTranslations[language].items[key];
-  }
-
-  const [aiTranslation] = useAITranslation(item);
-  const translatedItem = staticTranslation || aiTranslation;
+const TranslatedSummaryItem = ({ item, qty, translateText }) => {
+  const translatedItem =
+    typeof translateText === "function"
+      ? translateText(item || "", "item")
+      : item;
   return (
     <li className="summary-item">
       {qty} x {translatedItem}
@@ -546,25 +534,15 @@ const CategoryBlock = ({
   cart,
   onAdd,
   onRemove,
-  lang,
+  translateText,
   defaultOpen = false,
 }) => {
   if (!category) return null;
 
-  const language = lang || localStorage.getItem("language") || "en";
-  let staticTranslation = null;
-
-  if (menuItemsTranslations[language]?.categories) {
-    const key = category
-      ?.toLowerCase()
-      .replace(/[^a-z0-9]+/g, "_")
-      .replace(/^_+|_+$/g, "");
-    staticTranslation = menuItemsTranslations[language].categories[key];
-    // console.log(`[CategoryBlock] Lang: ${language}, Cat: ${category}, Key: ${key}, Found: ${!!staticTranslation}`);
-  }
-
-  const [aiTranslation] = useAITranslation(category || "");
-  const translatedCategory = staticTranslation || aiTranslation;
+  const translatedCategory =
+    typeof translateText === "function"
+      ? translateText(category || "", "category")
+      : category;
   const [isOpen, setIsOpen] = useState(defaultOpen);
 
   const safeItems = Array.isArray(items) ? items : [];
@@ -587,7 +565,7 @@ const CategoryBlock = ({
               onAdd={onAdd}
               onRemove={onRemove}
               count={cart[item?.name] || 0}
-              lang={language}
+              translateText={translateText}
             />
           ))}
         </div>
@@ -606,6 +584,8 @@ export default function MenuPage() {
   const [lang, setLang] = useState(() =>
     normalizeLang(localStorage.getItem("language") || "en")
   );
+  const [menuTranslations, setMenuTranslations] = useState({});
+  const menuTranslationCacheRef = useRef(new Map());
 
   // Listen for storage changes to update language (no remount - menu stays loaded)
   useEffect(() => {
@@ -739,8 +719,109 @@ export default function MenuPage() {
     });
   }, [flatMenuItems, searchQuery]);
 
+  const translateMenuText = useCallback(
+    (text, _type = "item") => {
+      const source = String(text || "").trim();
+      if (!source) return source;
+      if (lang === "en") return source;
+
+      const key = toTranslationLookupKey(source);
+      const aiTranslated = menuTranslations[key];
+      if (aiTranslated) return aiTranslated;
+
+      return source;
+    },
+    [lang, menuTranslations],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadMenuTranslations = async () => {
+      if (lang === "en") {
+        setMenuTranslations({});
+        return;
+      }
+      if (!Array.isArray(menuCategories) || menuCategories.length === 0) {
+        setMenuTranslations({});
+        return;
+      }
+
+      const textSet = new Set();
+      menuCategories.forEach((category) => {
+        const categoryName = String(category?.name || "").trim();
+        if (categoryName) textSet.add(categoryName);
+        (Array.isArray(category?.items) ? category.items : []).forEach((item) => {
+          const itemName = String(item?.name || "").trim();
+          if (itemName) textSet.add(itemName);
+        });
+      });
+
+      const allTexts = Array.from(textSet);
+      if (!allTexts.length) {
+        setMenuTranslations({});
+        return;
+      }
+
+      const cacheKey = `${lang}::${allTexts.join("||")}`;
+      const cachedTranslations = menuTranslationCacheRef.current.get(cacheKey);
+      if (cachedTranslations) {
+        setMenuTranslations(cachedTranslations);
+        return;
+      }
+
+      try {
+        const res = await postWithRetry(
+          MENU_PAGE_TRANSLATION_ENDPOINT,
+          {
+            targetLang: lang,
+            texts: allTexts,
+          },
+          {},
+          {
+            maxRetries: 1,
+            timeout: 30000,
+          },
+        );
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(payload?.message || "Failed to load menu translations");
+        }
+
+        const incoming = payload?.translations || {};
+        const normalized = {};
+        Object.entries(incoming).forEach(([source, translated]) => {
+          const sourceText = String(source || "").trim();
+          const translatedText = String(translated || "").trim();
+          if (!sourceText) return;
+          normalized[toTranslationLookupKey(sourceText)] =
+            translatedText || sourceText;
+        });
+
+        if (cancelled) return;
+        setMenuTranslations(normalized);
+        menuTranslationCacheRef.current.set(cacheKey, normalized);
+      } catch (error) {
+        if (import.meta.env.DEV) {
+          console.warn("[Menu] Menu translation fetch failed:", error?.message || error);
+        }
+        if (!cancelled) {
+          setMenuTranslations({});
+        }
+      }
+    };
+
+    loadMenuTranslations();
+    return () => {
+      cancelled = true;
+    };
+  }, [lang, menuCategories]);
+
   const recognitionRef = useRef(null);
   const blindRecognitionRef = useRef(null);
+  const tapVoiceSilenceTimerRef = useRef(null);
+  const tapVoiceTranscriptRef = useRef("");
+  const tapVoiceFinalizingRef = useRef(false);
   const invoiceRef = useRef(null);
   const [activeOrderId, setActiveOrderId] = useState(() => {
     // Check service type specific order ID ONLY - never mix TAKEAWAY and DINE_IN orders
@@ -3536,11 +3617,11 @@ export default function MenuPage() {
 
   const handleVoiceOrder = async () => {
     if (recording) {
-      // Stop recording
+      // Stop recording manually and process what we captured so far.
       try {
         if (recognitionRef.current) {
+          tapVoiceFinalizingRef.current = true;
           recognitionRef.current.stop();
-          recognitionRef.current = null;
         }
       } catch (err) {
         console.warn("Error stopping recognition:", err);
@@ -3566,40 +3647,107 @@ export default function MenuPage() {
       const recognition = new SpeechRecognition();
       recognitionRef.current = recognition;
 
-      recognition.continuous = false;
-      recognition.interimResults = false;
-      recognition.maxAlternatives = 3;
+      // Keep listening across short pauses; finalize after 5 seconds of silence.
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
       recognition.lang = getVoiceRecognitionLang();
 
-      recognition.onstart = () => {
-        setRecording(true);
-        setOrderText("");
-        console.log("ðŸŽ¤ Voice recognition started");
+      const finalChunks = [];
+      let interimChunk = "";
+      tapVoiceTranscriptRef.current = "";
+      tapVoiceFinalizingRef.current = false;
+
+      const clearSilenceTimer = () => {
+        if (tapVoiceSilenceTimerRef.current) {
+          clearTimeout(tapVoiceSilenceTimerRef.current);
+          tapVoiceSilenceTimerRef.current = null;
+        }
       };
 
-      recognition.onresult = async (event) => {
-        const transcript = event.results[0][0].transcript;
-        console.log("ðŸ“ Transcribed:", transcript);
+      const getMergedTranscript = () =>
+        [...finalChunks, interimChunk]
+          .join(" ")
+          .replace(/\s+/g, " ")
+          .trim();
+
+      const resetSilenceTimer = () => {
+        clearSilenceTimer();
+        tapVoiceSilenceTimerRef.current = setTimeout(() => {
+          tapVoiceFinalizingRef.current = true;
+          try {
+            if (recognitionRef.current) {
+              recognitionRef.current.stop();
+            }
+          } catch (err) {
+            if (import.meta.env.DEV) {
+              console.warn("[Menu] Failed to stop recognition after silence:", err);
+            }
+          }
+        }, TAP_TO_ORDER_SILENCE_MS);
+      };
+
+      const processTranscript = async () => {
+        const transcript = getMergedTranscript();
+        tapVoiceTranscriptRef.current = transcript;
         setOrderText(transcript);
-        setRecording(false);
+
+        if (!transcript) {
+          alert("No speech detected. Please try again.");
+          return;
+        }
 
         setIsProcessing(true);
         try {
-          await executeVoiceAction(transcript, { speakFeedback: false });
+          await executeTapToOrderWithOpenAI(transcript);
         } catch (err) {
           if (import.meta.env.DEV) {
             console.error("[Menu] Voice action execution error:", err);
           }
+          await executeVoiceAction(transcript, { speakFeedback: false });
         } finally {
           setIsProcessing(false);
         }
       };
 
+      recognition.onstart = () => {
+        setRecording(true);
+        setOrderText("");
+        finalChunks.length = 0;
+        interimChunk = "";
+        tapVoiceTranscriptRef.current = "";
+        tapVoiceFinalizingRef.current = false;
+        resetSilenceTimer();
+        console.log("Voice recognition started");
+      };
+
+      recognition.onresult = (event) => {
+        for (let i = event.resultIndex; i < event.results.length; i += 1) {
+          const result = event.results[i];
+          const text = result?.[0]?.transcript?.trim();
+          if (!text) continue;
+
+          if (result.isFinal) {
+            finalChunks.push(text);
+            interimChunk = "";
+          } else {
+            interimChunk = text;
+          }
+        }
+
+        const transcript = getMergedTranscript();
+        tapVoiceTranscriptRef.current = transcript;
+        setOrderText(transcript);
+        resetSilenceTimer();
+      };
+
       recognition.onerror = (event) => {
         console.error("Voice recognition error:", event.error);
+        clearSilenceTimer();
         setRecording(false);
         setIsProcessing(false);
         recognitionRef.current = null;
+        tapVoiceFinalizingRef.current = false;
 
         if (event.error === "no-speech") {
           alert("No speech detected. Please try again.");
@@ -3614,14 +3762,24 @@ export default function MenuPage() {
         }
       };
 
-      recognition.onend = () => {
+      recognition.onend = async () => {
+        clearSilenceTimer();
+        const shouldProcess =
+          tapVoiceFinalizingRef.current || !!tapVoiceTranscriptRef.current;
         setRecording(false);
         recognitionRef.current = null;
+        tapVoiceFinalizingRef.current = false;
+        if (!shouldProcess) return;
+        await processTranscript();
       };
 
       setRecording(true);
       recognition.start();
     } catch (err) {
+      if (tapVoiceSilenceTimerRef.current) {
+        clearTimeout(tapVoiceSilenceTimerRef.current);
+        tapVoiceSilenceTimerRef.current = null;
+      }
       console.error("Error starting voice recognition:", err);
       alert(
         "Failed to start voice input. Please try again or use menu buttons.",
@@ -3629,7 +3787,6 @@ export default function MenuPage() {
       setRecording(false);
     }
   };
-
   const stopBlindListening = ({ silent = false } = {}) => {
     if (blindRecognitionRef.current) {
       try {
@@ -3771,6 +3928,12 @@ export default function MenuPage() {
         } catch {}
         blindRecognitionRef.current = null;
       }
+      if (tapVoiceSilenceTimerRef.current) {
+        clearTimeout(tapVoiceSilenceTimerRef.current);
+        tapVoiceSilenceTimerRef.current = null;
+      }
+      tapVoiceTranscriptRef.current = "";
+      tapVoiceFinalizingRef.current = false;
       if (typeof window !== "undefined" && "speechSynthesis" in window) {
         window.speechSynthesis.cancel();
       }
@@ -4838,6 +5001,40 @@ export default function MenuPage() {
       .replace(/\s+/g, " ")
       .trim();
 
+  const pickPreferredFemaleVoice = () => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) return null;
+    const voices = window.speechSynthesis.getVoices();
+    if (!Array.isArray(voices) || voices.length === 0) return null;
+
+    const femaleHint = /(female|woman|zira|samantha|susan|karen|moira|sonia|heera|google uk english female)/i;
+    return (
+      voices.find((voice) => femaleHint.test(String(voice?.name || ""))) ||
+      voices.find((voice) => String(voice?.lang || "").startsWith("en")) ||
+      voices[0] ||
+      null
+    );
+  };
+
+  const speakTapToOrderAssistant = (text) => {
+    if (!text || typeof window === "undefined" || !("speechSynthesis" in window)) return;
+    try {
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = getVoiceRecognitionLang();
+      utterance.rate = 0.95;
+      utterance.pitch = 1.05;
+      const voice = pickPreferredFemaleVoice();
+      if (voice) {
+        utterance.voice = voice;
+      }
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(utterance);
+    } catch (err) {
+      if (import.meta.env.DEV) {
+        console.warn("[Menu] Failed to speak tap-to-order assistant feedback:", err);
+      }
+    }
+  };
+
   // Word-to-number for voice fallback parsing (e.g. "two chai" -> 2)
   const wordToNumber = (word) => {
     const map = {
@@ -4941,6 +5138,170 @@ export default function MenuPage() {
     cartRef.current = updatedCart;
     setCart(updatedCart);
     return result;
+  };
+
+  const getTapToOrderMenuItems = () => {
+    const sourceItems =
+      Array.isArray(flatMenuItems) && flatMenuItems.length > 0
+        ? flatMenuItems
+        : Object.values(menuCatalog).length > 0
+          ? Object.values(menuCatalog)
+          : fallbackMenuItems.map((item) => ({ ...item, isAvailable: true }));
+
+    const seen = new Set();
+    const menuItems = [];
+    sourceItems.forEach((item) => {
+      if (!item?.name || item.isAvailable === false) return;
+      const key = String(item.name).trim().toLowerCase();
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      menuItems.push({ name: String(item.name).trim() });
+    });
+    return menuItems;
+  };
+
+  const applyTapToOrderAiItems = (items) => {
+    const result = { addedItems: [], notFound: [] };
+    if (!Array.isArray(items) || items.length === 0) return result;
+
+    const sourceItems =
+      Array.isArray(flatMenuItems) && flatMenuItems.length > 0
+        ? flatMenuItems
+        : Object.values(menuCatalog).length > 0
+          ? Object.values(menuCatalog)
+          : fallbackMenuItems.map((item) => ({ ...item, isAvailable: true }));
+
+    const normalizeName = (value) =>
+      normalizeVoiceText(value).replace(/[^a-z0-9\s]/g, "");
+    const availableItems = sourceItems.filter(
+      (item) => item?.name && item.isAvailable !== false,
+    );
+    const updatedCart = { ...(cartRef.current || {}) };
+
+    items.forEach((entry) => {
+      const requestedName = String(entry?.name || "").trim();
+      if (!requestedName) return;
+      const quantityRaw = Number(entry?.quantity);
+      const qty = Number.isFinite(quantityRaw)
+        ? Math.max(1, Math.min(20, Math.round(quantityRaw)))
+        : 1;
+      const normalizedRequested = normalizeName(requestedName);
+
+      const matchedItem =
+        availableItems.find(
+          (item) => normalizeName(item.name) === normalizedRequested,
+        ) ||
+        availableItems.find((item) => {
+          const normalizedItemName = normalizeName(item.name);
+          return (
+            normalizedItemName.includes(normalizedRequested) ||
+            normalizedRequested.includes(normalizedItemName)
+          );
+        });
+
+      if (!matchedItem) {
+        result.notFound.push(requestedName);
+        return;
+      }
+
+      updatedCart[matchedItem.name] = (updatedCart[matchedItem.name] || 0) + qty;
+      result.addedItems.push({ name: matchedItem.name, qty });
+    });
+
+    cartRef.current = updatedCart;
+    setCart(updatedCart);
+    return result;
+  };
+
+  const executeTapToOrderWithOpenAI = async (transcript) => {
+    const menuItems = getTapToOrderMenuItems();
+    if (!menuItems.length) {
+      throw new Error("Menu not loaded for tap-to-order AI");
+    }
+
+    const response = await postWithRetry(
+      TAP_TO_ORDER_AI_ENDPOINT,
+      {
+        transcript,
+        menuItems,
+        locale: getVoiceRecognitionLang(),
+      },
+      {},
+      {
+        maxRetries: 1,
+        timeout: 20000,
+      },
+    );
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload?.message || "Tap-to-order AI request failed");
+    }
+
+    const action = String(payload?.action || "NONE").toUpperCase();
+    const assistantReply = String(payload?.assistantReply || "").trim();
+    const aiNotFound = Array.isArray(payload?.notFound)
+      ? payload.notFound.map((entry) => String(entry || "").trim()).filter(Boolean)
+      : [];
+
+    if (action === "CLEAR_CART") {
+      handleResetCart();
+      setOrderText("");
+      speakTapToOrderAssistant(assistantReply || "I cleared your cart.");
+      return { type: "clear" };
+    }
+
+    if (action === "SHOW_CART") {
+      speakTapToOrderAssistant(assistantReply || "Opening your cart.");
+      navigate("/cart");
+      return { type: "cart" };
+    }
+
+    if (action === "PLACE_ORDER") {
+      if (Object.keys(cartRef.current || {}).length === 0) {
+        speakTapToOrderAssistant(
+          assistantReply || cartEmptyText || "Your cart is empty.",
+        );
+        return { type: "place-empty" };
+      }
+      speakTapToOrderAssistant(assistantReply || "Placing your order now.");
+      await handleContinue();
+      return { type: "place" };
+    }
+
+    if (action === "ADD_ITEMS") {
+      const { addedItems, notFound } = applyTapToOrderAiItems(payload?.items);
+      const mergedNotFound = [...new Set([...notFound, ...aiNotFound])];
+      const formattedOrder = addedItems
+        .map(({ name, qty }) => `${qty}x ${name}`)
+        .join(", ");
+      if (formattedOrder) {
+        setOrderText(formattedOrder);
+      }
+
+      if (addedItems.length > 0) {
+        speakTapToOrderAssistant(
+          assistantReply ||
+            `Added ${addedItems.length} item${addedItems.length > 1 ? "s" : ""} to your cart.`,
+        );
+      } else if (mergedNotFound.length > 0) {
+        speakTapToOrderAssistant(
+          assistantReply ||
+            `I could not find these in the menu: ${mergedNotFound.join(", ")}.`,
+        );
+      } else {
+        speakTapToOrderAssistant(
+          assistantReply || "Please tell me which item you want to order.",
+        );
+      }
+
+      return { type: "items", addedItems, notFound: mergedNotFound };
+    }
+
+    speakTapToOrderAssistant(
+      assistantReply || "Please say your order clearly and try again.",
+    );
+    return { type: "none" };
   };
 
   const executeVoiceAction = async (transcript, { speakFeedback = false, allowStop = false } = {}) => {
@@ -6192,6 +6553,57 @@ export default function MenuPage() {
                     {/* Row 2, Col 2: Complete Payment / Confirm Payment Button */}
                     {(() => {
                       const statusLower = (orderStatus || "").toLowerCase();
+                      const orderIdForFeedback =
+                        activeOrderId ||
+                        localStorage.getItem("terra_orderId") ||
+                        localStorage.getItem("terra_lastPaidOrderId");
+                      const normalizedOrderPaymentMode = String(
+                        currentOrderDetail?.paymentMode || "",
+                      )
+                        .trim()
+                        .toUpperCase();
+                      const normalizedOrderOfficePaymentMode = String(
+                        currentOrderDetail?.officePaymentMode || "",
+                      )
+                        .trim()
+                        .toUpperCase();
+                      const resolvedOfficePaymentMode = resolveOfficePaymentMode(
+                        tableInfo,
+                      );
+                      const isCashOnDeliveryFlow =
+                        normalizedOrderPaymentMode === "CASH" ||
+                        normalizedOrderOfficePaymentMode === "COD" ||
+                        (isOfficeQrFlow && resolvedOfficePaymentMode === "COD");
+                      const renderFeedbackButton = (label = "Share Feedback") => {
+                        if (
+                          !orderIdForFeedback ||
+                          hasSubmittedFeedbackForOrder(orderIdForFeedback)
+                        ) {
+                          return null;
+                        }
+                        return (
+                          <button
+                            className="feedback-button"
+                            onClick={() => {
+                              navigate("/feedback", {
+                                state: { orderId: orderIdForFeedback },
+                              });
+                            }}
+                          >
+                            {label}
+                          </button>
+                        );
+                      };
+
+                      // COD/CASH flow: do not show payment action; keep feedback in the same tile slot.
+                      if (
+                        isCashOnDeliveryFlow &&
+                        orderStatus !== "Returned" &&
+                        orderStatus !== "Cancelled"
+                      ) {
+                        return renderFeedbackButton("Feedback");
+                      }
+
                       // For Finalized or Completed orders: show Confirm Payment button
                       if (["Finalized", "Completed"].includes(orderStatus)) {
                         return (
@@ -6231,23 +6643,7 @@ export default function MenuPage() {
                       }
                       // For paid/completed orders: show Share Feedback
                       if (["paid", "completed"].includes(statusLower)) {
-                        const orderId =
-                          activeOrderId ||
-                          localStorage.getItem("terra_orderId") ||
-                          localStorage.getItem("terra_lastPaidOrderId");
-                        if (hasSubmittedFeedbackForOrder(orderId)) {
-                          return null;
-                        }
-                        return (
-                          <button
-                            className="feedback-button"
-                            onClick={() => {
-                              navigate("/feedback", { state: { orderId } });
-                            }}
-                          >
-                            Share Feedback
-                          </button>
-                        );
+                        return renderFeedbackButton("Share Feedback");
                       }
                       return null;
                     })()}
@@ -6429,7 +6825,7 @@ export default function MenuPage() {
                         onAdd={handleAdd}
                         onRemove={handleRemove}
                         count={cart[item.name] || 0}
-                        lang={lang}
+                        translateText={translateMenuText}
                       />
                     ))}
                   </div>
@@ -6461,7 +6857,7 @@ export default function MenuPage() {
                           cart={cart}
                           onAdd={handleAdd}
                           onRemove={handleRemove}
-                          lang={lang}
+                          translateText={translateMenuText}
                         />
                       ))}
                     </>
@@ -6647,7 +7043,7 @@ export default function MenuPage() {
                       <tr key={item.name}>
                         <td>
                           <div className="flex flex-col gap-0.5">
-                            <span>{item.name}</span>
+                            <span>{translateMenuText(item.name, "item")}</span>
                             {item.returned && (
                               <span className="invoice-returned-note">
                                 Returned {item.returnedQuantity}

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import Header from "../components/Header";
 import { FiArrowLeft, FiMinus, FiPlus, FiTrash2 } from "react-icons/fi";
@@ -23,6 +23,7 @@ const nodeApi = (
 const TAKEAWAY_TOKEN_PREVIEW_KEY = "terra_takeaway_token_preview";
 const PAYMENT_GATE_ORDER_ID_KEY = "terra_payment_gate_order_id";
 const PAYMENT_GATE_MODE_KEY = "terra_payment_gate_mode";
+const TAKEAWAY_LIKE_SERVICE_TYPES = new Set(["TAKEAWAY", "PICKUP", "DELIVERY"]);
 const sanitizeAddonName = (value) => {
   const normalized = String(value || "")
     .replace(/^\(\s*\+\s*\)\s*/u, "")
@@ -73,6 +74,33 @@ const resolveOrderStatusValue = (...candidates) => {
     if (normalized) return normalized;
   }
   return "Confirmed";
+};
+
+const normalizeServiceType = (value = "DINE_IN") =>
+  String(value || "DINE_IN")
+    .trim()
+    .toUpperCase();
+
+const normalizeMenuItemName = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase();
+
+const buildMenuCatalogMap = (menuItems = []) => {
+  const byName = {};
+  const byNormalizedName = {};
+  const source = Array.isArray(menuItems) ? menuItems : [];
+  source.forEach((item) => {
+    if (!item || typeof item !== "object") return;
+    const itemName = String(item.name || "").trim();
+    if (!itemName) return;
+    byName[itemName] = item;
+    const normalizedName = normalizeMenuItemName(itemName);
+    if (normalizedName && !byNormalizedName[normalizedName]) {
+      byNormalizedName[normalizedName] = item;
+    }
+  });
+  return { byName, byNormalizedName };
 };
 
 function getImageUrl(imagePath) {
@@ -214,7 +242,36 @@ export default function CartPage() {
     });
     return message;
   };
-  const [cart, setCart] = useState({});
+  const [, setCartScopeServiceType] = useState(() => {
+    const tableContext = parseJsonSafely(
+      localStorage.getItem("terra_selectedTable") || "{}",
+      {},
+    );
+    if (hasOfficeQrMetadata(tableContext)) return "TAKEAWAY";
+    const currentServiceType = normalizeServiceType(
+      localStorage.getItem("terra_serviceType") || "DINE_IN",
+    );
+    return TAKEAWAY_LIKE_SERVICE_TYPES.has(currentServiceType)
+      ? currentServiceType
+      : "DINE_IN";
+  });
+  const [cart, setCart] = useState(() => {
+    try {
+      const tableContext = parseJsonSafely(
+        localStorage.getItem("terra_selectedTable") || "{}",
+        {},
+      );
+      const currentServiceType = hasOfficeQrMetadata(tableContext)
+        ? "TAKEAWAY"
+        : normalizeServiceType(localStorage.getItem("terra_serviceType") || "DINE_IN");
+      const scopedServiceType = TAKEAWAY_LIKE_SERVICE_TYPES.has(currentServiceType)
+        ? currentServiceType
+        : "DINE_IN";
+      return readScopedCart(scopedServiceType);
+    } catch {
+      return {};
+    }
+  });
   const [menuCatalog, setMenuCatalog] = useState(
     fallbackMenuItems.map((i) => ({ ...i, price: i.price * 100 })) || [],
   );
@@ -253,6 +310,59 @@ export default function CartPage() {
     error: 2000,
   };
 
+  const resolveCurrentCartScopeServiceType = useCallback(() => {
+    const tableContext = parseJsonSafely(
+      localStorage.getItem("terra_selectedTable") || "{}",
+      {},
+    );
+    if (hasOfficeQrMetadata(tableContext)) return "TAKEAWAY";
+    const currentServiceType = normalizeServiceType(
+      localStorage.getItem("terra_serviceType") || "DINE_IN",
+    );
+    return TAKEAWAY_LIKE_SERVICE_TYPES.has(currentServiceType)
+      ? currentServiceType
+      : "DINE_IN";
+  }, []);
+
+  const readLatestScopedCart = useCallback(() => {
+    const scope = resolveCurrentCartScopeServiceType();
+    try {
+      return {
+        scope,
+        scopedCart: readScopedCart(scope),
+      };
+    } catch (error) {
+      console.error("[CartPage] Failed to read scoped cart:", error);
+      return {
+        scope,
+        scopedCart: {},
+      };
+    }
+  }, [resolveCurrentCartScopeServiceType]);
+
+  const fetchMenuCatalog = useCallback(async (resolvedCartId) => {
+    try {
+      const endpoint = resolvedCartId
+        ? `${nodeApi}/api/menu/public?cartId=${resolvedCartId}`
+        : `${nodeApi}/api/menu/public`;
+      const res = await fetch(endpoint);
+      if (!res.ok) return [];
+      const data = await res.json();
+      const items = [];
+      if (Array.isArray(data)) {
+        data.forEach((cat) => {
+          if (Array.isArray(cat?.items)) items.push(...cat.items);
+        });
+      }
+      const merged = [...items, ...fallbackMenuItems];
+      setMenuCatalog(merged);
+      return merged;
+    } catch (err) {
+      console.error("Failed to fetch menu", err);
+      return [];
+    }
+  }, []);
+
   useEffect(() => {
     const unsubscribe = subscribeToLanguageChanges((lang) => {
       setLanguage(lang);
@@ -266,12 +376,18 @@ export default function CartPage() {
   }, [language]);
 
   useEffect(() => {
-    // Load Cart (add-ons are loaded below, scoped by cartId)
-    try {
-      setCart(readScopedCart());
-    } catch (e) {
-      console.error("Error loading cart", e);
-    }
+    const syncCartFromStorage = () => {
+      const { scope, scopedCart } = readLatestScopedCart();
+      setCartScopeServiceType(scope);
+      setCart(scopedCart);
+    };
+    syncCartFromStorage();
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        syncCartFromStorage();
+      }
+    };
 
     // Get cartId (async) then load add-ons scoped by this cart
     getCartId(searchParams).then((resolvedCartId) => {
@@ -281,27 +397,6 @@ export default function CartPage() {
       // Do not restore add-ons from localStorage: when user comes for the first time,
       // no add-on should be pre-selected; they must select explicitly.
       // selectedAddOns stays as initial [] until user toggles add-ons.
-
-      const fetchMenu = async (cartId) => {
-        try {
-          const endpoint = cartId
-            ? `${nodeApi}/api/menu/public?cartId=${cartId}`
-            : `${nodeApi}/api/menu/public`;
-          const res = await fetch(endpoint);
-          if (res.ok) {
-            const data = await res.json();
-            const items = [];
-            if (Array.isArray(data)) {
-              data.forEach((cat) => {
-                if (cat.items) items.push(...cat.items);
-              });
-            }
-            setMenuCatalog([...items, ...fallbackMenuItems]);
-          }
-        } catch (err) {
-          console.error("Failed to fetch menu", err);
-        }
-      };
 
       const fetchAddons = async (cartIdForAddons, tableIdFromUrl) => {
         setAddonsLoading(true);
@@ -419,15 +514,32 @@ export default function CartPage() {
         }
       };
 
-      fetchMenu(resolvedCartId);
+      fetchMenuCatalog(resolvedCartId);
       fetchAddons(resolvedCartId, searchParams.get("table") || "");
     });
-  }, [searchParams]);
+
+    window.addEventListener("focus", syncCartFromStorage);
+    window.addEventListener("storage", syncCartFromStorage);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("focus", syncCartFromStorage);
+      window.removeEventListener("storage", syncCartFromStorage);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [fetchMenuCatalog, readLatestScopedCart, searchParams]);
 
   const updateCart = (newCart) => {
+    const { scope } = readLatestScopedCart();
+    setCartScopeServiceType(scope);
     setCart(newCart);
-    writeScopedCart(newCart);
+    writeScopedCart(newCart, scope);
   };
+
+  const menuCatalogMap = useMemo(
+    () => buildMenuCatalogMap(menuCatalog),
+    [menuCatalog],
+  );
 
   const saveAddonsForCart = (addonIds) => {
     const raw = localStorage.getItem("terra_cart_addons") || "{}";
@@ -482,8 +594,22 @@ export default function CartPage() {
 
   const handleConfirm = async () => {
     if (placeOrderInFlightRef.current) return;
-    if (Object.keys(cart).length === 0) return alert(t("cartEmpty"));
     if (processOpen) return;
+
+    const { scope: latestCartScope, scopedCart: latestScopedCart } =
+      readLatestScopedCart();
+    const cartSnapshot =
+      latestScopedCart && Object.keys(latestScopedCart).length > 0
+        ? latestScopedCart
+        : cart;
+    if (!cartSnapshot || Object.keys(cartSnapshot).length === 0) {
+      return alert(t("cartEmpty"));
+    }
+    setCartScopeServiceType(latestCartScope);
+    if (Object.keys(cart).length === 0 && Object.keys(cartSnapshot).length > 0) {
+      setCart(cartSnapshot);
+    }
+
     placeOrderInFlightRef.current = true;
 
     let requiresPaymentChoiceStep = false;
@@ -588,17 +714,65 @@ export default function CartPage() {
         isOfficeQrFlow ||
         serviceType === "TAKEAWAY" ||
         isPickupOrDeliveryServiceType;
+      if (isOfficeQrFlow) {
+        const officeSlug =
+          tableInfo?.qrSlug ||
+          localStorage.getItem("terra_scanToken") ||
+          searchParams?.get("table");
+        const officeSessionToken =
+          localStorage.getItem("terra_takeaway_sessionToken") || "";
+        if (officeSlug) {
+          try {
+            const params = new URLSearchParams();
+            if (officeSessionToken) {
+              params.set("sessionToken", officeSessionToken);
+            }
+            const lookupUrl = `${nodeApi}/api/tables/lookup/${encodeURIComponent(
+              officeSlug,
+            )}${params.toString() ? `?${params.toString()}` : ""}`;
+            const lookupRes = await fetch(lookupUrl);
+            if (lookupRes.ok || lookupRes.status === 423) {
+              const lookupPayload = await lookupRes.json();
+              if (lookupPayload?.table) {
+                tableInfo = { ...tableInfo, ...lookupPayload.table };
+                localStorage.setItem(
+                  "terra_selectedTable",
+                  JSON.stringify(tableInfo),
+                );
+              }
+            }
+          } catch (officeLookupErr) {
+            console.warn(
+              "[CartPage] Failed to refresh office table context:",
+              officeLookupErr,
+            );
+          }
+        }
+      }
+
       const officePaymentMode = resolveOfficePaymentMode(tableInfo);
-      const requiresPaymentChoiceBeforePlacement =
+      const officePaymentGateMode = isOfficeQrFlow
+        ? officePaymentMode === "COD"
+          ? "CASH"
+          : officePaymentMode === "BOTH"
+            ? "CHOICE"
+            : "ONLINE"
+        : null;
+      const requiresNonOfficePaymentChoiceBeforePlacement =
         requiresPaymentChoiceStep &&
         !isOfficeQrFlow &&
         !isPickupOrDeliveryServiceType &&
         (serviceType === "DINE_IN" || serviceType === "TAKEAWAY");
+      const requiresPaymentChoiceBeforePlacement =
+        requiresNonOfficePaymentChoiceBeforePlacement ||
+        officePaymentGateMode === "CHOICE";
+      const paymentSelectionRequiredBeforeProceeding =
+        requiresPaymentChoiceBeforePlacement || officePaymentGateMode === "CASH";
       const requiresImmediatePayment =
         effectiveOrderType === "PICKUP" ||
         effectiveOrderType === "DELIVERY" ||
-        (isOfficeQrFlow && officePaymentMode === "ONLINE") ||
-        requiresPaymentChoiceBeforePlacement;
+        Boolean(officePaymentGateMode) ||
+        requiresNonOfficePaymentChoiceBeforePlacement;
       const shouldIncludeCustomerInfo =
         effectiveOrderType === "PICKUP" ||
         effectiveOrderType === "DELIVERY" ||
@@ -708,7 +882,28 @@ export default function CartPage() {
         localStorage.getItem("terra_specialInstructions") ||
         "";
 
-      const orderPayload = buildOrderPayload(cart, {
+      let menuCatalogForPayload = menuCatalogMap.byName;
+      const hasPricedCartItem = Object.entries(cartSnapshot).some(
+        ([itemName, quantity]) => {
+          const qtyValue = Number(quantity);
+          if (!Number.isFinite(qtyValue) || qtyValue <= 0) return false;
+          const normalizedItemName = normalizeMenuItemName(itemName);
+          const itemMeta =
+            menuCatalogMap.byName[itemName] ||
+            menuCatalogMap.byNormalizedName[normalizedItemName];
+          const itemPrice = Number(itemMeta?.price);
+          return Number.isFinite(itemPrice) && itemPrice > 0;
+        },
+      );
+      if (!hasPricedCartItem) {
+        const refreshedCatalog = await fetchMenuCatalog(cartId);
+        const refreshedCatalogMap = buildMenuCatalogMap(refreshedCatalog);
+        if (Object.keys(refreshedCatalogMap.byName).length > 0) {
+          menuCatalogForPayload = refreshedCatalogMap.byName;
+        }
+      }
+
+      const orderPayload = buildOrderPayload(cartSnapshot, {
         serviceType:
           effectiveOrderType === "PICKUP" || effectiveOrderType === "DELIVERY"
             ? effectiveOrderType
@@ -719,7 +914,7 @@ export default function CartPage() {
             : undefined,
         tableId: tableInfo.id || tableInfo._id,
         tableNumber: tableInfo.number || tableInfo.tableNumber,
-        menuCatalog,
+        menuCatalog: menuCatalogForPayload,
         sessionToken: sessionToken,
         // Customer fields (required for PICKUP/DELIVERY)
         customerName: shouldIncludeCustomerInfo
@@ -741,13 +936,21 @@ export default function CartPage() {
         specialInstructions: effectiveSpecialInstructions,
         selectedAddons: resolvedAddons,
       });
-      if (requiresPaymentChoiceBeforePlacement) {
+      if (paymentSelectionRequiredBeforeProceeding) {
         orderPayload.paymentRequiredBeforeProceeding = true;
       }
 
       // Simple Validation
       if (!orderPayload.items || orderPayload.items.length === 0) {
         throw new Error(t("cartInvalidItems"));
+      }
+      if (
+        !Number.isFinite(Number(orderPayload.totalAmount)) ||
+        Number(orderPayload.totalAmount) <= 0
+      ) {
+        throw new Error(
+          "Order amount is not ready yet. Please wait a moment and confirm again.",
+        );
       }
 
       const isPickupOrDeliveryOrder =
@@ -896,15 +1099,12 @@ export default function CartPage() {
             new Date().toISOString(),
           );
         }
-        const requiresPaymentGate =
-          requiresPaymentChoiceBeforePlacement ||
-          (isOfficeQrFlow && officePaymentMode === "ONLINE");
-        if (requiresPaymentGate) {
+        const paymentGateMode =
+          officePaymentGateMode ||
+          (requiresNonOfficePaymentChoiceBeforePlacement ? "CHOICE" : null);
+        if (paymentGateMode) {
           localStorage.setItem(PAYMENT_GATE_ORDER_ID_KEY, data._id);
-          localStorage.setItem(
-            PAYMENT_GATE_MODE_KEY,
-            requiresPaymentChoiceBeforePlacement ? "CHOICE" : "ONLINE",
-          );
+          localStorage.setItem(PAYMENT_GATE_MODE_KEY, paymentGateMode);
         } else {
           localStorage.removeItem(PAYMENT_GATE_ORDER_ID_KEY);
           localStorage.removeItem(PAYMENT_GATE_MODE_KEY);
@@ -955,9 +1155,10 @@ export default function CartPage() {
   const cartItemsParams = Object.entries(cart)
     .map(([name, qty]) => {
       // Robust matching: case insensitive
-      const meta = menuCatalog.find(
-        (m) => m.name.toLowerCase() === name.toLowerCase(),
-      );
+      const normalizedName = normalizeMenuItemName(name);
+      const meta =
+        menuCatalogMap.byName[name] ||
+        menuCatalogMap.byNormalizedName[normalizedName];
       return {
         name,
         qty,

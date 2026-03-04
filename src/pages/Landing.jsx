@@ -1039,6 +1039,37 @@ export default function Landing() {
     }
   };
 
+  const selectPreferredFemaleVoice = (speechLang = "en-IN") => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) return null;
+    const voices = window.speechSynthesis.getVoices();
+    if (!Array.isArray(voices) || voices.length === 0) return null;
+
+    const langPrefix = String(speechLang || "en-IN").split("-")[0].toLowerCase();
+    const femaleHint =
+      /(female|woman|zira|samantha|susan|karen|moira|heera|priya|google uk english female)/i;
+
+    return (
+      voices.find(
+        (voice) =>
+          String(voice?.lang || "").toLowerCase().startsWith(langPrefix) &&
+          femaleHint.test(String(voice?.name || "")),
+      ) ||
+      voices.find(
+        (voice) =>
+          String(voice?.lang || "").toLowerCase().startsWith("en") &&
+          femaleHint.test(String(voice?.name || "")),
+      ) ||
+      voices.find((voice) =>
+        String(voice?.lang || "").toLowerCase().startsWith(langPrefix),
+      ) ||
+      voices.find((voice) =>
+        String(voice?.lang || "").toLowerCase().startsWith("en"),
+      ) ||
+      voices[0] ||
+      null
+    );
+  };
+
   const speakMessage = (message, onEnd) => {
     if (
       typeof window === "undefined" ||
@@ -1053,6 +1084,10 @@ export default function Landing() {
       utterance.lang = "en-IN";
       utterance.rate = 1;
       utterance.pitch = 1;
+      const selectedVoice = selectPreferredFemaleVoice("en-IN");
+      if (selectedVoice) {
+        utterance.voice = selectedVoice;
+      }
       utterance.onend = () => {
         if (typeof onEnd === "function") onEnd();
       };
@@ -1177,9 +1212,7 @@ export default function Landing() {
 
     shouldContinueListeningRef.current = true;
     window.speechSynthesis.cancel();
-    const voices = window.speechSynthesis.getVoices();
-    const preferredVoice =
-      voices.find((voice) => voice.lang?.startsWith("en")) || voices[0];
+    const preferredVoice = selectPreferredFemaleVoice("en-IN");
 
     const speakWithPause = (index) => {
       if (index >= texts.length) {

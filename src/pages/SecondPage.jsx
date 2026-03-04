@@ -218,6 +218,10 @@ export default function SecondPage() {
   const selectedCartRef = useRef(null);
   const hasAutoStartedOfficeTakeawayRef = useRef(false);
 
+  const handleBlindAssistantOpen = useCallback(() => {
+    navigate("/blind-assistant");
+  }, [navigate]);
+
   // Check if this is a normal link (not from QR scan)
   // Pickup/Delivery should only show on normal links, not QR scans
   // CRITICAL: Use useState and useEffect to make it reactive to localStorage changes
@@ -3333,7 +3337,7 @@ export default function SecondPage() {
         <motion.button
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.9 }}
-          onClick={() => navigate("/blind-assistant")}
+          onClick={handleBlindAssistantOpen}
           className="fixed rounded-full shadow-lg bg-orange-500 text-white hover:bg-orange-600 focus:outline-none blind-eye-btn"
           style={{
             position: "fixed",

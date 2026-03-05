@@ -15,7 +15,7 @@ import { io } from "socket.io-client";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 
-import { postWithRetry } from "../utils/fetchWithTimeout";
+import { fetchWithRetry, postWithRetry } from "../utils/fetchWithTimeout";
 import {
   clearAllScopedCarts,
   clearScopedCart,
@@ -33,8 +33,11 @@ const nodeApi = (
   import.meta.env.VITE_NODE_API_URL || "http://localhost:5001"
 ).replace(/\/$/, "");
 const TAP_TO_ORDER_AI_ENDPOINT = `${nodeApi}/api/voice-order/tap-to-order`;
+const TAP_TO_ORDER_TRANSCRIBE_ENDPOINT = `${nodeApi}/api/voice-order/tap-to-order/transcribe`;
 const MENU_PAGE_TRANSLATION_ENDPOINT = `${nodeApi}/api/translations/menu-page`;
-const TAP_TO_ORDER_SILENCE_MS = 5000;
+const TAP_TO_ORDER_MAX_RECORD_MS = 12000;
+const TAP_TO_ORDER_SILENCE_STOP_MS = 1800;
+const TAP_TO_ORDER_AUDIO_LEVEL_THRESHOLD = 0.015;
 // Helper function to normalize image URLs
 // If image URL is relative (starts with /), prepend API base URL
 // If it's already absolute (http:// or https://), use as-is
@@ -878,9 +881,15 @@ export default function MenuPage() {
 
   const recognitionRef = useRef(null);
   const blindRecognitionRef = useRef(null);
-  const tapVoiceSilenceTimerRef = useRef(null);
-  const tapVoiceTranscriptRef = useRef("");
-  const tapVoiceFinalizingRef = useRef(false);
+  const tapAudioRecorderRef = useRef(null);
+  const tapAudioStreamRef = useRef(null);
+  const tapAudioStopTimerRef = useRef(null);
+  const tapAudioContextRef = useRef(null);
+  const tapAudioSourceNodeRef = useRef(null);
+  const tapAudioAnalyserRef = useRef(null);
+  const tapAudioSilenceIntervalRef = useRef(null);
+  const tapAudioSilenceMsRef = useRef(0);
+  const tapAudioSpokeRef = useRef(false);
   const invoiceRef = useRef(null);
   const [activeOrderId, setActiveOrderId] = useState(() => {
     // Check service type specific order ID ONLY - never mix TAKEAWAY and DINE_IN orders
@@ -3712,176 +3721,259 @@ export default function MenuPage() {
     }
   };
 
-  const handleVoiceOrder = async () => {
-    if (recording) {
-      // Stop recording manually and process what we captured so far.
+  const clearTapAudioStopTimer = () => {
+    if (tapAudioStopTimerRef.current) {
+      clearTimeout(tapAudioStopTimerRef.current);
+      tapAudioStopTimerRef.current = null;
+    }
+  };
+
+  const stopTapAudioSilenceMonitor = () => {
+    if (tapAudioSilenceIntervalRef.current) {
+      clearInterval(tapAudioSilenceIntervalRef.current);
+      tapAudioSilenceIntervalRef.current = null;
+    }
+
+    tapAudioSilenceMsRef.current = 0;
+    tapAudioSpokeRef.current = false;
+
+    if (tapAudioSourceNodeRef.current) {
       try {
-        if (recognitionRef.current) {
-          tapVoiceFinalizingRef.current = true;
-          recognitionRef.current.stop();
+        tapAudioSourceNodeRef.current.disconnect();
+      } catch {}
+      tapAudioSourceNodeRef.current = null;
+    }
+    tapAudioAnalyserRef.current = null;
+
+    if (tapAudioContextRef.current) {
+      const activeContext = tapAudioContextRef.current;
+      tapAudioContextRef.current = null;
+      try {
+        if (activeContext.state !== "closed") {
+          void activeContext.close();
         }
-      } catch (err) {
-        console.warn("Error stopping recognition:", err);
-      }
-      setRecording(false);
+      } catch {}
+    }
+  };
+
+  const startTapAudioSilenceMonitor = (stream) => {
+    if (
+      typeof window === "undefined" ||
+      (!window.AudioContext && !window.webkitAudioContext) ||
+      !stream
+    ) {
       return;
     }
 
-    // Check if browser supports Web Speech API
+    try {
+      stopTapAudioSilenceMonitor();
+      const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+      const audioContext = new AudioContextCtor();
+      const sourceNode = audioContext.createMediaStreamSource(stream);
+      const analyser = audioContext.createAnalyser();
+
+      analyser.fftSize = 2048;
+      analyser.smoothingTimeConstant = 0.2;
+      sourceNode.connect(analyser);
+
+      tapAudioContextRef.current = audioContext;
+      tapAudioSourceNodeRef.current = sourceNode;
+      tapAudioAnalyserRef.current = analyser;
+      tapAudioSilenceMsRef.current = 0;
+      tapAudioSpokeRef.current = false;
+
+      const sampleIntervalMs = 120;
+      const sampleBuffer = new Float32Array(analyser.fftSize);
+
+      tapAudioSilenceIntervalRef.current = setInterval(() => {
+        const recorder = tapAudioRecorderRef.current;
+        if (!recorder || recorder.state !== "recording") return;
+
+        analyser.getFloatTimeDomainData(sampleBuffer);
+        let sumSquares = 0;
+        for (let i = 0; i < sampleBuffer.length; i += 1) {
+          const sample = sampleBuffer[i];
+          sumSquares += sample * sample;
+        }
+        const rms = Math.sqrt(sumSquares / sampleBuffer.length);
+
+        if (rms >= TAP_TO_ORDER_AUDIO_LEVEL_THRESHOLD) {
+          tapAudioSpokeRef.current = true;
+          tapAudioSilenceMsRef.current = 0;
+          return;
+        }
+
+        if (!tapAudioSpokeRef.current) return;
+        tapAudioSilenceMsRef.current += sampleIntervalMs;
+
+        if (tapAudioSilenceMsRef.current >= TAP_TO_ORDER_SILENCE_STOP_MS) {
+          try {
+            stopTapAudioCapture();
+          } catch {}
+        }
+      }, sampleIntervalMs);
+    } catch (err) {
+      if (import.meta.env.DEV) {
+        console.warn("[Menu] Failed to start silence monitor:", err);
+      }
+      stopTapAudioSilenceMonitor();
+    }
+  };
+
+  const stopTapAudioStream = () => {
+    stopTapAudioSilenceMonitor();
+    if (!tapAudioStreamRef.current) return;
+    tapAudioStreamRef.current.getTracks().forEach((track) => {
+      try {
+        track.stop();
+      } catch {}
+    });
+    tapAudioStreamRef.current = null;
+  };
+
+  const stopTapAudioCapture = () => {
+    const recorder = tapAudioRecorderRef.current;
+    if (!recorder) return false;
+    if (recorder.state !== "inactive") {
+      recorder.stop();
+      return true;
+    }
+    return false;
+  };
+
+  const handleVoiceOrder = async () => {
+    if (recording) {
+      try {
+        stopTapAudioCapture();
+      } catch (err) {
+        console.warn("Error stopping voice capture:", err);
+      }
+      return;
+    }
+
     if (
-      !("webkitSpeechRecognition" in window) &&
-      !("SpeechRecognition" in window)
+      typeof window === "undefined" ||
+      !navigator?.mediaDevices?.getUserMedia ||
+      typeof MediaRecorder === "undefined"
     ) {
       alert(
-        "Your browser doesn't support voice input. Please use the menu buttons to order.",
+        "Voice recording is not supported on this browser. Please use menu buttons to order.",
       );
       return;
     }
 
     try {
-      const SpeechRecognition =
-        window.SpeechRecognition || window.webkitSpeechRecognition;
-      const recognition = new SpeechRecognition();
-      recognitionRef.current = recognition;
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      tapAudioStreamRef.current = stream;
 
-      // Keep listening across short pauses; finalize after 5 seconds of silence.
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.maxAlternatives = 1;
-      recognition.lang = getVoiceRecognitionLang();
+      const preferredMimeTypes = [
+        "audio/webm;codecs=opus",
+        "audio/webm",
+        "audio/ogg;codecs=opus",
+        "audio/mp4",
+      ];
+      const selectedMimeType = preferredMimeTypes.find((mime) =>
+        MediaRecorder.isTypeSupported(mime),
+      );
+      const recorder = selectedMimeType
+        ? new MediaRecorder(stream, { mimeType: selectedMimeType })
+        : new MediaRecorder(stream);
+      const audioChunks = [];
 
-      const finalChunks = [];
-      let interimChunk = "";
-      tapVoiceTranscriptRef.current = "";
-      tapVoiceFinalizingRef.current = false;
+      tapAudioRecorderRef.current = recorder;
+      recognitionRef.current = { stop: () => stopTapAudioCapture() };
 
-      const clearSilenceTimer = () => {
-        if (tapVoiceSilenceTimerRef.current) {
-          clearTimeout(tapVoiceSilenceTimerRef.current);
-          tapVoiceSilenceTimerRef.current = null;
+      recorder.onstart = () => {
+        setRecording(true);
+        setOrderText("");
+        startTapAudioSilenceMonitor(stream);
+        clearTapAudioStopTimer();
+        tapAudioStopTimerRef.current = setTimeout(() => {
+          try {
+            stopTapAudioCapture();
+          } catch (err) {
+            if (import.meta.env.DEV) {
+              console.warn("[Menu] Failed to auto-stop tap-to-order recording:", err);
+            }
+          }
+        }, TAP_TO_ORDER_MAX_RECORD_MS);
+      };
+
+      recorder.ondataavailable = (event) => {
+        if (event?.data && event.data.size > 0) {
+          audioChunks.push(event.data);
         }
       };
 
-      const getMergedTranscript = () =>
-        [...finalChunks, interimChunk]
-          .join(" ")
-          .replace(/\s+/g, " ")
-          .trim();
-
-      const resetSilenceTimer = () => {
-        clearSilenceTimer();
-        tapVoiceSilenceTimerRef.current = setTimeout(() => {
-          tapVoiceFinalizingRef.current = true;
-          try {
-            if (recognitionRef.current) {
-              recognitionRef.current.stop();
-            }
-          } catch (err) {
-            if (import.meta.env.DEV) {
-              console.warn("[Menu] Failed to stop recognition after silence:", err);
-            }
-          }
-        }, TAP_TO_ORDER_SILENCE_MS);
+      recorder.onerror = (event) => {
+        if (import.meta.env.DEV) {
+          console.error("[Menu] Tap-to-order recorder error:", event);
+        }
+        clearTapAudioStopTimer();
+        setRecording(false);
+        setIsProcessing(false);
+        tapAudioRecorderRef.current = null;
+        recognitionRef.current = null;
+        stopTapAudioStream();
+        alert("Voice recording failed. Please try again or use menu buttons.");
       };
 
-      const processTranscript = async () => {
-        const transcript = getMergedTranscript();
-        tapVoiceTranscriptRef.current = transcript;
-        setOrderText(transcript);
+      recorder.onstop = async () => {
+        clearTapAudioStopTimer();
+        setRecording(false);
+        tapAudioRecorderRef.current = null;
+        recognitionRef.current = null;
+        stopTapAudioStream();
 
-        if (!transcript) {
+        const mimeType = recorder.mimeType || selectedMimeType || "audio/webm";
+        const audioBlob = audioChunks.length
+          ? new Blob(audioChunks, { type: mimeType })
+          : null;
+
+        if (!audioBlob || audioBlob.size === 0) {
           alert("No speech detected. Please try again.");
           return;
         }
 
         setIsProcessing(true);
         try {
-          await executeTapToOrderWithOpenAI(transcript);
-        } catch (err) {
-          if (import.meta.env.DEV) {
-            console.error("[Menu] Voice action execution error:", err);
+          const transcript = await transcribeTapToOrderAudio(audioBlob);
+          setOrderText(transcript);
+
+          if (!transcript) {
+            alert("No speech detected. Please try again.");
+            return;
           }
-          await executeVoiceAction(transcript, { speakFeedback: false });
+
+          try {
+            await executeTapToOrderWithOpenAI(transcript);
+          } catch (err) {
+            if (import.meta.env.DEV) {
+              console.error("[Menu] Voice action execution error:", err);
+            }
+            await executeVoiceAction(transcript, { speakFeedback: false });
+          }
+        } catch (err) {
+          const message =
+            err?.message ||
+            "Failed to process voice input. Please try again or use menu buttons.";
+          alert(message);
         } finally {
           setIsProcessing(false);
         }
       };
 
-      recognition.onstart = () => {
-        setRecording(true);
-        setOrderText("");
-        finalChunks.length = 0;
-        interimChunk = "";
-        tapVoiceTranscriptRef.current = "";
-        tapVoiceFinalizingRef.current = false;
-        resetSilenceTimer();
-        console.log("Voice recognition started");
-      };
-
-      recognition.onresult = (event) => {
-        for (let i = event.resultIndex; i < event.results.length; i += 1) {
-          const result = event.results[i];
-          const text = result?.[0]?.transcript?.trim();
-          if (!text) continue;
-
-          if (result.isFinal) {
-            finalChunks.push(text);
-            interimChunk = "";
-          } else {
-            interimChunk = text;
-          }
-        }
-
-        const transcript = getMergedTranscript();
-        tapVoiceTranscriptRef.current = transcript;
-        setOrderText(transcript);
-        resetSilenceTimer();
-      };
-
-      recognition.onerror = (event) => {
-        console.error("Voice recognition error:", event.error);
-        clearSilenceTimer();
-        setRecording(false);
-        setIsProcessing(false);
-        recognitionRef.current = null;
-        tapVoiceFinalizingRef.current = false;
-
-        if (event.error === "no-speech") {
-          alert("No speech detected. Please try again.");
-        } else if (event.error === "not-allowed") {
-          alert(
-            "Microphone permission denied. Please allow microphone access.",
-          );
-        } else {
-          alert(
-            "Voice recognition error. Please try again or use menu buttons.",
-          );
-        }
-      };
-
-      recognition.onend = async () => {
-        clearSilenceTimer();
-        const shouldProcess =
-          tapVoiceFinalizingRef.current || !!tapVoiceTranscriptRef.current;
-        setRecording(false);
-        recognitionRef.current = null;
-        tapVoiceFinalizingRef.current = false;
-        if (!shouldProcess) return;
-        await processTranscript();
-      };
-
-      setRecording(true);
-      recognition.start();
+      recorder.start(250);
     } catch (err) {
-      if (tapVoiceSilenceTimerRef.current) {
-        clearTimeout(tapVoiceSilenceTimerRef.current);
-        tapVoiceSilenceTimerRef.current = null;
-      }
-      console.error("Error starting voice recognition:", err);
-      alert(
-        "Failed to start voice input. Please try again or use menu buttons.",
-      );
+      clearTapAudioStopTimer();
+      stopTapAudioStream();
+      tapAudioRecorderRef.current = null;
+      recognitionRef.current = null;
       setRecording(false);
+      console.error("Error starting voice recording:", err);
+      alert(
+        "Failed to start voice input. Please check microphone permission and try again.",
+      );
     }
   };
   const stopBlindListening = ({ silent = false } = {}) => {
@@ -4025,12 +4117,14 @@ export default function MenuPage() {
         } catch {}
         blindRecognitionRef.current = null;
       }
-      if (tapVoiceSilenceTimerRef.current) {
-        clearTimeout(tapVoiceSilenceTimerRef.current);
-        tapVoiceSilenceTimerRef.current = null;
+      clearTapAudioStopTimer();
+      if (tapAudioRecorderRef.current) {
+        try {
+          tapAudioRecorderRef.current.stop();
+        } catch {}
+        tapAudioRecorderRef.current = null;
       }
-      tapVoiceTranscriptRef.current = "";
-      tapVoiceFinalizingRef.current = false;
+      stopTapAudioStream();
       if (typeof window !== "undefined" && "speechSynthesis" in window) {
         window.speechSynthesis.cancel();
       }
@@ -5257,6 +5351,51 @@ export default function MenuPage() {
     cartRef.current = updatedCart;
     setCart(updatedCart);
     return result;
+  };
+
+  const transcribeTapToOrderAudio = async (audioBlob) => {
+    if (!audioBlob || audioBlob.size <= 0) {
+      throw new Error("No audio captured for transcription");
+    }
+
+    const mimeType = String(audioBlob.type || "audio/webm").toLowerCase();
+    const extension = mimeType.includes("ogg")
+      ? "ogg"
+      : mimeType.includes("mp4")
+        ? "mp4"
+        : mimeType.includes("mpeg")
+          ? "mp3"
+          : mimeType.includes("wav")
+            ? "wav"
+            : "webm";
+
+    const formData = new FormData();
+    formData.append(
+      "audio",
+      new File([audioBlob], `tap-to-order.${extension}`, {
+        type: audioBlob.type || "audio/webm",
+      }),
+    );
+    formData.append("locale", getVoiceRecognitionLang());
+
+    const response = await fetchWithRetry(
+      TAP_TO_ORDER_TRANSCRIBE_ENDPOINT,
+      {
+        method: "POST",
+        body: formData,
+      },
+      {
+        maxRetries: 1,
+        timeout: 45000,
+      },
+    );
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload?.message || "Whisper transcription request failed");
+    }
+
+    return String(payload?.transcript || "").trim();
   };
 
   const executeTapToOrderWithOpenAI = async (transcript) => {

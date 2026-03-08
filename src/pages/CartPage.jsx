@@ -24,6 +24,7 @@ const nodeApi = (
 const TAKEAWAY_TOKEN_PREVIEW_KEY = "terra_takeaway_token_preview";
 const PAYMENT_GATE_ORDER_ID_KEY = "terra_payment_gate_order_id";
 const PAYMENT_GATE_MODE_KEY = "terra_payment_gate_mode";
+const PAYMENT_GATE_DRAFT_KEY = "terra_payment_gate_order_draft";
 const TAKEAWAY_LIKE_SERVICE_TYPES = new Set(["TAKEAWAY", "PICKUP", "DELIVERY"]);
 const sanitizeAddonName = (value) => {
   const normalized = String(value || "")
@@ -1025,6 +1026,40 @@ export default function CartPage() {
         .toString(36)
         .slice(2, 11)}`;
       orderPayload.idempotencyKey = requestIdempotencyKey;
+      const paymentGateMode =
+        officePaymentGateMode ||
+        (requiresNonOfficePaymentChoiceBeforePlacement ? "CHOICE" : null);
+
+      if (requiresImmediatePayment) {
+        const deferredOrderDraft = {
+          orderPayload,
+          finalActiveOrderId: finalActiveOrderId || null,
+          isTakeawayLike: Boolean(isTakeawayLike),
+          activeOrderStatus: activeOrderStatus || "",
+          paymentGateMode: paymentGateMode || null,
+          createdAt: new Date().toISOString(),
+        };
+
+        localStorage.setItem(
+          PAYMENT_GATE_DRAFT_KEY,
+          JSON.stringify(deferredOrderDraft),
+        );
+
+        if (paymentGateMode) {
+          localStorage.setItem(PAYMENT_GATE_MODE_KEY, paymentGateMode);
+          localStorage.removeItem(PAYMENT_GATE_ORDER_ID_KEY);
+        } else {
+          localStorage.removeItem(PAYMENT_GATE_ORDER_ID_KEY);
+          localStorage.removeItem(PAYMENT_GATE_MODE_KEY);
+        }
+
+        setStepState(2, "done");
+        setStepState(3, "done");
+        navigate("/payment");
+        return;
+      }
+
+      localStorage.removeItem(PAYMENT_GATE_DRAFT_KEY);
 
       // API Call
       const url = finalActiveOrderId
@@ -1096,9 +1131,6 @@ export default function CartPage() {
             new Date().toISOString(),
           );
         }
-        const paymentGateMode =
-          officePaymentGateMode ||
-          (requiresNonOfficePaymentChoiceBeforePlacement ? "CHOICE" : null);
         if (paymentGateMode) {
           localStorage.setItem(PAYMENT_GATE_ORDER_ID_KEY, data._id);
           localStorage.setItem(PAYMENT_GATE_MODE_KEY, paymentGateMode);

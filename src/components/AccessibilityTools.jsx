@@ -4,7 +4,7 @@ import { FaWheelchair } from "react-icons/fa";
 
 const AccessibilityTools = () => {
   const [fontSize, setFontSize] = useState(100);          // percentage
-  const [contrast, setContrast] = useState('normal');     // 'normal' | 'light'
+  const contrast = 'normal';
   const [dyslexiaFont, setDyslexiaFont] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const panelRef = useRef(null);
@@ -14,7 +14,6 @@ const AccessibilityTools = () => {
   useEffect(() => {
     const body = document.body;
     body.classList.remove('light-contrast', 'dyslexia-font');
-    if (contrast === 'light') body.classList.add('light-contrast');
     if (dyslexiaFont) body.classList.add('dyslexia-font');
     body.style.fontSize = `${fontSize}%`;
 
@@ -22,16 +21,15 @@ const AccessibilityTools = () => {
       'accessibility-preferences',
       JSON.stringify({ fontSize, contrast, dyslexiaFont })
     );
-  }, [fontSize, contrast, dyslexiaFont]);
+  }, [fontSize, dyslexiaFont]);
 
   /* ---------- LOAD PREFERENCES ---------- */
   useEffect(() => {
     const saved = localStorage.getItem('accessibility-preferences');
     if (saved) {
       try {
-        const { fontSize: f, contrast: c, dyslexiaFont: d } = JSON.parse(saved);
+        const { fontSize: f, dyslexiaFont: d } = JSON.parse(saved);
         setFontSize(f ?? 100);
-        setContrast(c ?? 'normal');
         setDyslexiaFont(d ?? false);
       } catch { /* ignore */ }
     }
@@ -93,7 +91,6 @@ const AccessibilityTools = () => {
       .accessibility-tools, .accessibility-tools * { font-size: 12px !important; }
 
       body.light-contrast {
-        filter: saturate(1.8) contrast(1.4) brightness(1.25) hue-rotate(5deg);
         background: linear-gradient(135deg, #f8f9ff 0%, #fff8f0 100%) !important;
       }
       body.light-contrast h1, body.light-contrast h2, body.light-contrast h3,
@@ -107,6 +104,10 @@ const AccessibilityTools = () => {
         transform: scale(1.02) !important;
       }
       body.light-contrast .accessibility-tools {
+        position: fixed !important;
+        left: 16px !important;
+        bottom: 16px !important;
+        z-index: 10000 !important;
         filter: none !important;
         background: rgba(255, 255, 255, 0.95) !important;
         color: #333 !important;
@@ -152,6 +153,12 @@ const AccessibilityTools = () => {
     bottom: '16px',
     left: '16px',
     zIndex: 10000,
+    right: 'auto',
+    background: 'transparent',
+    padding: 0,
+    borderRadius: 0,
+    boxShadow: 'none',
+    backdropFilter: 'none',
   };
 
   const fabBtnStyle = {
@@ -170,9 +177,9 @@ const AccessibilityTools = () => {
   };
 
   const panelStyle = {
-    position: 'absolute',
-    bottom: 56,
-    left: 0,
+    position: 'fixed',
+    bottom: 72,
+    left: 16,
     background: 'rgba(255,255,255,0.98)',
     borderRadius: 12,
     padding: 10,
@@ -233,7 +240,6 @@ const AccessibilityTools = () => {
 
   const increaseFontSize = () => { if (fontSize < 150) setFontSize(fontSize + 10); };
   const decreaseFontSize = () => { if (fontSize > 80) setFontSize(fontSize - 10); };
-  const cycleContrast   = () => setContrast(contrast === 'normal' ? 'light' : 'normal');
 
   return (
     <div className="accessibility-tools" style={fabWrapStyle}>
@@ -295,6 +301,7 @@ const AccessibilityTools = () => {
             </div>
 
             {/* Contrast (Normal ↔ Light) */}
+            {false && (
             <button
               style={buttonStyle(contrast !== 'normal')}
               onClick={cycleContrast}
@@ -318,6 +325,7 @@ const AccessibilityTools = () => {
               <span style={textStyle}>Contrast</span>
               <span style={{ fontSize: 10, opacity: 0.8 }}>{modeBadge}</span>
             </button>
+            )}
 
             {/* Dyslexia */}
             <button

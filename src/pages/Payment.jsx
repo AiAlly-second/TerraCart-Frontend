@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import QRCode from "react-qr-code";
 import translations from "../data/translations/payment.json";
 import { clearScopedCart } from "../utils/cartStorage";
+import { refreshCustomerPushToken } from "../services/customerPushService";
 import "./Payment.css";
 
 const nodeApi = (
@@ -12,6 +13,8 @@ const nodeApi = (
 ).replace(/\/$/, "");
 const PAYMENT_GATE_ORDER_ID_KEY = "terra_payment_gate_order_id";
 const PAYMENT_GATE_MODE_KEY = "terra_payment_gate_mode";
+const PAYMENT_GATE_DRAFT_KEY = "terra_payment_gate_order_draft";
+const TAKEAWAY_TOKEN_PREVIEW_KEY = "terra_takeaway_token_preview";
 const RAZORPAY_CHECKOUT_SCRIPT = "https://checkout.razorpay.com/v1/checkout.js";
 
 let razorpayScriptPromise = null;
@@ -135,6 +138,48 @@ function loadRazorpayCheckoutScript() {
   return razorpayScriptPromise;
 }
 
+function resolveInitialOrderId() {
+  const deferredDraft = readPaymentGateDraft();
+  if (deferredDraft?.orderPayload) {
+    // Draft exists: order must be created/updated only after method selection.
+    return "";
+  }
+
+  const paymentGateOrderId = localStorage.getItem(PAYMENT_GATE_ORDER_ID_KEY) || "";
+  if (paymentGateOrderId) return paymentGateOrderId;
+
+  const currentServiceType = localStorage.getItem("terra_serviceType") || "DINE_IN";
+  const isTakeawayLike =
+    currentServiceType === "TAKEAWAY" ||
+    currentServiceType === "PICKUP" ||
+    currentServiceType === "DELIVERY";
+  return isTakeawayLike
+    ? localStorage.getItem("terra_orderId_TAKEAWAY") ||
+        localStorage.getItem("terra_orderId")
+    : localStorage.getItem("terra_orderId");
+}
+
+function readPaymentGateDraft() {
+  const raw = localStorage.getItem(PAYMENT_GATE_DRAFT_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    if (!parsed.orderPayload || typeof parsed.orderPayload !== "object") return null;
+    return parsed;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function resolveOrderStatusValue(...candidates) {
+  for (const candidate of candidates) {
+    const normalized = String(candidate || "").trim();
+    if (normalized) return normalized;
+  }
+  return "Confirmed";
+}
+
 export default function Payment() {
   const navigate = useNavigate();
   const [creating, setCreating] = useState(false);
@@ -159,7 +204,7 @@ export default function Payment() {
     [language]
   );
 
-  // Memoize serviceType and orderId to prevent unnecessary re-renders
+  // Memoize serviceType to prevent unnecessary re-renders
   const serviceType = useMemo(
     () => localStorage.getItem("terra_serviceType") || "DINE_IN",
     []
@@ -174,45 +219,36 @@ export default function Payment() {
       return null;
     }
   }, []);
-  const orderId = useMemo(() => {
-    const currentServiceType = localStorage.getItem("terra_serviceType") || "DINE_IN";
-    const isTakeawayLike =
-      currentServiceType === "TAKEAWAY" ||
-      currentServiceType === "PICKUP" ||
-      currentServiceType === "DELIVERY";
-    return isTakeawayLike
-      ? localStorage.getItem("terra_orderId_TAKEAWAY") ||
-        localStorage.getItem("terra_orderId")
-      : localStorage.getItem("terra_orderId");
-  }, []);
-  const paymentGateOrderId = useMemo(
-    () => localStorage.getItem(PAYMENT_GATE_ORDER_ID_KEY) || "",
-    []
+  const [orderId, setOrderId] = useState(() => resolveInitialOrderId());
+  const [paymentGateOrderId, setPaymentGateOrderId] = useState(
+    () => localStorage.getItem(PAYMENT_GATE_ORDER_ID_KEY) || ""
   );
-  const paymentGateMode = useMemo(
-    () => localStorage.getItem(PAYMENT_GATE_MODE_KEY) || "",
-    []
+  const [paymentGateMode, setPaymentGateMode] = useState(
+    () => localStorage.getItem(PAYMENT_GATE_MODE_KEY) || ""
   );
+  const [paymentGateDraft, setPaymentGateDraft] = useState(() =>
+    readPaymentGateDraft()
+  );
+  const hasDeferredOrderDraft = useMemo(
+    () => Boolean(paymentGateDraft?.orderPayload),
+    [paymentGateDraft]
+  );
+  const isCurrentPaymentGateFlow = useMemo(() => {
+    if (!paymentGateMode) return false;
+    if (orderId) return !!paymentGateOrderId && paymentGateOrderId === orderId;
+    return hasDeferredOrderDraft;
+  }, [paymentGateMode, paymentGateOrderId, orderId, hasDeferredOrderDraft]);
   const forceOnlineForCurrentOrder = useMemo(
-    () =>
-      paymentGateMode === "ONLINE" &&
-      !!orderId &&
-      paymentGateOrderId === orderId,
-    [paymentGateMode, paymentGateOrderId, orderId]
+    () => paymentGateMode === "ONLINE" && isCurrentPaymentGateFlow,
+    [paymentGateMode, isCurrentPaymentGateFlow]
   );
   const isChoiceGateCurrentOrder = useMemo(
-    () =>
-      paymentGateMode === "CHOICE" &&
-      !!orderId &&
-      paymentGateOrderId === orderId,
-    [paymentGateMode, paymentGateOrderId, orderId]
+    () => paymentGateMode === "CHOICE" && isCurrentPaymentGateFlow,
+    [paymentGateMode, isCurrentPaymentGateFlow]
   );
   const isCashGateCurrentOrder = useMemo(
-    () =>
-      paymentGateMode === "CASH" &&
-      !!orderId &&
-      paymentGateOrderId === orderId,
-    [paymentGateMode, paymentGateOrderId, orderId]
+    () => paymentGateMode === "CASH" && isCurrentPaymentGateFlow,
+    [paymentGateMode, isCurrentPaymentGateFlow]
   );
   const isPaymentGateCurrentOrder = useMemo(
     () =>
@@ -375,9 +411,16 @@ export default function Payment() {
     }
   }, [orderId, resolveCartScopeId]);
 
+  const clearDeferredOrderDraft = useCallback(() => {
+    localStorage.removeItem(PAYMENT_GATE_DRAFT_KEY);
+    setPaymentGateDraft(null);
+  }, []);
+
   const clearPaymentGate = useCallback(() => {
     localStorage.removeItem(PAYMENT_GATE_ORDER_ID_KEY);
     localStorage.removeItem(PAYMENT_GATE_MODE_KEY);
+    setPaymentGateOrderId("");
+    setPaymentGateMode("");
   }, []);
 
   const clearOrderStorageForCurrentFlow = useCallback(() => {
@@ -401,7 +444,105 @@ export default function Payment() {
       localStorage.removeItem("terra_orderStatus_DINE_IN");
       localStorage.removeItem("terra_orderStatusUpdatedAt_DINE_IN");
     }
+    setOrderId("");
   }, []);
+
+  const persistOrderStorageForCurrentFlow = useCallback(
+    (resolvedOrderId, resolvedOrderStatus, isTakeawayLike) => {
+      const nowIso = new Date().toISOString();
+      localStorage.setItem("terra_orderId", resolvedOrderId);
+      localStorage.setItem("terra_orderStatus", resolvedOrderStatus);
+      localStorage.setItem("terra_orderStatusUpdatedAt", nowIso);
+
+      if (isTakeawayLike) {
+        localStorage.setItem("terra_orderId_TAKEAWAY", resolvedOrderId);
+        localStorage.setItem("terra_orderStatus_TAKEAWAY", resolvedOrderStatus);
+        localStorage.setItem("terra_orderStatusUpdatedAt_TAKEAWAY", nowIso);
+      } else {
+        localStorage.setItem("terra_orderId_DINE_IN", resolvedOrderId);
+        localStorage.setItem("terra_orderStatus_DINE_IN", resolvedOrderStatus);
+        localStorage.setItem("terra_orderStatusUpdatedAt_DINE_IN", nowIso);
+      }
+
+      setOrderId(resolvedOrderId);
+    },
+    []
+  );
+
+  const ensureOrderForPayment = useCallback(async () => {
+    if (orderId) return orderId;
+
+    const draft = paymentGateDraft || readPaymentGateDraft();
+    if (!draft?.orderPayload) {
+      throw new Error("Order not ready. Please go back to cart and try again.");
+    }
+
+    const url = draft.finalActiveOrderId
+      ? `${nodeApi}/api/orders/${draft.finalActiveOrderId}/kot`
+      : `${nodeApi}/api/orders`;
+
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(draft.orderPayload),
+    });
+
+    let data = {};
+    try {
+      const text = await res.text();
+      data = text ? JSON.parse(text) : {};
+    } catch (_parseError) {
+      data = {};
+    }
+
+    if (!res.ok) {
+      throw new Error(data?.message || data?.error || "Unable to place order");
+    }
+
+    const resolvedOrderId = data?._id || draft.finalActiveOrderId || "";
+    if (!resolvedOrderId) {
+      throw new Error("Order placed but ID was missing. Please retry.");
+    }
+
+    const resolvedOrderStatus = resolveOrderStatusValue(
+      data?.status,
+      draft?.activeOrderStatus
+    );
+    const isTakeawayLike = Boolean(draft?.isTakeawayLike);
+
+    persistOrderStorageForCurrentFlow(
+      resolvedOrderId,
+      resolvedOrderStatus,
+      isTakeawayLike
+    );
+    if (isTakeawayLike) {
+      localStorage.removeItem(TAKEAWAY_TOKEN_PREVIEW_KEY);
+    }
+
+    const nextGateMode = String(draft?.paymentGateMode || paymentGateMode || "")
+      .trim()
+      .toUpperCase();
+    if (nextGateMode) {
+      localStorage.setItem(PAYMENT_GATE_ORDER_ID_KEY, resolvedOrderId);
+      localStorage.setItem(PAYMENT_GATE_MODE_KEY, nextGateMode);
+      setPaymentGateOrderId(resolvedOrderId);
+      setPaymentGateMode(nextGateMode);
+    } else {
+      clearPaymentGate();
+    }
+
+    clearDeferredOrderDraft();
+    refreshCustomerPushToken().catch(() => {});
+
+    return resolvedOrderId;
+  }, [
+    orderId,
+    paymentGateDraft,
+    paymentGateMode,
+    clearDeferredOrderDraft,
+    clearPaymentGate,
+    persistOrderStorageForCurrentFlow,
+  ]);
 
   const handleCompleteAndRedirect = useCallback(async () => {
     // Prevent multiple calls
@@ -411,6 +552,7 @@ export default function Payment() {
     }
 
     setHasHandledPayment(true);
+    clearDeferredOrderDraft();
     clearPaymentGate();
     const currentServiceType =
       localStorage.getItem("terra_serviceType") || "DINE_IN";
@@ -486,18 +628,41 @@ export default function Payment() {
     console.log("[Payment] Payment completed - flag set for session clearing on next table scan");
 
     navigate("/menu");
-  }, [orderId, navigate, hasHandledPayment, officePaymentMode, clearPaymentGate]);
+  }, [
+    orderId,
+    navigate,
+    hasHandledPayment,
+    officePaymentMode,
+    clearPaymentGate,
+    clearDeferredOrderDraft,
+  ]);
 
   useEffect(() => {
     if (!orderId) {
-      clearPaymentGate();
-      alert(t("noOrderFound") || "No order found for payment.");
-      navigate("/menu");
+      if (!hasDeferredOrderDraft) {
+        clearDeferredOrderDraft();
+        clearPaymentGate();
+        alert(t("noOrderFound") || "No order found for payment.");
+        navigate("/menu");
+        return;
+      }
+      setLoading(false);
+      setPayment(null);
+      fetchUploadedQR();
       return;
     }
     fetchLatestPayment();
     fetchUploadedQR();
-  }, [orderId, fetchLatestPayment, fetchUploadedQR, navigate, t, clearPaymentGate]);
+  }, [
+    orderId,
+    hasDeferredOrderDraft,
+    fetchLatestPayment,
+    fetchUploadedQR,
+    navigate,
+    t,
+    clearPaymentGate,
+    clearDeferredOrderDraft,
+  ]);
 
   useEffect(() => {
     if (
@@ -508,6 +673,12 @@ export default function Payment() {
       clearPaymentGate();
     }
   }, [paymentGateOrderId, orderId, clearPaymentGate]);
+
+  useEffect(() => {
+    if (orderId && hasDeferredOrderDraft) {
+      clearDeferredOrderDraft();
+    }
+  }, [orderId, hasDeferredOrderDraft, clearDeferredOrderDraft]);
 
   useEffect(() => {
     if (!paymentPending) return;
@@ -623,7 +794,6 @@ export default function Payment() {
   );
 
   const createPaymentIntent = async (method) => {
-    if (!orderId) return;
     if (forceOnlineForCurrentOrder && method !== "ONLINE") {
       alert("Only online payment is allowed for this order.");
       return;
@@ -638,10 +808,15 @@ export default function Payment() {
     }
     setCreating(true);
     try {
+      const resolvedOrderId = await ensureOrderForPayment();
+      if (!resolvedOrderId) {
+        throw new Error("Order not found for payment.");
+      }
+
       const res = await fetch(`${nodeApi}/api/payments/create`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderId, method }),
+        body: JSON.stringify({ orderId: resolvedOrderId, method }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -665,7 +840,7 @@ export default function Payment() {
         let resolvedOrderStatus = "Confirmed";
 
         try {
-          const orderRes = await fetch(`${nodeApi}/api/orders/${orderId}`);
+          const orderRes = await fetch(`${nodeApi}/api/orders/${resolvedOrderId}`);
           if (orderRes.ok) {
             const latestOrder = await orderRes.json();
             const latestStatus = String(latestOrder?.status || "").trim();
@@ -677,7 +852,7 @@ export default function Payment() {
           console.warn("[Payment] Unable to fetch latest order status after cash choice:", error);
         }
 
-        localStorage.setItem("terra_orderId", orderId);
+        localStorage.setItem("terra_orderId", resolvedOrderId);
         localStorage.setItem("terra_orderStatus", resolvedOrderStatus);
         localStorage.setItem("terra_orderStatusUpdatedAt", nowIso);
         localStorage.removeItem("terra_lastPaidOrderId");
@@ -687,15 +862,16 @@ export default function Payment() {
           currentServiceType === "PICKUP" ||
           currentServiceType === "DELIVERY"
         ) {
-          localStorage.setItem("terra_orderId_TAKEAWAY", orderId);
+          localStorage.setItem("terra_orderId_TAKEAWAY", resolvedOrderId);
           localStorage.setItem("terra_orderStatus_TAKEAWAY", resolvedOrderStatus);
           localStorage.setItem("terra_orderStatusUpdatedAt_TAKEAWAY", nowIso);
         } else {
-          localStorage.setItem("terra_orderId_DINE_IN", orderId);
+          localStorage.setItem("terra_orderId_DINE_IN", resolvedOrderId);
           localStorage.setItem("terra_orderStatus_DINE_IN", resolvedOrderStatus);
           localStorage.setItem("terra_orderStatusUpdatedAt_DINE_IN", nowIso);
         }
 
+        setOrderId(resolvedOrderId);
         setHasHandledPayment(true);
         clearPaymentGate();
         clearScopedCart(currentServiceType);
@@ -711,7 +887,15 @@ export default function Payment() {
   // Keep order pending when customer goes back without paying.
   // Allow returning to menu even for payment-compulsory flows.
   const handleBackWithoutPayment = useCallback(async () => {
-    if (!orderId || hasHandledPayment || payment?.status === "PAID") {
+    if (!orderId) {
+      clearDeferredOrderDraft();
+      clearPaymentGate();
+      navigate("/menu");
+      return;
+    }
+
+    if (hasHandledPayment || payment?.status === "PAID") {
+      clearDeferredOrderDraft();
       clearPaymentGate();
       navigate("/menu");
       return;
@@ -767,6 +951,7 @@ export default function Payment() {
       }
 
       clearOrderStorageForCurrentFlow();
+      clearDeferredOrderDraft();
       clearPaymentGate();
       navigate("/menu");
       return;
@@ -779,6 +964,7 @@ export default function Payment() {
     payment?.status,
     payment?.id,
     isPaymentGateCurrentOrder,
+    clearDeferredOrderDraft,
     clearPaymentGate,
     clearOrderStorageForCurrentFlow,
     navigate,

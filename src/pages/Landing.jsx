@@ -16,6 +16,8 @@ import {
 const nodeApi = (
   import.meta.env.VITE_NODE_API_URL || "http://localhost:5001"
 ).replace(/\/$/, "");
+const MENU_BACK_PRESERVE_KEY = "terra_preserve_menu_state_on_back";
+const MENU_SESSION_MARKER_KEY = "terra_menu_session_active_tab";
 
 // Validate API URL in production
 if (
@@ -64,9 +66,30 @@ function updateSessionToken(newToken, oldToken) {
   }
 }
 
+function hasRecoverableMenuStateInStorage() {
+  const serviceType = localStorage.getItem("terra_serviceType");
+  const hasOrderId =
+    !!localStorage.getItem("terra_orderId") ||
+    !!localStorage.getItem("terra_orderId_DINE_IN") ||
+    !!localStorage.getItem("terra_orderId_TAKEAWAY");
+
+  const hasCartSnapshot = [
+    localStorage.getItem("terra_cart"),
+    localStorage.getItem("terra_cart_DINE_IN"),
+    localStorage.getItem("terra_cart_TAKEAWAY"),
+  ].some((value) => {
+    const trimmed = String(value || "").trim();
+    return !!trimmed && trimmed !== "{}" && trimmed !== "[]";
+  });
+
+  return !!serviceType && (hasOrderId || hasCartSnapshot);
+}
+
 export default function Landing() {
   const navigate = useNavigate();
   const [language, setLanguage] = useState(getCurrentLanguage());
+  const [resumeMenuOnLanguageSelect, setResumeMenuOnLanguageSelect] =
+    useState(false);
   const [accessibilityMode, setAccessibilityMode] = useState(
     localStorage.getItem("accessibilityMode") === "true",
   );
@@ -85,6 +108,26 @@ export default function Landing() {
   const handleLanguageSelect = (langCode) => {
     const selectedLanguage = setCurrentLanguage(langCode);
     setLanguage(selectedLanguage);
+
+    // When user came from Menu back button, return to Menu with existing session/cart/order.
+    if (resumeMenuOnLanguageSelect) {
+      const currentServiceType =
+        localStorage.getItem("terra_serviceType") || "DINE_IN";
+      let storedTable = null;
+      try {
+        const rawTable = localStorage.getItem("terra_selectedTable");
+        storedTable = rawTable ? JSON.parse(rawTable) : null;
+      } catch {
+        storedTable = null;
+      }
+      navigate("/menu", {
+        state: storedTable
+          ? { serviceType: currentServiceType, table: storedTable }
+          : { serviceType: currentServiceType },
+      });
+      return;
+    }
+
     // Global takeaway link only: skip SecondPage and go directly to menu
     const isGlobalTakeaway = localStorage.getItem("terra_takeaway_only") === "true";
     if (isGlobalTakeaway) {
@@ -156,6 +199,30 @@ export default function Landing() {
     const params = new URLSearchParams(window.location.search);
     const takeawayParam = params.get("takeaway");
     const cartParam = params.get("cart");
+    const tableParam = params.get("table");
+
+    let preserveMenuStateOnBack = false;
+    let hasSameTabMenuSession = false;
+    try {
+      preserveMenuStateOnBack =
+        sessionStorage.getItem(MENU_BACK_PRESERVE_KEY) === "1";
+      hasSameTabMenuSession =
+        sessionStorage.getItem(MENU_SESSION_MARKER_KEY) === "1";
+    } catch {
+      preserveMenuStateOnBack = false;
+      hasSameTabMenuSession = false;
+    }
+
+    const shouldPreserveExistingSession =
+      !tableParam &&
+      !takeawayParam &&
+      (preserveMenuStateOnBack ||
+        (hasSameTabMenuSession && hasRecoverableMenuStateInStorage()));
+
+    // Back-to-home from menu in same tab: keep all existing session/cart/order keys untouched.
+    if (shouldPreserveExistingSession) {
+      return;
+    }
 
     if (cartParam) {
       // Always store cart ID if present in URL
@@ -177,7 +244,40 @@ export default function Landing() {
   }, []);
 
   useEffect(() => {
+    let preserveMenuStateOnBack = false;
+    let hasSameTabMenuSession = false;
+    try {
+      preserveMenuStateOnBack =
+        sessionStorage.getItem(MENU_BACK_PRESERVE_KEY) === "1";
+      hasSameTabMenuSession =
+        sessionStorage.getItem(MENU_SESSION_MARKER_KEY) === "1";
+    } catch {
+      preserveMenuStateOnBack = false;
+      hasSameTabMenuSession = false;
+    }
+
     const params = new URLSearchParams(window.location.search);
+    const hasDirectEntryParams =
+      !!params.get("table") || !!params.get("takeaway");
+    const shouldResumeMenuOnLanguage =
+      preserveMenuStateOnBack ||
+      (!hasDirectEntryParams &&
+        hasSameTabMenuSession &&
+        hasRecoverableMenuStateInStorage());
+
+    if (shouldResumeMenuOnLanguage) {
+      try {
+        if (preserveMenuStateOnBack) {
+          sessionStorage.removeItem(MENU_BACK_PRESERVE_KEY);
+        }
+      } catch {
+        // Ignore sessionStorage failures.
+      }
+      setResumeMenuOnLanguageSelect(true);
+      setIsLoading(false);
+      return;
+    }
+
     let slug = params.get("table");
 
     // CRITICAL: Check sessionStorage for persisted table parameter

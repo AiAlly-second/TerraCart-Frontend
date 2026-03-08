@@ -35,6 +35,8 @@ const nodeApi = (
 const TAP_TO_ORDER_AI_ENDPOINT = `${nodeApi}/api/voice-order/tap-to-order`;
 const TAP_TO_ORDER_TRANSCRIBE_ENDPOINT = `${nodeApi}/api/voice-order/tap-to-order/transcribe`;
 const MENU_PAGE_TRANSLATION_ENDPOINT = `${nodeApi}/api/translations/menu-page`;
+const MENU_BACK_PRESERVE_KEY = "terra_preserve_menu_state_on_back";
+const MENU_SESSION_MARKER_KEY = "terra_menu_session_active_tab";
 const TAP_TO_ORDER_MAX_RECORD_MS = 12000;
 const TAP_TO_ORDER_SILENCE_STOP_MS = 1800;
 const TAP_TO_ORDER_AUDIO_LEVEL_THRESHOLD = 0.015;
@@ -656,6 +658,15 @@ export default function MenuPage() {
       window.removeEventListener("storage", handleStorageChange);
       window.removeEventListener("language-change", handleStorageChange);
     };
+  }, []);
+
+  useEffect(() => {
+    try {
+      // Same-tab marker used by Landing to safely resume menu session if user goes home.
+      sessionStorage.setItem(MENU_SESSION_MARKER_KEY, "1");
+    } catch {
+      // Ignore sessionStorage failures.
+    }
   }, []);
 
   const t = (key, fallback) => {
@@ -6626,19 +6637,13 @@ export default function MenuPage() {
   }, [searchParams, menuLoading, menuCatalog, menuError]);
 
   const handleMenuBack = useCallback(() => {
-    if (isOfficeQrFlow) {
-      // Match office QR back navigation with the normal takeaway entry flow.
-      localStorage.removeItem(TABLE_SELECTION_KEY);
-      localStorage.removeItem("terra_scanToken");
-      localStorage.removeItem("terra_waitToken");
-      localStorage.removeItem("terra_sessionToken");
-      localStorage.removeItem(SERVICE_TYPE_KEY);
-      localStorage.removeItem("terra_orderType");
-      navigate("/secondpage");
-      return;
+    try {
+      sessionStorage.setItem(MENU_BACK_PRESERVE_KEY, "1");
+    } catch {
+      // Ignore sessionStorage failures.
     }
-    navigate(-1);
-  }, [isOfficeQrFlow, navigate]);
+    navigate("/", { replace: true });
+  }, [navigate]);
 
   return (
     <div
@@ -6720,27 +6725,22 @@ export default function MenuPage() {
                       : tapToOrder}
               </p>
 
-              {/* Contact us entry point */}
+              {/* Follow us entry point */}
               {!menuLoading && (
                 <div className="contact-us-row" style={{ marginTop: "8px", fontSize: "13px", display: "flex", flexWrap: "wrap", gap: "8px", justifyContent: "center", alignItems: "center" }}>
                   <button
                     type="button"
                     onClick={() =>
-                      navigate(
-                        `/contact-us${contactCartId ? `?cartId=${encodeURIComponent(contactCartId)}` : ""}`,
-                        {
-                          state: {
-                            cartId: contactCartId || null,
-                            contact: cartContact || null,
-                            hasCartContext,
-                          },
-                        },
+                      window.open(
+                        "https://www.instagram.com/terracarts/",
+                        "_blank",
+                        "noopener,noreferrer",
                       )
                     }
                     className="action-button"
                     style={{ minWidth: "160px", padding: "8px 14px" }}
                   >
-                    {t("contactUs", "Contact us")}
+                    Follow us
                   </button>
                 </div>
               )}
@@ -6901,6 +6901,25 @@ export default function MenuPage() {
                       disabled={reordering}
                     >
                       {reordering ? "Please wait..." : "Order More"}
+                    </button>
+
+                    <button
+                      className="billing-button"
+                      type="button"
+                    onClick={() =>
+                        navigate(
+                          `/contact-us${contactCartId ? `?cartId=${encodeURIComponent(contactCartId)}` : ""}`,
+                          {
+                            state: {
+                              cartId: contactCartId || null,
+                              contact: cartContact || null,
+                              hasCartContext,
+                            },
+                          },
+                        )
+                      }
+                    >
+                      {t("contactUs", "Contact us")}
                     </button>
 
                     {/* Row 2, Col 2: Post-settlement action */}

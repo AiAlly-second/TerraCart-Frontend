@@ -549,14 +549,11 @@ export default function OrderSummary() {
     rawStatusToken === "CANCELLED" ||
     rawStatusToken === "CANCELED" ||
     rawStatusToken === "RETURNED";
-  const displayStatus =
-    !isCancelledOrReturned &&
-    normalizePaymentStatus(order.paymentStatus, {
-      status: order.status,
-      isPaid: order.isPaid,
-    }) === "PAID"
-      ? "PAID"
-      : normalizeOrderStatus(order.status);
+  const displayStatus = isCancelledOrReturned
+    ? rawStatusToken === "CANCELED"
+      ? "CANCELLED"
+      : rawStatusToken
+    : normalizeOrderStatus(order.status);
   const totals = sumTotals(order, combinedItems);
   const totalQty = combinedItems.reduce((n, i) => n + i.quantity, 0);
   const isTakeaway = order.serviceType === "TAKEAWAY";
@@ -879,6 +876,11 @@ export default function OrderSummary() {
                 {statusMessages[displayStatus] ||
                   statusMessages.CANCELLED}
               </p>
+              {order.isPaid === true && displayStatus !== "PAID" && (
+                <p className="text-sm text-center text-green-700 mt-1">
+                  Payment already received
+                </p>
+              )}
               {terminalReason && (
                 <p className="text-sm text-center text-gray-600 mt-1">
                   Reason: {terminalReason}

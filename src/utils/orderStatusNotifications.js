@@ -130,8 +130,7 @@ export const notifyOrderStatusUpdate = ({
   serviceType,
 } = {}) => {
   const paymentToken = String(paymentStatus || "").trim().toUpperCase();
-  const normalizedStatus =
-    paymentToken === "PAID" ? "PAID" : normalizeOrderStatus(status);
+  const normalizedStatus = normalizeOrderStatus(status);
   const title = ORDER_STATUS_LABELS[normalizedStatus] || "Order Update";
   const serviceToken = String(serviceType || "").trim().toUpperCase();
   const bodyFromStatus =

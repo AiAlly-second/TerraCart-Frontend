@@ -65,9 +65,11 @@ export default function OrderStatus({
   reason,
 }) {
   const paymentToken = String(paymentStatus || "").trim().toUpperCase();
-  const normalizedStatus =
-    paymentToken === "PAID" || isPaid === true ? "PAID" : normalizeStatus(status);
+  const isPaymentCompleted = paymentToken === "PAID" || isPaid === true;
+  const normalizedStatus = normalizeStatus(status);
   const currentIndex = STATUS_TO_STEP_INDEX[normalizedStatus] ?? 0;
+  const hasReachedServed = currentIndex >= STATUS_TO_STEP_INDEX.SERVED;
+  const allStepsCompleted = isPaymentCompleted && hasReachedServed;
   const updatedLabel = updatedAt ? new Date(updatedAt).toLocaleTimeString() : null;
   const terminalStatus = normalizeTerminalStatus(status);
   const isTerminal = terminalStatus === "CANCELLED" || terminalStatus === "RETURNED";
@@ -98,9 +100,13 @@ export default function OrderStatus({
         <div className="order-status-updated-meta">Updated {updatedLabel}</div>
       )}
       {DISPLAY_STEPS.map((step, idx) => {
-        const isCompleted = idx < currentIndex;
-        const isCurrent = idx === currentIndex;
-        const isPending = idx > currentIndex;
+        const isPaidStep = step.key === "PAID";
+        const lifecycleCompleted = idx < currentIndex;
+        const paidCompleted = isPaidStep && isPaymentCompleted;
+        const isCompleted =
+          allStepsCompleted || lifecycleCompleted || paidCompleted;
+        const isCurrent = !isCompleted && idx === currentIndex;
+        const isPending = !isCompleted && !isCurrent;
         const isLast = idx === DISPLAY_STEPS.length - 1;
         const label = idx === 0 && tableLabel ? tableLabel : step.label;
 
@@ -128,7 +134,13 @@ export default function OrderStatus({
                     </svg>
                   )}
                 </div>
-                {!isLast && <div className="order-status-line" />}
+                {!isLast && (
+                  <div
+                    className={`order-status-line ${
+                      isCompleted ? "order-status-line-completed" : ""
+                    } ${isPending ? "order-status-line-pending" : ""}`}
+                  />
+                )}
               </div>
               <div className="order-status-step-content">
                 <span

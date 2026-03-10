@@ -3,9 +3,14 @@ import { motion } from "framer-motion";
 import { FaQrcode, FaMoneyBillWave, FaArrowLeft } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
 import QRCode from "react-qr-code";
+import io from "socket.io-client";
 import translations from "../data/translations/payment.json";
 import { clearScopedCart } from "../utils/cartStorage";
 import { refreshCustomerPushToken } from "../services/customerPushService";
+import {
+  buildSocketIdentityPayload,
+  ensureAnonymousSessionId,
+} from "../utils/anonymousSession";
 import "./Payment.css";
 
 const nodeApi = (
@@ -178,6 +183,32 @@ function resolveOrderStatusValue(...candidates) {
     if (normalized) return normalized;
   }
   return "Confirmed";
+}
+
+function normalizeStatusToken(value) {
+  return String(value || "").trim().toUpperCase();
+}
+
+function extractPayloadOrderId(payload) {
+  if (!payload || typeof payload !== "object") return "";
+  return String(
+    payload.orderId ||
+      payload._id ||
+      payload.id ||
+      payload.order?._id ||
+      payload.order?.id ||
+      ""
+  ).trim();
+}
+
+function extractPayloadPaymentStatus(payload) {
+  if (!payload || typeof payload !== "object") return "";
+  return normalizeStatusToken(
+    payload.status ||
+      payload.paymentStatus ||
+      payload.order?.paymentStatus ||
+      payload.order?.status
+  );
 }
 
 export default function Payment() {
@@ -687,6 +718,99 @@ export default function Payment() {
     }, 10000);
     return () => clearInterval(interval);
   }, [paymentPending, fetchLatestPayment]);
+
+  useEffect(() => {
+    ensureAnonymousSessionId();
+    let socket = null;
+    let joinedCartId = "";
+
+    const joinIdentityRoom = () => {
+      if (!socket) return;
+      const identityPayload = buildSocketIdentityPayload();
+      if (identityPayload?.anonymousSessionId) {
+        socket.emit("join_room", identityPayload);
+      }
+    };
+
+    const joinCartRoom = (cartId) => {
+      if (!socket) return;
+      const normalizedCartId = String(cartId || "").trim();
+      if (!normalizedCartId || normalizedCartId === joinedCartId) {
+        return;
+      }
+      socket.emit("join:cart", normalizedCartId);
+      joinedCartId = normalizedCartId;
+    };
+
+    const isCurrentOrderPayload = (payload) => {
+      const payloadOrderId = extractPayloadOrderId(payload);
+      if (!payloadOrderId || !orderId) return false;
+      return payloadOrderId === String(orderId).trim();
+    };
+
+    const handleSocketPaymentEvent = async (payload) => {
+      if (!isCurrentOrderPayload(payload)) return;
+      await fetchLatestPayment();
+      const paymentToken = extractPayloadPaymentStatus(payload);
+      if (paymentToken === "PAID" && !hasHandledPayment) {
+        handleCompleteAndRedirect();
+      }
+    };
+
+    try {
+      socket = io(nodeApi, {
+        transports: ["polling", "websocket"],
+        reconnection: true,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 20000,
+        timeout: 20000,
+        autoConnect: true,
+        forceNew: false,
+      });
+
+      socket.on("connect", () => {
+        joinedCartId = "";
+        joinIdentityRoom();
+        joinCartRoom(resolveCartScopeId());
+      });
+
+      socket.on("reconnect", () => {
+        joinedCartId = "";
+        joinIdentityRoom();
+        joinCartRoom(resolveCartScopeId());
+      });
+
+      socket.on("paymentCreated", (payload) => {
+        handleSocketPaymentEvent(payload).catch((error) => {
+          console.warn("[Payment] paymentCreated socket refresh failed:", error);
+        });
+      });
+
+      socket.on("paymentUpdated", (payload) => {
+        handleSocketPaymentEvent(payload).catch((error) => {
+          console.warn("[Payment] paymentUpdated socket refresh failed:", error);
+        });
+      });
+    } catch (error) {
+      console.warn("[Payment] Failed to initialize payment socket:", error);
+    }
+
+    return () => {
+      if (!socket) return;
+      socket.off("connect");
+      socket.off("reconnect");
+      socket.off("paymentCreated");
+      socket.off("paymentUpdated");
+      socket.disconnect();
+      socket = null;
+    };
+  }, [
+    orderId,
+    fetchLatestPayment,
+    resolveCartScopeId,
+    hasHandledPayment,
+    handleCompleteAndRedirect,
+  ]);
 
   useEffect(() => {
     // Only handle payment completion once and only if status is PAID

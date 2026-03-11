@@ -101,6 +101,24 @@ const buildMenuCatalogMap = (menuItems = []) => {
   return { byName, byNormalizedName };
 };
 
+const mergeMenuWithFallback = (primaryItems = [], fallbackItems = []) => {
+  const normalizedPrimaryNames = new Set(
+    (Array.isArray(primaryItems) ? primaryItems : [])
+      .map((item) => normalizeMenuItemName(item?.name))
+      .filter(Boolean),
+  );
+
+  const fallbackOnly = (Array.isArray(fallbackItems) ? fallbackItems : []).filter(
+    (item) => {
+      const normalized = normalizeMenuItemName(item?.name);
+      return normalized && !normalizedPrimaryNames.has(normalized);
+    },
+  );
+
+  // Keep backend/public menu prices authoritative, use fallback only for missing names.
+  return [...(Array.isArray(primaryItems) ? primaryItems : []), ...fallbackOnly];
+};
+
 function getImageUrl(imagePath) {
   if (!imagePath) return null;
   if (imagePath.startsWith("http://") || imagePath.startsWith("https://"))
@@ -271,7 +289,7 @@ export default function CartPage() {
     }
   });
   const [menuCatalog, setMenuCatalog] = useState(
-    fallbackMenuItems.map((i) => ({ ...i, price: i.price * 100 })) || [],
+    Array.isArray(fallbackMenuItems) ? fallbackMenuItems : [],
   );
   const [accessibilityMode, setAccessibilityMode] = useState(
     localStorage.getItem("accessibilityMode") === "true",
@@ -352,7 +370,7 @@ export default function CartPage() {
           if (Array.isArray(cat?.items)) items.push(...cat.items);
         });
       }
-      const merged = [...items, ...fallbackMenuItems];
+      const merged = mergeMenuWithFallback(items, fallbackMenuItems);
       setMenuCatalog(merged);
       return merged;
     } catch (err) {

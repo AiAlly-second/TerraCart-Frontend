@@ -87,7 +87,12 @@ const isOfficeTableContext = (table) => {
 
 const resolveOfficePaymentMode = (table) => {
   if (!isOfficeTableContext(table)) return null;
-  // Business rule: OFFICE QR orders are prepaid-only for now.
+  const mode = String(table?.officePaymentMode || "")
+    .trim()
+    .toUpperCase();
+  if (mode === "COD" || mode === "BOTH" || mode === "ONLINE") {
+    return mode;
+  }
   return "ONLINE";
 };
 

@@ -811,9 +811,15 @@ export default function Landing() {
           officeAddress: tableData.officeAddress || null,
           officePhone: tableData.officePhone || null,
           officeDeliveryCharge: Number(tableData.officeDeliveryCharge || 0),
-          officePaymentMode:
-            // Business rule: OFFICE QR orders are prepaid-only for now.
-            "ONLINE",
+          officePaymentMode: (() => {
+            const mode = String(tableData.officePaymentMode || "")
+              .trim()
+              .toUpperCase();
+            if (mode === "COD" || mode === "BOTH" || mode === "ONLINE") {
+              return mode;
+            }
+            return "ONLINE";
+          })(),
         };
 
         // CRITICAL: Validate table number matches what we expect

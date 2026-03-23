@@ -63,7 +63,12 @@ const hasOfficeQrMetadata = (tableContext) => {
 
 const resolveOfficePaymentMode = (tableContext) => {
   if (!hasOfficeQrMetadata(tableContext)) return null;
-  // Business rule: OFFICE QR orders are prepaid-only for now.
+  const mode = String(tableContext?.officePaymentMode || "")
+    .trim()
+    .toUpperCase();
+  if (mode === "COD" || mode === "BOTH" || mode === "ONLINE") {
+    return mode;
+  }
   return "ONLINE";
 };
 const resolveOrderStatusValue = (...candidates) => {

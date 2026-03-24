@@ -3209,10 +3209,17 @@ export default function MenuPage() {
         officeName: isOfficeQrFlow
           ? String(tableContextForOrder?.officeName || "").trim() || undefined
           : undefined,
+        officeAddress: isOfficeQrFlow
+          ? String(tableContextForOrder?.officeAddress || "").trim() || undefined
+          : undefined,
+        officePhone: isOfficeQrFlow
+          ? String(tableContextForOrder?.officePhone || "").trim() || undefined
+          : undefined,
         officeDeliveryCharge: isOfficeQrFlow
           ? Number(tableContextForOrder?.officeDeliveryCharge || 0)
           : undefined,
         officePaymentMode: officePaymentMode || undefined,
+        isVIP: isOfficeQrFlow ? tableContextForOrder?.isVIP === true : undefined,
         // Include cartId for takeaway/pickup/delivery orders
         cartId:
           isTakeawayType || effectiveOrderType

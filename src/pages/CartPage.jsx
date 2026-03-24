@@ -948,10 +948,17 @@ export default function CartPage() {
         officeName: isOfficeQrFlow
           ? String(tableInfo?.officeName || "").trim() || undefined
           : undefined,
+        officeAddress: isOfficeQrFlow
+          ? String(tableInfo?.officeAddress || "").trim() || undefined
+          : undefined,
+        officePhone: isOfficeQrFlow
+          ? String(tableInfo?.officePhone || "").trim() || undefined
+          : undefined,
         officeDeliveryCharge: isOfficeQrFlow
           ? Number(tableInfo?.officeDeliveryCharge || 0)
           : undefined,
         officePaymentMode: officePaymentMode || undefined,
+        isVIP: isOfficeQrFlow ? tableInfo?.isVIP === true : undefined,
         paymentRequiredBeforeProceeding: requiresPaymentChoiceBeforePlacement,
         cartId: cartId,
         specialInstructions: effectiveSpecialInstructions,

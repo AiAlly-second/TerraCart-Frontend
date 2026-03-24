@@ -31,8 +31,11 @@ export function buildOrderPayload(cart, options = {}) {
     sourceQrContext,
     sourceQrType,
     officeName,
+    officeAddress,
+    officePhone,
     officeDeliveryCharge,
     officePaymentMode,
+    isVIP,
     paymentRequiredBeforeProceeding,
   } = options;
   const items = Object.entries(cart)
@@ -262,6 +265,19 @@ export function buildOrderPayload(cart, options = {}) {
           : normalizedOfficePaymentMode === "BOTH"
             ? "BOTH"
             : "ONLINE";
+      if (isVIP === true) {
+        payload.isVIP = true;
+        payload.vipMeta = {
+          name: String(officeName || customerName || "").trim(),
+          address: String(
+            officeAddress ||
+              customerLocation?.address ||
+              customerLocation?.fullAddress ||
+              "",
+          ).trim(),
+          phone: String(officePhone || customerMobile || "").trim() || undefined,
+        };
+      }
     }
     const officeChargeValue = Number(officeDeliveryCharge);
     if (Number.isFinite(officeChargeValue) && officeChargeValue > 0) {

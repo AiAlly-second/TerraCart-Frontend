@@ -1311,6 +1311,7 @@ export default function Landing() {
       ttsPrimedRef.current = true;
     }
 
+    // voice assist texts - filter out any empty/null entries to avoid unnecessary pauses
     const texts = [
       t("voiceReadWelcome"),
       t("voiceReadSelectLanguage"),
@@ -1398,85 +1399,91 @@ export default function Landing() {
   }, []);
 
   return (
-    <div className={accessibilityMode ? "bg-white" : "bg-gray-100"}>
+    <div
+      className={`flex h-full min-h-0 flex-col ${accessibilityMode ? "bg-white" : "bg-gray-100"}`}
+    >
       <Header showNavigationTabs={false} isFixed={false} />
 
-      <div className="relative">
+      <div className="relative flex flex-1 min-h-0 flex-col">
         <div className="absolute inset-0 bg-white" />
 
-        <div className="relative z-10 flex flex-col items-center justify-center min-h-[calc(100vh-5rem)] px-4 py-4 sm:py-6 md:py-8">
-          {/* Title box */}
-          <div className="mb-8 sm:mb-12 md:mb-16">
-            <div
-              className={`
-                rounded-lg py-1 px-1 text-center
-                ${accessibilityMode ? "border-2 border-orange-800" : ""}
-              `}
-            >
-              <h1
-                className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-extrabold leading-snug"
-                style={{ color: "#1B1212" }}
-              >
-                <span className="block">{t("welcomeTitle")}</span>
-              </h1>
-            </div>
-          </div>
-
-          {/* Loading Indicator or Language Selection */}
-          {isLoading ? (
-            <div className="flex flex-col items-center justify-center">
-              <div className="w-12 h-12 border-4 border-orange-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-              <p className="text-lg font-semibold text-gray-700">{t("loading")}</p>
-            </div>
-          ) : (
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9, y: 40 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              transition={{ duration: 0.6 }}
-              className="w-full max-w-md"
-            >
-              <p
+        <div className="relative z-10 flex flex-1 min-h-0 flex-col items-center justify-center px-4 py-5 pb-24 sm:px-6 sm:py-8 sm:pb-12">
+          <div className="flex w-full max-w-[22rem] flex-col items-center sm:max-w-md md:max-w-lg">
+            {/* Title box */}
+            <div className="mb-6 sm:mb-10 md:mb-12">
+              <div
                 className={`
-                  text-center font-semibold mb-6 sm:mb-8 md:mb-10
-                  ${
-                    accessibilityMode
-                      ? "text-xl sm:text-2xl md:text-3xl font-bold bg-white px-3 sm:px-4 py-2 rounded-lg"
-                      : "text-base sm:text-lg md:text-xl"
-                  }
+                  rounded-xl px-2 py-1 text-center
+                  ${accessibilityMode ? "border-2 border-orange-800 bg-white/95" : ""}
                 `}
-                style={{ color: "#1B1212" }}
               >
-                {t("selectPreferredLanguage")}
-              </p>
-              <div className="grid grid-cols-1 gap-4">
-                {LANGUAGE_OPTIONS.map((lang) => (
-                  <motion.button
-                    key={lang.code}
-                    whileTap={{ scale: 0.95 }}
-                    whileHover={{ scale: 1.02 }}
-                    onClick={() => handleLanguageSelect(lang.code)}
-                    className={`
-                      py-4 sm:py-5 md:py-6 px-6 sm:px-8 rounded-lg font-semibold
-                      text-lg sm:text-xl md:text-2xl transition-all duration-200
-                      text-white shadow-lg hover:shadow-xl active:scale-95 border-2
-                      ${
-                        accessibilityMode
-                          ? "border-gray-800 bg-gray-800"
-                          : "border-transparent hover:border-white/30"
-                      }
-                    `}
-                    style={{
-                      backgroundColor: accessibilityMode
-                        ? undefined
-                        : "#FC8019",
-                    }}
-                  >
-                    {lang.label}
-                  </motion.button>
-                ))}
+                <h1
+                  className="text-[2rem] font-extrabold leading-tight sm:text-4xl md:text-5xl lg:text-6xl"
+                  style={{ color: "#1B1212" }}
+                >
+                  <span className="block">{t("welcomeTitle")}</span>
+                </h1>
               </div>
-            </motion.div>
-          )}
+            </div>
+
+            {/* Loading Indicator or Language Selection */}
+            {isLoading ? (
+              <div className="flex flex-col items-center justify-center text-center">
+                <div className="mb-4 h-12 w-12 rounded-full border-4 border-orange-500 border-t-transparent animate-spin"></div>
+                <p className="text-base font-semibold text-gray-700 sm:text-lg">
+                  {t("loading")}
+                </p>
+              </div>
+            ) : (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9, y: 40 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                transition={{ duration: 0.6 }}
+                className="w-full max-w-[22rem] sm:max-w-md md:max-w-lg"
+              >
+                <p
+                  className={`
+                    mb-5 text-center font-semibold leading-snug sm:mb-7 md:mb-8
+                    ${
+                      accessibilityMode
+                        ? "rounded-xl bg-white px-3 py-2 text-lg font-bold sm:px-4 sm:text-2xl md:text-3xl"
+                        : "text-sm sm:text-lg md:text-xl"
+                    }
+                  `}
+                  style={{ color: "#1B1212" }}
+                >
+                  {t("selectPreferredLanguage")}
+                </p>
+                <div className="grid grid-cols-1 gap-3 sm:gap-4">
+                  {LANGUAGE_OPTIONS.map((lang) => (
+                    <motion.button
+                      key={lang.code}
+                      whileTap={{ scale: 0.97 }}
+                      whileHover={{ scale: 1.02 }}
+                      onClick={() => handleLanguageSelect(lang.code)}
+                      className={`
+                        min-h-[3.5rem] w-full rounded-xl border-2 px-4 py-3 text-base font-semibold
+                        leading-snug text-white shadow-lg transition-all duration-200 hover:shadow-xl
+                        active:scale-95 sm:min-h-[4rem] sm:px-6 sm:py-4 sm:text-xl md:min-h-[4.5rem] md:px-8 md:py-5 md:text-2xl
+                        ${
+                          accessibilityMode
+                            ? "border-gray-800 bg-gray-800"
+                            : "border-transparent hover:border-white/30"
+                        }
+                      `}
+                      style={{
+                        backgroundColor: accessibilityMode
+                          ? undefined
+                          : "#FC8019",
+                      }}
+                    >
+                      <span className="block break-words">{lang.label}</span>
+                    </motion.button>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -1485,21 +1492,15 @@ export default function Landing() {
         whileHover={{ scale: 1.1 }}
         whileTap={{ scale: 0.9 }}
         onClick={readPageAloud}
-        className="fixed rounded-full shadow-lg bg-orange-600 text-white hover:bg-orange-700 focus:outline-none blind-eye-btn"
+        className="blind-eye-btn fixed z-[10001] grid h-12 w-12 place-items-center rounded-full bg-orange-600 text-white shadow-lg hover:bg-orange-700 focus:outline-none sm:h-14 sm:w-14"
         style={{
-          position: "fixed",
-          bottom: "20px", // Same lower position as accessibility button
-          right: "20px", // Right side instead of left
-          width: "56px",
-          height: "56px",
-          display: "grid",
-          placeItems: "center",
           border: "none",
           cursor: "pointer",
+          bottom: "calc(1rem + env(safe-area-inset-bottom, 0px))",
+          right: "max(0.75rem, env(safe-area-inset-right, 0px))",
           boxShadow: "0 6px 18px rgba(0,0,0,0.25)",
           transition:
             "transform .2s ease, box-shadow .2s ease, background .2s ease",
-          zIndex: 10001, // Higher than footer (z-40) to ensure it's on top
           pointerEvents: "auto",
         }}
         aria-label={t("blindSupportAria")}

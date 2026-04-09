@@ -28,5 +28,5 @@ jobs:
       - name: Install frontend dependencies
         run: npm install --legacy-peer-deps
 
-      - name: Pipeline success message
-        run: echo "Frontend dependency install completed successfully"
+      - name: Build frontend
+        run: npm run build --if-present

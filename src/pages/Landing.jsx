@@ -12,17 +12,71 @@ import {
   setCurrentLanguage,
   subscribeToLanguageChanges,
 } from "../utils/language";
+import { queryClient } from "../query/queryClient";
+import { queryKeys } from "../query/queryKeys";
+import { fetchMenuPublicPayload } from "../services/menuPublicApi";
+import {
+  SERVICE_TYPE_KEY,
+  TABLE_SELECTION_KEY,
+} from "./MenuPage/menuConstants.js";
+import { getCustomerApiOrigin } from "../utils/customerApiOrigin";
 
-const nodeApi = (
-  import.meta.env.VITE_NODE_API_URL || "http://localhost:5001"
-).replace(/\/$/, "");
+function prefetchPublicMenuBeforeNavigate() {
+  try {
+    let cartId = "";
+    const selectedCartId = localStorage.getItem("terra_selectedCartId");
+    const qrCartId = localStorage.getItem("terra_takeaway_cartId");
+    const storedServiceType =
+      localStorage.getItem(SERVICE_TYPE_KEY) || "DINE_IN";
+    const isPickupOrDeliveryFlow =
+      storedServiceType === "PICKUP" || storedServiceType === "DELIVERY";
+
+    if (isPickupOrDeliveryFlow && selectedCartId) {
+      cartId = selectedCartId;
+    } else if (qrCartId) {
+      cartId = qrCartId;
+    } else {
+      try {
+        let tableDataStr = localStorage.getItem("terra_selectedTable");
+        if (!tableDataStr) {
+          tableDataStr = localStorage.getItem(TABLE_SELECTION_KEY) || "{}";
+        }
+        const tableData = JSON.parse(tableDataStr || "{}");
+        const rawCartId = tableData.cartId || tableData.cafeId || "";
+        if (typeof rawCartId === "string") {
+          cartId = rawCartId;
+        } else if (
+          rawCartId &&
+          typeof rawCartId === "object" &&
+          (rawCartId._id || rawCartId.id)
+        ) {
+          cartId = String(rawCartId._id || rawCartId.id);
+        }
+        if (!cartId && !isPickupOrDeliveryFlow && selectedCartId) {
+          cartId = selectedCartId;
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
+    void queryClient.prefetchQuery({
+      queryKey: queryKeys.menu.public(cartId || ""),
+      queryFn: () => fetchMenuPublicPayload(cartId || undefined),
+    });
+  } catch {
+    /* ignore */
+  }
+}
+
+const nodeApi = getCustomerApiOrigin();
 const MENU_BACK_PRESERVE_KEY = "terra_preserve_menu_state_on_back";
 const MENU_SESSION_MARKER_KEY = "terra_menu_session_active_tab";
 
 // Validate API URL in production
 if (
   import.meta.env.PROD &&
-  (!import.meta.env.VITE_NODE_API_URL || nodeApi.includes("localhost"))
+  (!nodeApi || nodeApi.includes("localhost") || nodeApi.includes("127.0.0.1"))
 ) {
   console.error(
     "[Landing] ⚠️ WARNING: VITE_NODE_API_URL is not set correctly in production!",
@@ -120,6 +174,7 @@ export default function Landing() {
       } catch {
         storedTable = null;
       }
+      prefetchPublicMenuBeforeNavigate();
       navigate("/menu", {
         state: storedTable
           ? { serviceType: currentServiceType, table: storedTable }
@@ -149,6 +204,7 @@ export default function Landing() {
       localStorage.removeItem("terra_orderStatus_TAKEAWAY");
       localStorage.removeItem("terra_orderStatusUpdatedAt_TAKEAWAY");
       localStorage.removeItem("terra_orderType");
+      prefetchPublicMenuBeforeNavigate();
       navigate("/menu", { state: { serviceType: "TAKEAWAY" } });
       return;
     }

@@ -7,11 +7,10 @@ import translations from "../data/translations/billing.json";
 import FloatingPDFButton from "../components/FloatingPDFButton";
 import FloatingSignLanguageButton from "../components/FloatingSignLanguageButton";
 import floatingButtonTranslations from "../data/translations/floatingButtons.json";
+import { getCustomerApiOrigin } from "../utils/customerApiOrigin";
 import "./Billing.css";
 
-const nodeApi = (
-  import.meta.env.VITE_NODE_API_URL || "http://localhost:5001"
-).replace(/\/$/, "");
+const nodeApi = getCustomerApiOrigin();
 const TAKEAWAY_LIKE_SERVICE_TYPES = ["TAKEAWAY", "PICKUP", "DELIVERY"];
 const isTakeawayLikeServiceType = (value) =>
   TAKEAWAY_LIKE_SERVICE_TYPES.includes(

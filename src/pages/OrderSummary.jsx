@@ -12,13 +12,12 @@ import {
   ensureAnonymousSessionId,
 } from "../utils/anonymousSession";
 import { notifyOrderStatusUpdate } from "../utils/orderStatusNotifications";
+import { getCustomerApiOrigin } from "../utils/customerApiOrigin";
 import "./OrderSummary.css";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 
-const nodeApi = (
-  import.meta.env.VITE_NODE_API_URL || "http://localhost:5001"
-).replace(/\/$/, "");
+const nodeApi = getCustomerApiOrigin();
 
 /* helpers */
 // Convert paise to rupees
@@ -490,6 +489,11 @@ export default function OrderSummary() {
         joinedAnonymousSessionId = null;
         joinIdentityRoom();
         joinCartRoom(getFallbackCartId());
+        fetchOrder().then((orderData) => {
+          if (orderData?.cartId) {
+            joinCartRoom(orderData.cartId);
+          }
+        });
       });
 
       // Fetch order and join cart room for real-time status updates

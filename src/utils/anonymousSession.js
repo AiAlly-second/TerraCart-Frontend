@@ -60,6 +60,19 @@ export const buildIdentityHeaders = (headersInit) => {
     // Ignore storage errors.
   }
 
+  try {
+    const aiSession =
+      typeof sessionStorage !== "undefined"
+        ? sessionStorage.getItem("terra_ai_session_token")
+        : "";
+    const normalizedAi = String(aiSession || "").trim();
+    if (normalizedAi && !headers.has("x-terra-ai-session")) {
+      headers.set("x-terra-ai-session", normalizedAi);
+    }
+  } catch {
+    // Ignore storage errors.
+  }
+
   return headers;
 };
 

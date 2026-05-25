@@ -2,10 +2,9 @@ import { useEffect, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import Header from "../components/Header";
 import restaurantBg from "../assets/images/restaurant-img.jpg";
+import { getCustomerApiOrigin } from "../utils/customerApiOrigin";
 
-const nodeApi = (
-  import.meta.env.VITE_NODE_API_URL || "http://localhost:5001"
-).replace(/\/$/, "");
+const nodeApi = getCustomerApiOrigin();
 
 const normalizeId = (value) => {
   if (!value) return "";

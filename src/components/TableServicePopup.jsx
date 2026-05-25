@@ -1,6 +1,22 @@
 import React, { useRef, useState } from "react";
 import { FiX, FiMic, FiMicOff } from "react-icons/fi";
 import translations from "../data/translations/tableservicepopup.json";
+import { postWithRetry } from "../utils/fetchWithTimeout";
+import { getCustomerApiOrigin } from "../utils/customerApiOrigin";
+
+const nodeApi = getCustomerApiOrigin();
+
+function flattenMenuItemNames(menuPayload) {
+  const names = [];
+  const categories = Array.isArray(menuPayload) ? menuPayload : [];
+  categories.forEach((category) => {
+    (Array.isArray(category?.items) ? category.items : []).forEach((item) => {
+      const n = String(item?.name || "").trim();
+      if (n) names.push(n);
+    });
+  });
+  return names;
+}
 
 export default function TableServicePopup({ showCard, setShowCard, currentTable, onTableSelect }) {
   // language from localStorage (fallback to en)
@@ -39,7 +55,6 @@ export default function TableServicePopup({ showCard, setShowCard, currentTable,
     const fetchTables = async () => {
       try {
         setLoadingTables(true);
-        const nodeApi = (import.meta.env.VITE_NODE_API_URL || "http://localhost:5001").replace(/\/$/, "");
         // We need a cartId to fetch tables. Try to get it from various places.
         const storedTable = localStorage.getItem('terra_selectedTable');
         let cartId = null;
@@ -201,8 +216,6 @@ export default function TableServicePopup({ showCard, setShowCard, currentTable,
 
   const sendCustomerRequest = async ({ requestType, customerNotes }) => {
     const context = getRequestContext();
-    const nodeApi = (import.meta.env.VITE_NODE_API_URL || "http://localhost:5001").replace(/\/$/, "");
-
     const requestData = {
       requestType,
       customerNotes:
@@ -362,41 +375,65 @@ export default function TableServicePopup({ showCard, setShowCard, currentTable,
         // Parse the order and format it nicely
         setIsProcessing(true);
         try {
-          const flaskApi = (import.meta.env.VITE_FLASK_API_URL || "http://localhost:5050").replace(/\/$/, "");
-          const res = await fetch(`${flaskApi}/parse-order-text`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text: transcript }),
-            signal: AbortSignal.timeout(10000) // 10 second timeout
-          });
-          
-          if (!res.ok) {
-            const errorData = await res.json().catch(() => ({}));
-            throw new Error(errorData.error || `Backend returned ${res.status}`);
+          const cartId = getStoredCartId();
+          let menuItemNames = [];
+          if (cartId) {
+            const menuRes = await fetch(
+              `${nodeApi}/api/menu/public?cartId=${encodeURIComponent(cartId)}`,
+            );
+            if (menuRes.ok) {
+              const menuPayload = await menuRes.json().catch(() => []);
+              menuItemNames = flattenMenuItemNames(menuPayload).slice(0, 300);
+            }
           }
-          
-          const data = await res.json();
-          if (data.items && data.items.length > 0) {
-            // Format the parsed items nicely
-            const formattedOrder = data.items
-              .map(item => `${item.quantity}x ${item.name}`)
-              .join(", ");
-            setCustomRequest(formattedOrder);
-            console.log("✅ Parsed order:", data);
-          } else if (data.error) {
-            // Backend returned an error but we have the transcript
-            console.warn("Backend parsing error:", data.error);
-            // Keep the transcript as-is
+
+          if (!menuItemNames.length) {
+            console.warn(
+              "[TableServicePopup] No menu context for AI parse; keeping transcript only.",
+            );
+          } else {
+            const locale =
+              language === "hi"
+                ? "hi-IN"
+                : language === "mr"
+                  ? "mr-IN"
+                  : language === "gu"
+                    ? "gu-IN"
+                    : "en-IN";
+            const parseRes = await postWithRetry(
+              `${nodeApi}/api/voice-order/tap-to-order`,
+              {
+                transcript,
+                menuItems: menuItemNames,
+                locale,
+              },
+              {},
+              { maxRetries: 0, timeout: 25000 },
+            );
+            const parsedBody = await parseRes.json().catch(() => ({}));
+            if (!parseRes.ok) {
+              throw new Error(
+                parsedBody?.message ||
+                  `Voice parse failed (${parseRes.status})`,
+              );
+            }
+            const items = Array.isArray(parsedBody?.items) ? parsedBody.items : [];
+            if (items.length > 0) {
+              const formattedOrder = items
+                .map((row) => `${row.quantity || 1}x ${row.name || ""}`)
+                .join(", ");
+              setCustomRequest(formattedOrder.trim() || transcript);
+              console.log("✅ Parsed order (Node):", parsedBody);
+            }
           }
         } catch (err) {
           console.error("Order parsing failed:", err);
-          // Check if it's a connection error
           if (err.name === 'TypeError' || err.message.includes('fetch') || err.message.includes('Failed to fetch')) {
-            alert("❌ Cannot connect to backend server. Please make sure Flask server is running on port 5050.\n\nYou can still type your order manually.");
+            alert("❌ Cannot connect to the ordering server. Please check your network.\n\nYou can still type your request manually.");
           } else if (err.name === 'AbortError' || err.message.includes('timeout')) {
-            alert("⏱️ Request timed out. The backend server may be slow or unavailable.\n\nYou can still type your order manually.");
+            alert("⏱️ Request timed out.\n\nYou can still type your request manually.");
           } else {
-            alert(`⚠️ Order parsing failed: ${err.message}\n\nYou can still see your transcribed text and type manually.`);
+            alert(`⚠️ Order parsing failed: ${err.message}\n\nYou can still edit your text manually.`);
           }
           // Keep the transcript so user can still use it
         } finally {

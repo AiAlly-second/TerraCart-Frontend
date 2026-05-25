@@ -16,11 +16,16 @@ import {
 } from "../utils/language";
 import { clearScopedCart, readScopedCart, writeScopedCart } from "../utils/cartStorage";
 import { refreshCustomerPushToken } from "../services/customerPushService";
+import { ensureAiSessionForCart } from "../utils/aiSessionClient";
+import { useMenuPublicQuery } from "../queries/useMenuQuery";
+import { useAddonsPublicQuery } from "../queries/useAddonsQuery";
+import { queryClient } from "../query/queryClient";
+import { queryKeys } from "../query/queryKeys";
+import { fetchMenuPublicPayload } from "../services/menuPublicApi";
+import { getCustomerApiOrigin } from "../utils/customerApiOrigin";
 // But let's keep imports minimal
 
-const nodeApi = (
-  import.meta.env.VITE_NODE_API_URL || "http://localhost:5001"
-).replace(/\/$/, "");
+const nodeApi = getCustomerApiOrigin();
 const TAKEAWAY_TOKEN_PREVIEW_KEY = "terra_takeaway_token_preview";
 const PAYMENT_GATE_ORDER_ID_KEY = "terra_payment_gate_order_id";
 const PAYMENT_GATE_MODE_KEY = "terra_payment_gate_mode";
@@ -253,6 +258,9 @@ async function getCartId(searchParams) {
 export default function CartPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const urlCartKey =
+    searchParams.get("cart") || searchParams.get("cartId") || "";
+  const urlTableKey = searchParams.get("table") || "";
   const [language, setLanguage] = useState(getCurrentLanguage());
   const t = (key) =>
     cartTranslations[language]?.[key] || cartTranslations.en?.[key] || key;
@@ -304,6 +312,11 @@ export default function CartPage() {
   const [addonsLoading, setAddonsLoading] = useState(true);
   const [specialInstructions, setSpecialInstructions] = useState("");
   const [cartId, setCartId] = useState(""); // Current cart id – add-ons are scoped per cart
+
+  const menuQuery = useMenuPublicQuery(cartId, { enabled: true });
+  const addonsQuery = useAddonsPublicQuery(cartId, urlTableKey, {
+    enabled: Boolean(cartId || urlTableKey),
+  });
 
   // Process Overlay State
   const initialProcessSteps = () => [
@@ -363,15 +376,15 @@ export default function CartPage() {
 
   const fetchMenuCatalog = useCallback(async (resolvedCartId) => {
     try {
-      const endpoint = resolvedCartId
-        ? `${nodeApi}/api/menu/public?cartId=${resolvedCartId}`
-        : `${nodeApi}/api/menu/public`;
-      const res = await fetch(endpoint);
-      if (!res.ok) return [];
-      const data = await res.json();
+      const raw = await queryClient.fetchQuery({
+        queryKey: queryKeys.menu.public(
+          resolvedCartId ? String(resolvedCartId) : "",
+        ),
+        queryFn: () => fetchMenuPublicPayload(resolvedCartId),
+      });
       const items = [];
-      if (Array.isArray(data)) {
-        data.forEach((cat) => {
+      if (Array.isArray(raw)) {
+        raw.forEach((cat) => {
           if (Array.isArray(cat?.items)) items.push(...cat.items);
         });
       }
@@ -383,6 +396,82 @@ export default function CartPage() {
       return [];
     }
   }, []);
+
+  useEffect(() => {
+    if (menuQuery.isError || menuQuery.data === undefined) return;
+    const data = menuQuery.data;
+    const items = [];
+    if (Array.isArray(data)) {
+      data.forEach((cat) => {
+        if (Array.isArray(cat?.items)) items.push(...cat.items);
+      });
+    }
+    setMenuCatalog(mergeMenuWithFallback(items, fallbackMenuItems));
+  }, [menuQuery.data, menuQuery.isError]);
+
+  useEffect(() => {
+    if (!cartId && !urlTableKey) {
+      setAddonsLoading(false);
+      return;
+    }
+    setAddonsLoading(
+      addonsQuery.isLoading || addonsQuery.isFetching,
+    );
+  }, [
+    cartId,
+    urlTableKey,
+    addonsQuery.isLoading,
+    addonsQuery.isFetching,
+  ]);
+
+  useEffect(() => {
+    if (!cartId && !urlTableKey) {
+      setAddonList([]);
+      try {
+        localStorage.removeItem("terra_global_addons");
+      } catch (_) {
+        /* ignore */
+      }
+      return;
+    }
+    if (addonsQuery.isError) {
+      setAddonList([]);
+      try {
+        localStorage.removeItem("terra_global_addons");
+      } catch (_) {
+        /* ignore */
+      }
+      return;
+    }
+    if (addonsQuery.data === undefined) return;
+    const json = addonsQuery.data;
+    if (json && json.success === false) {
+      setAddonList([]);
+      try {
+        localStorage.removeItem("terra_global_addons");
+      } catch (_) {
+        /* ignore */
+      }
+      return;
+    }
+    const rawList = json?.data ?? json ?? [];
+    const list = (Array.isArray(rawList) ? rawList : []).map((a) => ({
+      id: (a._id || a.id || "").toString(),
+      name: sanitizeAddonName(a.name),
+      price: Number(a.price) || 0,
+      icon: a.icon || "",
+    }));
+    setAddonList(list);
+    try {
+      if (list.length > 0) {
+        localStorage.setItem("terra_global_addons", JSON.stringify(list));
+      } else {
+        localStorage.removeItem("terra_global_addons");
+      }
+    } catch (_) {
+      /* ignore */
+    }
+  }, [addonsQuery.data, addonsQuery.isError, cartId, urlTableKey]);
 
   useEffect(() => {
     const unsubscribe = subscribeToLanguageChanges((lang) => {
@@ -410,133 +499,12 @@ export default function CartPage() {
       }
     };
 
-    // Get cartId (async) then load add-ons scoped by this cart
     getCartId(searchParams).then((resolvedCartId) => {
       setCartId(resolvedCartId);
       console.log("[CartPage] Using cartId:", resolvedCartId);
-
-      // Do not restore add-ons from localStorage: when user comes for the first time,
-      // no add-on should be pre-selected; they must select explicitly.
-      // selectedAddOns stays as initial [] until user toggles add-ons.
-
-      const fetchAddons = async (cartIdForAddons, tableIdFromUrl) => {
-        setAddonsLoading(true);
-        const tableId = tableIdFromUrl || searchParams?.get("table") || "";
-        if (!cartIdForAddons && !tableId) {
-          console.log("[CartPage] No cartId or tableId found for add-ons");
-          setAddonList([]);
-          localStorage.removeItem("terra_global_addons");
-          setAddonsLoading(false);
-          return;
-        }
-        try {
-          const params = new URLSearchParams();
-          if (cartIdForAddons) params.set("cartId", cartIdForAddons);
-          // Avoid sending stale tableId when cartId is already resolved.
-          if (!cartIdForAddons && tableId) params.set("tableId", tableId);
-          const url = `${nodeApi}/api/addons/public?${params.toString()}`;
-          console.log(
-            "[CartPage] Fetching add-ons from:",
-            url,
-            "cartId:",
-            cartIdForAddons,
-            "tableId:",
-            tableId,
-          );
-          const res = await fetch(url);
-          console.log("[CartPage] Add-ons response status:", res.status);
-          if (res.ok) {
-            const json = await res.json();
-            console.log("[CartPage] Add-ons response:", json);
-
-            // Check if response has success flag and data
-            if (json.success === false) {
-              console.warn(
-                "[CartPage] API returned success: false, message:",
-                json.message,
-              );
-              // Use empty array - admin hasn't configured add-ons or error occurred
-              setAddonList([]);
-              localStorage.removeItem("terra_global_addons");
-              setAddonsLoading(false);
-              return;
-            }
-
-            const list = (json.data || json || []).map((a) => ({
-              id: (a._id || a.id || "").toString(),
-              name: sanitizeAddonName(a.name),
-              price: Number(a.price) || 0,
-              icon: a.icon || "",
-            }));
-            console.log("[CartPage] Parsed add-ons list:", list);
-
-            // Always use API result (even if empty) - don't fallback to static
-            setAddonList(list);
-            if (list.length > 0) {
-              localStorage.setItem("terra_global_addons", JSON.stringify(list));
-              console.log(
-                "[CartPage] ✅ Set",
-                list.length,
-                "add-ons from API:",
-                list.map((a) => a.name),
-              );
-            } else {
-              localStorage.removeItem("terra_global_addons");
-              console.warn(
-                "[CartPage] ⚠️ No add-ons found for cartId/tableId:",
-                cartIdForAddons || tableId,
-                "- Admin should create add-ons in Global Add-ons page",
-              );
-            }
-          } else {
-            // API error (400, 404, 500, etc.) - try to parse error message
-            let errorMsg = `HTTP ${res.status}`;
-            try {
-              const errorJson = await res.json();
-              errorMsg = errorJson.message || errorMsg;
-              console.error(
-                "[CartPage] Add-ons API error response:",
-                errorJson,
-              );
-            } catch (e) {
-              console.error(
-                "[CartPage] Add-ons fetch failed with status:",
-                res.status,
-                "Could not parse error",
-              );
-            }
-
-            // For 400 (bad request - cartId required), use empty instead of static
-            if (res.status === 400) {
-              console.warn(
-                "[CartPage] Bad request (400) - cartId might be invalid. Using empty add-ons list.",
-              );
-              setAddonList([]);
-              localStorage.removeItem("terra_global_addons");
-            } else {
-              console.warn("[CartPage] API failed:", errorMsg);
-              setAddonList([]);
-              localStorage.removeItem("terra_global_addons");
-            }
-          }
-        } catch (err) {
-          // Network error or other exception
-          console.error(
-            "[CartPage] Failed to fetch add-ons (network error):",
-            err,
-          );
-          console.warn(
-            "[CartPage] Using empty add-ons due to network error",
-          );
-          setAddonList([]);
-          localStorage.removeItem("terra_global_addons");
-        } finally {
-          setAddonsLoading(false);
-        }
-      };
-
-      fetchMenuCatalog(resolvedCartId);
-      fetchAddons(resolvedCartId, searchParams.get("table") || "");
+      if (resolvedCartId) {
+        ensureAiSessionForCart(resolvedCartId, nodeApi).catch(() => {});
+      }
     });
 
     window.addEventListener("focus", syncCartFromStorage);
@@ -548,7 +516,7 @@ export default function CartPage() {
       window.removeEventListener("storage", syncCartFromStorage);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [fetchMenuCatalog, readLatestScopedCart, searchParams]);
+  }, [readLatestScopedCart, urlCartKey, urlTableKey]);
 
   const updateCart = (newCart) => {
     const { scope } = readLatestScopedCart();
@@ -1129,6 +1097,8 @@ export default function CartPage() {
         refreshCustomerPushToken().catch(() => {
           // Best effort only; order flow should continue even if push setup fails.
         });
+        queryClient.invalidateQueries({ queryKey: ["menu"] });
+        queryClient.invalidateQueries({ queryKey: ["addons"] });
         const resolvedOrderStatus = resolveOrderStatusValue(
           data.status,
           activeOrderStatus,

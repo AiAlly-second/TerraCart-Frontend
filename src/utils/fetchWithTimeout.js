@@ -3,6 +3,8 @@
  * Helps handle network issues, slow connections, and deployment scenarios
  */
 
+import { buildIdentityHeaders } from "./anonymousSession";
+
 /**
  * Fetch with timeout
  * @param {string} url - The URL to fetch
@@ -15,8 +17,10 @@ export const fetchWithTimeout = async (url, options = {}, timeout = 30000) => {
   const timeoutId = setTimeout(() => controller.abort(), timeout);
 
   try {
+    const mergedHeaders = buildIdentityHeaders(options.headers);
     const response = await fetch(url, {
       ...options,
+      headers: mergedHeaders,
       signal: controller.signal,
     });
     clearTimeout(timeoutId);

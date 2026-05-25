@@ -1,10 +1,11 @@
 import axios from 'axios';
+import { getCustomerApiOrigin } from './customerApiOrigin';
 
 // Primary backend (AWS EC2)
-const PRIMARY_API_URL = import.meta.env.VITE_PRIMARY_API_URL || 'http://localhost:5001';
+const PRIMARY_API_URL = getCustomerApiOrigin();
 
 // Fallback backend (Render.com)
-const FALLBACK_API_URL = import.meta.env.VITE_FALLBACK_API_URL || 'https://your-app.onrender.com';
+const FALLBACK_API_URL = import.meta.env.VITE_FALLBACK_API_URL || PRIMARY_API_URL;
 
 // Health check timeout (2 seconds)
 const HEALTH_CHECK_TIMEOUT = 2000;

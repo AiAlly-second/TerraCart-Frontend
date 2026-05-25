@@ -6,10 +6,9 @@ import {
   notifyBrowserMessage,
   requestOrderNotificationPermission,
 } from "../utils/orderStatusNotifications";
+import { getCustomerApiOrigin } from "../utils/customerApiOrigin";
 
-const nodeApiBase = (
-  import.meta.env.VITE_NODE_API_URL || "http://localhost:5001"
-).replace(/\/$/, "");
+const nodeApiBase = getCustomerApiOrigin();
 
 const SW_PATH = "/firebase-messaging-sw.js";
 

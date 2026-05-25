@@ -8,11 +8,10 @@ import {
   getCurrentLanguage,
   subscribeToLanguageChanges,
 } from "../utils/language";
+import { getCustomerApiOrigin } from "../utils/customerApiOrigin";
 import "./FeedbackPage.css";
 
-const nodeApi = (
-  import.meta.env.VITE_NODE_API_URL || "http://localhost:5001"
-).replace(/\/$/, "");
+const nodeApi = getCustomerApiOrigin();
 
 const FEEDBACK_SUBMITTED_ORDERS_KEY = "terra_feedbackSubmittedOrders";
 

@@ -18,16 +18,15 @@ import {
   buildSocketIdentityPayload,
   ensureAnonymousSessionId,
 } from "../utils/anonymousSession";
+import { getCustomerApiOrigin } from "../utils/customerApiOrigin";
 import "./SecondPage.css";
 
-const nodeApi = (
-  import.meta.env.VITE_NODE_API_URL || "http://localhost:5001"
-).replace(/\/$/, "");
+const nodeApi = getCustomerApiOrigin();
 
 // Validate API URL in production
 if (
   import.meta.env.PROD &&
-  (!import.meta.env.VITE_NODE_API_URL || nodeApi.includes("localhost"))
+  (!nodeApi || nodeApi.includes("localhost") || nodeApi.includes("127.0.0.1"))
 ) {
   console.error(
     "[SecondPage] ⚠️ WARNING: VITE_NODE_API_URL is not set correctly in production!",

@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from "react";
 import { FaMapMarkerAlt, FaStore, FaTruck } from "react-icons/fa";
+import { getCustomerApiOrigin } from "../utils/customerApiOrigin";
 import "./OrderTypeSelector.css";
 
-const nodeApi = (
-  import.meta.env.VITE_NODE_API_URL || "http://localhost:5001"
-).replace(/\/$/, "");
+const nodeApi = getCustomerApiOrigin();
 
 const OrderTypeSelector = ({
   selectedType,

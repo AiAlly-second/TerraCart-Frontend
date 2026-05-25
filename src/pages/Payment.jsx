@@ -11,11 +11,10 @@ import {
   buildSocketIdentityPayload,
   ensureAnonymousSessionId,
 } from "../utils/anonymousSession";
+import { getCustomerApiOrigin } from "../utils/customerApiOrigin";
 import "./Payment.css";
 
-const nodeApi = (
-  import.meta.env.VITE_NODE_API_URL || "http://localhost:5001"
-).replace(/\/$/, "");
+const nodeApi = getCustomerApiOrigin();
 const PAYMENT_GATE_ORDER_ID_KEY = "terra_payment_gate_order_id";
 const PAYMENT_GATE_MODE_KEY = "terra_payment_gate_mode";
 const PAYMENT_GATE_DRAFT_KEY = "terra_payment_gate_order_draft";

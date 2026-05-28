@@ -3,7 +3,6 @@ import { motion } from "framer-motion";
 import { FaQrcode, FaMoneyBillWave, FaArrowLeft } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
 import QRCode from "react-qr-code";
-import io from "socket.io-client";
 import translations from "../data/translations/payment.json";
 import { clearScopedCart } from "../utils/cartStorage";
 import { refreshCustomerPushToken } from "../services/customerPushService";
@@ -11,6 +10,12 @@ import {
   buildSocketIdentityPayload,
   ensureAnonymousSessionId,
 } from "../utils/anonymousSession";
+import {
+  getCustomerSocket,
+  joinCustomerRoomOnce,
+  safeCustomerSocketOn,
+} from "../utils/socketManager";
+import { STABILITY_FLAGS } from "../utils/stabilityFlags";
 import { getCustomerApiOrigin } from "../utils/customerApiOrigin";
 import "./Payment.css";
 
@@ -718,8 +723,15 @@ export default function Payment() {
   useEffect(() => {
     if (!paymentPending) return;
     const interval = setInterval(() => {
+      if (
+        STABILITY_FLAGS.ENABLE_VISIBILITY_POLLING_PAUSE &&
+        typeof document !== "undefined" &&
+        document.visibilityState === "hidden"
+      ) {
+        return;
+      }
       fetchLatestPayment();
-    }, 10000);
+    }, 25000);
     return () => clearInterval(interval);
   }, [paymentPending, fetchLatestPayment]);
 
@@ -732,7 +744,7 @@ export default function Payment() {
       if (!socket) return;
       const identityPayload = buildSocketIdentityPayload();
       if (identityPayload?.anonymousSessionId) {
-        socket.emit("join_room", identityPayload);
+        joinCustomerRoomOnce("join_room", identityPayload);
       }
     };
 
@@ -742,7 +754,7 @@ export default function Payment() {
       if (!normalizedCartId || normalizedCartId === joinedCartId) {
         return;
       }
-      socket.emit("join:cart", normalizedCartId);
+      joinCustomerRoomOnce("join:cart", normalizedCartId);
       joinedCartId = normalizedCartId;
     };
 
@@ -761,51 +773,51 @@ export default function Payment() {
       }
     };
 
+    const handleConnected = () => {
+      joinedCartId = "";
+      joinIdentityRoom();
+      joinCartRoom(resolveCartScopeId());
+    };
+
+    const handleReconnect = () => {
+      joinedCartId = "";
+      joinIdentityRoom();
+      joinCartRoom(resolveCartScopeId());
+    };
+
+    const handlePaymentCreated = (payload) => {
+      handleSocketPaymentEvent(payload).catch((error) => {
+        console.warn("[Payment] paymentCreated socket refresh failed:", error);
+      });
+    };
+
+    const handlePaymentUpdated = (payload) => {
+      handleSocketPaymentEvent(payload).catch((error) => {
+        console.warn("[Payment] paymentUpdated socket refresh failed:", error);
+      });
+    };
+
     try {
-      socket = io(nodeApi, {
-        transports: ["polling", "websocket"],
-        reconnection: true,
-        reconnectionDelay: 1000,
-        reconnectionDelayMax: 20000,
-        timeout: 20000,
-        autoConnect: true,
-        forceNew: false,
-      });
+      socket = getCustomerSocket();
 
-      socket.on("connect", () => {
-        joinedCartId = "";
-        joinIdentityRoom();
-        joinCartRoom(resolveCartScopeId());
-      });
-
-      socket.on("reconnect", () => {
-        joinedCartId = "";
-        joinIdentityRoom();
-        joinCartRoom(resolveCartScopeId());
-      });
-
-      socket.on("paymentCreated", (payload) => {
-        handleSocketPaymentEvent(payload).catch((error) => {
-          console.warn("[Payment] paymentCreated socket refresh failed:", error);
-        });
-      });
-
-      socket.on("paymentUpdated", (payload) => {
-        handleSocketPaymentEvent(payload).catch((error) => {
-          console.warn("[Payment] paymentUpdated socket refresh failed:", error);
-        });
-      });
+      safeCustomerSocketOn("connect", handleConnected);
+      safeCustomerSocketOn("reconnect", handleReconnect);
+      safeCustomerSocketOn("paymentCreated", handlePaymentCreated);
+      safeCustomerSocketOn("payment.created", handlePaymentCreated);
+      safeCustomerSocketOn("paymentUpdated", handlePaymentUpdated);
+      safeCustomerSocketOn("payment.updated", handlePaymentUpdated);
     } catch (error) {
       console.warn("[Payment] Failed to initialize payment socket:", error);
     }
 
     return () => {
       if (!socket) return;
-      socket.off("connect");
-      socket.off("reconnect");
-      socket.off("paymentCreated");
-      socket.off("paymentUpdated");
-      socket.disconnect();
+      socket.off("connect", handleConnected);
+      socket.off("reconnect", handleReconnect);
+      socket.off("paymentCreated", handlePaymentCreated);
+      socket.off("payment.created", handlePaymentCreated);
+      socket.off("paymentUpdated", handlePaymentUpdated);
+      socket.off("payment.updated", handlePaymentUpdated);
       socket = null;
     };
   }, [

@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import io from "socket.io-client";
 
 import Header from "../components/Header";
 import restaurantBg from "../assets/images/restaurant-img.jpg";
@@ -19,6 +18,12 @@ import {
   ensureAnonymousSessionId,
 } from "../utils/anonymousSession";
 import { getCustomerApiOrigin } from "../utils/customerApiOrigin";
+import {
+  getCustomerSocket,
+  joinCustomerRoomOnce,
+  safeCustomerSocketOn,
+} from "../utils/socketManager";
+import { STABILITY_FLAGS } from "../utils/stabilityFlags";
 import "./SecondPage.css";
 
 const nodeApi = getCustomerApiOrigin();
@@ -273,7 +278,7 @@ export default function SecondPage() {
     // Also check periodically in case localStorage was set after component mount
     // This handles the case where Landing.jsx sets values after SecondPage mounts
     // CRITICAL: On render deployment, there might be timing issues, so check more frequently initially
-    const interval = setInterval(checkNormalLink, 100);
+    const interval = setInterval(checkNormalLink, 2000);
 
     return () => {
       window.removeEventListener("storage", checkNormalLink);
@@ -906,62 +911,36 @@ export default function SecondPage() {
       }
     };
 
-    // Create socket connection only when needed (inside useEffect)
-    let socket = null;
-    try {
-      socket = io(nodeApi, {
-        transports: ["websocket", "polling"],
-        reconnection: true,
-        reconnectionDelay: 1000,
-        reconnectionDelayMax: 20000,
-        timeout: 20000,
-        autoConnect: true,
-        // Suppress connection errors in console
-        forceNew: false,
-      });
+    const socket = getCustomerSocket();
+    const handleSocketConnected = () => {
+      const identityPayload = buildSocketIdentityPayload();
+      if (identityPayload?.anonymousSessionId) {
+        joinCustomerRoomOnce("join_room", identityPayload, { force: true });
+      }
+    };
+    safeCustomerSocketOn("connect", handleSocketConnected);
+    safeCustomerSocketOn("waitlistUpdated", handleWaitlistUpdated);
 
-      socket.on("connect", () => {
-        console.log("[SecondPage] Waitlist socket connected");
-        const identityPayload = buildSocketIdentityPayload();
-        if (identityPayload?.anonymousSessionId) {
-          socket.emit("join_room", identityPayload);
-        }
-      });
-
-      socket.on("connect_error", (error) => {
-        // Silently handle connection errors - socket will retry automatically
-        // Don't log to avoid console spam
-        if (error.message && !error.message.includes("xhr poll error")) {
-          console.warn(
-            "[SecondPage] Waitlist socket connection error:",
-            error.message,
-          );
-        }
-      });
-
-      socket.on("disconnect", (reason) => {
-        if (reason !== "io client disconnect") {
-          console.log("[SecondPage] Waitlist socket disconnected:", reason);
-        }
-      });
-
-      socket.on("waitlistUpdated", handleWaitlistUpdated);
-    } catch (err) {
-      console.warn(
-        "[SecondPage] Failed to create waitlist socket connection:",
-        err,
-      );
+    const identityPayload = buildSocketIdentityPayload();
+    if (identityPayload?.anonymousSessionId) {
+      joinCustomerRoomOnce("join_room", identityPayload);
     }
 
     checkWaitlistStatus();
-    const interval = setInterval(checkWaitlistStatus, 15000); // Poll every 15 seconds
+    const interval = setInterval(() => {
+      const visible =
+        !STABILITY_FLAGS.ENABLE_VISIBILITY_POLLING_PAUSE ||
+        typeof document === "undefined" ||
+        document.visibilityState === "visible";
+      if (!visible) return;
+      if (socket.connected) return;
+      checkWaitlistStatus();
+    }, 30000);
 
     return () => {
       clearInterval(interval);
-      if (socket) {
-        socket.off("waitlistUpdated", handleWaitlistUpdated);
-        socket.disconnect();
-      }
+      socket.off("connect", handleSocketConnected);
+      socket.off("waitlistUpdated", handleWaitlistUpdated);
     };
   }, [waitlistToken, tableInfo, takeawayOnly]);
 
@@ -1472,69 +1451,37 @@ export default function SecondPage() {
       }
     };
 
-    // Create socket connection for table status updates (only when needed)
-    let tableStatusSocket = null;
-    try {
-      tableStatusSocket = io(nodeApi, {
-        transports: ["websocket", "polling"],
-        reconnection: true,
-        reconnectionDelay: 1000,
-        reconnectionDelayMax: 5000,
-        timeout: 60000, // Match backend pingTimeout (60s)
-        connectTimeout: 60000, // Match backend pingTimeout (60s)
-        autoConnect: true,
-        // Suppress connection errors in console
-        forceNew: false,
-      });
+    const tableStatusSocket = getCustomerSocket();
+    const handleSocketConnected = () => {
+      const identityPayload = buildSocketIdentityPayload();
+      if (identityPayload?.anonymousSessionId) {
+        joinCustomerRoomOnce("join_room", identityPayload, { force: true });
+      }
+      if (typeof window !== "undefined") {
+        window.__tableStatusSocketConnected = true;
+      }
+    };
+    const handleSocketDisconnected = () => {
+      if (typeof window !== "undefined") {
+        window.__tableStatusSocketConnected = false;
+      }
+    };
 
-      tableStatusSocket.on("connect", () => {
-        console.log("[SecondPage] Table status socket connected");
-        const identityPayload = buildSocketIdentityPayload();
-        if (identityPayload?.anonymousSessionId) {
-          tableStatusSocket.emit("join_room", identityPayload);
-        }
-        // Mark socket as connected for fallback refresh logic
-        if (typeof window !== "undefined") {
-          window.__tableStatusSocketConnected = true;
-        }
-      });
+    safeCustomerSocketOn("connect", handleSocketConnected);
+    safeCustomerSocketOn("disconnect", handleSocketDisconnected);
+    safeCustomerSocketOn("connect_error", handleSocketDisconnected);
+    safeCustomerSocketOn("table:status:updated", handleTableStatusUpdated);
 
-      tableStatusSocket.on("connect_error", (error) => {
-        // Silently handle connection errors - socket will retry automatically
-        // Don't log to avoid console spam
-        if (error.message && !error.message.includes("xhr poll error")) {
-          console.warn(
-            "[SecondPage] Table status socket connection error:",
-            error.message,
-          );
-        }
-        // Mark socket as disconnected for fallback refresh logic
-        if (typeof window !== "undefined") {
-          window.__tableStatusSocketConnected = false;
-        }
-      });
-
-      tableStatusSocket.on("disconnect", (reason) => {
-        if (reason !== "io client disconnect") {
-          console.log("[SecondPage] Table status socket disconnected:", reason);
-        }
-        // Mark socket as disconnected for fallback refresh logic
-        if (typeof window !== "undefined") {
-          window.__tableStatusSocketConnected = false;
-        }
-      });
-
-      tableStatusSocket.on("table:status:updated", handleTableStatusUpdated);
-    } catch (err) {
-      console.warn("[SecondPage] Failed to create table status socket:", err);
+    const identityPayload = buildSocketIdentityPayload();
+    if (identityPayload?.anonymousSessionId) {
+      joinCustomerRoomOnce("join_room", identityPayload);
     }
 
-    // Cleanup on unmount – only disconnect if already connected to avoid "closed before established" warning
     return () => {
-      if (tableStatusSocket) {
-        tableStatusSocket.off("table:status:updated", handleTableStatusUpdated);
-        if (tableStatusSocket.connected) tableStatusSocket.disconnect();
-      }
+      tableStatusSocket.off("connect", handleSocketConnected);
+      tableStatusSocket.off("disconnect", handleSocketDisconnected);
+      tableStatusSocket.off("connect_error", handleSocketDisconnected);
+      tableStatusSocket.off("table:status:updated", handleTableStatusUpdated);
     };
   }, [tableInfo, isOfficeQr]);
 

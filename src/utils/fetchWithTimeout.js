@@ -1,19 +1,101 @@
 /**
  * Fetch with timeout and retry logic
- * Helps handle network issues, slow connections, and deployment scenarios
+ * Adds in-flight dedupe + throttled retries to prevent API amplification.
  */
 
 import { buildIdentityHeaders } from "./anonymousSession";
+import { STABILITY_FLAGS, STABILITY_THRESHOLDS } from "./stabilityFlags";
+
+const inflightRequests = new Map();
+const activeControllers = new Map();
+const lastRequestTimestamps = new Map();
+const requestRateWindows = new Map();
+const DEFAULT_MIN_REQUEST_GAP_MS = 500;
+
+const trimWindow = (timestamps, windowMs) => {
+  const cutoff = Date.now() - windowMs;
+  while (timestamps.length > 0 && timestamps[0] < cutoff) {
+    timestamps.shift();
+  }
+};
+
+const trackRequestRate = (requestKey) => {
+  if (!STABILITY_FLAGS.ENABLE_STABILITY_OBSERVABILITY) return;
+
+  if (!requestRateWindows.has(requestKey)) {
+    requestRateWindows.set(requestKey, []);
+  }
+
+  const timestamps = requestRateWindows.get(requestKey);
+  timestamps.push(Date.now());
+  trimWindow(timestamps, 60_000);
+
+  if (
+    timestamps.length >
+    STABILITY_THRESHOLDS.MAX_API_CALLS_PER_MINUTE_PER_KEY
+  ) {
+    console.warn("[Stability] repeated API storm detected", {
+      requestKey,
+      requestsPerMinute: timestamps.length,
+      threshold: STABILITY_THRESHOLDS.MAX_API_CALLS_PER_MINUTE_PER_KEY,
+    });
+  }
+};
+
+const stableStringify = (value) => {
+  if (value == null) return "";
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch (_error) {
+    return String(value);
+  }
+};
+
+const buildRequestKey = (url, options = {}) => {
+  const method = String(options.method || "GET").toUpperCase();
+  const headers = stableStringify(options.headers || {});
+  const body = stableStringify(options.body || "");
+  return `${method}|${url}|${headers}|${body}`;
+};
+
+const throttleByKey = async (requestKey, minGapMs = DEFAULT_MIN_REQUEST_GAP_MS) => {
+  const now = Date.now();
+  const lastTs = lastRequestTimestamps.get(requestKey) || 0;
+  const elapsed = now - lastTs;
+  if (elapsed >= minGapMs) {
+    lastRequestTimestamps.set(requestKey, now);
+    return;
+  }
+
+  await new Promise((resolve) => setTimeout(resolve, minGapMs - elapsed));
+  lastRequestTimestamps.set(requestKey, Date.now());
+};
 
 /**
  * Fetch with timeout
- * @param {string} url - The URL to fetch
- * @param {object} options - Fetch options
- * @param {number} timeout - Timeout in milliseconds (default: 30000)
- * @returns {Promise<Response>}
  */
-export const fetchWithTimeout = async (url, options = {}, timeout = 30000) => {
+export const fetchWithTimeout = async (
+  url,
+  options = {},
+  timeout = 30000,
+  requestKey = null,
+) => {
+  const dedupeKey = requestKey || buildRequestKey(url, options);
+  trackRequestRate(dedupeKey);
+
+  if (STABILITY_FLAGS.ENABLE_REQUEST_DEDUPE) {
+    await throttleByKey(dedupeKey);
+  }
+
   const controller = new AbortController();
+
+  if (STABILITY_FLAGS.ENABLE_REQUEST_DEDUPE && activeControllers.has(dedupeKey)) {
+    // Cancel stale request for same key and replace with latest transport.
+    activeControllers.get(dedupeKey)?.abort?.();
+  }
+  activeControllers.set(dedupeKey, controller);
+
   const timeoutId = setTimeout(() => controller.abort(), timeout);
 
   try {
@@ -29,31 +111,27 @@ export const fetchWithTimeout = async (url, options = {}, timeout = 30000) => {
     clearTimeout(timeoutId);
     if (error.name === "AbortError") {
       throw new Error(
-        `Request timeout: The server did not respond within ${timeout}ms. Please check your connection and try again.`
+        `Request timeout: The server did not respond within ${timeout}ms. Please check your connection and try again.`,
       );
     }
     throw error;
+  } finally {
+    if (activeControllers.get(dedupeKey) === controller) {
+      activeControllers.delete(dedupeKey);
+    }
   }
 };
 
 /**
  * Fetch with retry logic
- * @param {string} url - The URL to fetch
- * @param {object} options - Fetch options
- * @param {object} retryOptions - Retry configuration
- * @param {number} retryOptions.maxRetries - Maximum number of retries (default: 3)
- * @param {number} retryOptions.retryDelay - Delay between retries in ms (default: 1000)
- * @param {number} retryOptions.timeout - Request timeout in ms (default: 30000)
- * @param {function} retryOptions.shouldRetry - Function to determine if should retry (default: retry on network errors)
- * @returns {Promise<Response>}
  */
 export const fetchWithRetry = async (url, options = {}, retryOptions = {}) => {
   const {
     maxRetries = 3,
     retryDelay = 1000,
     timeout = 30000,
+    dedupeKey = null,
     shouldRetry = (error, attempt) => {
-      // Retry on network errors, timeouts, or 5xx errors
       if (
         error.message?.includes("timeout") ||
         error.message?.includes("Network error") ||
@@ -62,11 +140,9 @@ export const fetchWithRetry = async (url, options = {}, retryOptions = {}) => {
       ) {
         return true;
       }
-      // Don't retry on 4xx errors (except 429 - rate limit)
       if (error.status >= 400 && error.status < 500 && error.status !== 429) {
         return false;
       }
-      // Retry on 5xx errors
       if (error.status >= 500) {
         return true;
       }
@@ -74,77 +150,85 @@ export const fetchWithRetry = async (url, options = {}, retryOptions = {}) => {
     },
   } = retryOptions;
 
-  let lastError;
-  let lastResponse;
+  const requestKey = dedupeKey || buildRequestKey(url, options);
 
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      const response = await fetchWithTimeout(url, options, timeout);
+  if (
+    STABILITY_FLAGS.ENABLE_REQUEST_DEDUPE &&
+    inflightRequests.has(requestKey)
+  ) {
+    return inflightRequests.get(requestKey);
+  }
 
-      // If response is ok, return it
-      if (response.ok || response.status === 423) {
-        return response;
-      }
+  const requestPromise = (async () => {
+    let lastError;
+    let lastResponse;
 
-      // For non-ok responses, check if we should retry
-      const error = new Error(
-        `HTTP ${response.status}: ${response.statusText}`
-      );
-      error.status = response.status;
-      error.response = response;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const response = await fetchWithTimeout(url, options, timeout, requestKey);
 
-      if (!shouldRetry(error, attempt)) {
-        return response; // Return the error response
-      }
+        if (response.ok || response.status === 423) {
+          return response;
+        }
 
-      lastResponse = response;
-      lastError = error;
+        const error = new Error(`HTTP ${response.status}: ${response.statusText}`);
+        error.status = response.status;
+        error.response = response;
 
-      // Wait before retrying (exponential backoff)
-      if (attempt < maxRetries) {
-        const delay = retryDelay * Math.pow(2, attempt);
-        await new Promise((resolve) => setTimeout(resolve, delay));
-      }
-    } catch (error) {
-      lastError = error;
+        if (!shouldRetry(error, attempt)) {
+          return response;
+        }
 
-      // Check if we should retry this error
-      if (!shouldRetry(error, attempt)) {
-        throw error;
-      }
+        lastResponse = response;
+        lastError = error;
 
-      // Wait before retrying (exponential backoff)
-      if (attempt < maxRetries) {
-        const delay = retryDelay * Math.pow(2, attempt);
-        await new Promise((resolve) => setTimeout(resolve, delay));
+        if (attempt < maxRetries) {
+          const delay = retryDelay * Math.pow(2, attempt);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+      } catch (error) {
+        lastError = error;
+
+        if (!shouldRetry(error, attempt)) {
+          throw error;
+        }
+
+        if (attempt < maxRetries) {
+          const delay = retryDelay * Math.pow(2, attempt);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
       }
     }
+
+    if (lastResponse) {
+      return lastResponse;
+    }
+
+    throw lastError || new Error("Request failed after all retries");
+  })();
+
+  if (STABILITY_FLAGS.ENABLE_REQUEST_DEDUPE) {
+    inflightRequests.set(requestKey, requestPromise);
   }
 
-  // If we have a response, return it even if it's an error
-  if (lastResponse) {
-    return lastResponse;
+  try {
+    return await requestPromise;
+  } finally {
+    if (STABILITY_FLAGS.ENABLE_REQUEST_DEDUPE) {
+      inflightRequests.delete(requestKey);
+    }
   }
-
-  // Otherwise throw the last error
-  throw lastError || new Error("Request failed after all retries");
 };
 
-/**
- * Convenience function for GET requests with retry
- */
 export const getWithRetry = async (url, options = {}, retryOptions = {}) => {
   return fetchWithRetry(url, { ...options, method: "GET" }, retryOptions);
 };
 
-/**
- * Convenience function for POST requests with retry
- */
 export const postWithRetry = async (
   url,
   data,
   options = {},
-  retryOptions = {}
+  retryOptions = {},
 ) => {
   return fetchWithRetry(
     url,
@@ -157,42 +241,6 @@ export const postWithRetry = async (
       },
       body: JSON.stringify(data),
     },
-    retryOptions
+    retryOptions,
   );
 };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

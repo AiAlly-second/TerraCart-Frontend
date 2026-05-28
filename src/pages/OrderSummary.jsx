@@ -5,12 +5,16 @@ import OrderStatus from "../components/OrderStatus";
 import bgImage from "../assets/images/restaurant-img.jpg";
 import translations from "../data/translations/orderSummary.json";
 import floatingButtonTranslations from "../data/translations/floatingButtons.json";
-import io from "socket.io-client";
 import { clearScopedCart } from "../utils/cartStorage";
 import {
   buildSocketIdentityPayload,
   ensureAnonymousSessionId,
 } from "../utils/anonymousSession";
+import {
+  getCustomerSocket,
+  joinCustomerRoomOnce,
+  safeCustomerSocketOn,
+} from "../utils/socketManager";
 import { notifyOrderStatusUpdate } from "../utils/orderStatusNotifications";
 import { getCustomerApiOrigin } from "../utils/customerApiOrigin";
 import "./OrderSummary.css";
@@ -417,7 +421,7 @@ export default function OrderSummary() {
       if (!orderSocket) return;
       const normalized = normalizeCartId(cartId);
       if (!normalized || normalized === joinedCartId) return;
-      orderSocket.emit("join:cart", normalized);
+      joinCustomerRoomOnce("join:cart", normalized);
       joinedCartId = normalized;
       if (import.meta.env.DEV) {
         console.log("[OrderSummary] Joined cart room:", normalized);
@@ -430,7 +434,7 @@ export default function OrderSummary() {
       if (joinedAnonymousSessionId === identityPayload.anonymousSessionId) {
         return;
       }
-      orderSocket.emit("join_room", identityPayload);
+      joinCustomerRoomOnce("join_room", identityPayload);
       joinedAnonymousSessionId = identityPayload.anonymousSessionId;
       if (import.meta.env.DEV) {
         console.log(
@@ -457,44 +461,43 @@ export default function OrderSummary() {
         return null;
       }
     };
+    const handleSocketConnected = () => {
+      joinedAnonymousSessionId = null;
+      joinIdentityRoom();
+      joinCartRoom(getFallbackCartId());
+      fetchOrder().then((orderData) => {
+        if (orderData?.cartId) {
+          joinCartRoom(orderData.cartId);
+        }
+      });
+    };
+
+    const handleSocketReconnect = () => {
+      joinedCartId = null;
+      joinedAnonymousSessionId = null;
+      joinIdentityRoom();
+      joinCartRoom(getFallbackCartId());
+      fetchOrder().then((orderData) => {
+        if (orderData?.cartId) {
+          joinCartRoom(orderData.cartId);
+        }
+      });
+    };
+
+    const handleSocketConnectError = (error) => {
+      if (error.message && !error.message.includes("xhr poll error")) {
+        console.warn(
+          "[OrderSummary] Socket connection error:",
+          error.message
+        );
+      }
+    };
+
     try {
-      orderSocket = io(nodeApi, {
-        transports: ["polling", "websocket"], // Try polling first for better stability
-        reconnection: true,
-        reconnectionDelay: 1000,
-        reconnectionDelayMax: 20000,
-        // Keep retrying instead of stopping after a few attempts.
-        // reconnectionAttempts: 5,
-        timeout: 20000,
-        autoConnect: true,
-        // Suppress connection errors in console
-        forceNew: false,
-      });
+      orderSocket = getCustomerSocket();
 
-      orderSocket.on("connect", () => {
-        console.log("[OrderSummary] Socket connected");
-        joinedAnonymousSessionId = null;
-        joinIdentityRoom();
-        joinCartRoom(getFallbackCartId());
-        // Rooms are lost after reconnect; fetch and rejoin cart room every connect.
-        fetchOrder().then((orderData) => {
-          if (orderData?.cartId) {
-            joinCartRoom(orderData.cartId);
-          }
-        });
-      });
-
-      orderSocket.on("reconnect", () => {
-        joinedCartId = null;
-        joinedAnonymousSessionId = null;
-        joinIdentityRoom();
-        joinCartRoom(getFallbackCartId());
-        fetchOrder().then((orderData) => {
-          if (orderData?.cartId) {
-            joinCartRoom(orderData.cartId);
-          }
-        });
-      });
+      safeCustomerSocketOn("connect", handleSocketConnected);
+      safeCustomerSocketOn("reconnect", handleSocketReconnect);
 
       // Fetch order and join cart room for real-time status updates
       fetchOrder().then((orderData) => {
@@ -503,39 +506,21 @@ export default function OrderSummary() {
         }
       });
 
-      orderSocket.on("connect_error", (error) => {
-        // Silently handle connection errors - socket will retry automatically
-        // Don't log to avoid console spam
-        if (error.message && !error.message.includes("xhr poll error")) {
-          console.warn(
-            "[OrderSummary] Socket connection error:",
-            error.message
-          );
-        }
-      });
-
-      orderSocket.on("disconnect", (reason) => {
-        if (reason !== "io client disconnect") {
-          console.log("[OrderSummary] Socket disconnected:", reason);
-        }
-      });
-
-      orderSocket.on("order_status_updated", handleOrderUpdated);
-      orderSocket.on("order:upsert", handleOrderUpdated);
+      safeCustomerSocketOn("connect_error", handleSocketConnectError);
+      safeCustomerSocketOn("order.updated", handleOrderUpdated);
+      safeCustomerSocketOn("order_status_updated", handleOrderUpdated);
     } catch (err) {
       console.warn("[OrderSummary] Failed to create socket connection:", err);
     }
 
-    // Cleanup: Remove event listener and disconnect on unmount
+    // Cleanup: remove listeners only, keep shared socket connected.
     return () => {
       if (orderSocket) {
+        orderSocket.off("order.updated", handleOrderUpdated);
         orderSocket.off("order_status_updated", handleOrderUpdated);
-        orderSocket.off("order:upsert", handleOrderUpdated);
-        orderSocket.off("connect");
-        orderSocket.off("reconnect");
-        orderSocket.off("connect_error");
-        orderSocket.off("disconnect");
-        orderSocket.disconnect();
+        orderSocket.off("connect", handleSocketConnected);
+        orderSocket.off("reconnect", handleSocketReconnect);
+        orderSocket.off("connect_error", handleSocketConnectError);
         orderSocket = null;
       }
     };

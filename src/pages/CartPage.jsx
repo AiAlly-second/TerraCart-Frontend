@@ -8,7 +8,6 @@ import { buildOrderPayload } from "../utils/orderUtils";
 import { postWithRetry } from "../utils/fetchWithTimeout";
 import ProcessOverlay from "../components/ProcessOverlay";
 import restaurantBg from "../assets/images/restaurant-img.jpg"; // reuse if needed or use transparent
-import { io } from "socket.io-client"; // Actually, we probably don't need socket here if we just POST
 import cartTranslations from "../data/translations/cartPage.json";
 import {
   getCurrentLanguage,

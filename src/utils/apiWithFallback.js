@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { getCustomerApiOrigin } from './customerApiOrigin';
+import { STABILITY_FLAGS } from './stabilityFlags';
 
 // Primary backend (AWS EC2)
 const PRIMARY_API_URL = getCustomerApiOrigin();
@@ -9,11 +10,12 @@ const FALLBACK_API_URL = import.meta.env.VITE_FALLBACK_API_URL || PRIMARY_API_UR
 
 // Health check timeout (2 seconds)
 const HEALTH_CHECK_TIMEOUT = 2000;
+const HEALTH_CHECK_INTERVAL_MS = 45000;
 
 // Current active backend
 let activeBackend = PRIMARY_API_URL;
-// let lastHealthCheck = null;
 let healthCheckInterval = null;
+const backendSwitchListeners = new Set();
 
 /**
  * Check if a backend is healthy
@@ -36,25 +38,25 @@ const checkBackendHealth = async (url) => {
 const selectBackend = async () => {
   // Try primary first
   const primaryHealthy = await checkBackendHealth(PRIMARY_API_URL);
-  
+
   if (primaryHealthy) {
-    console.log('✅ Using PRIMARY backend (AWS):', PRIMARY_API_URL);
+    console.log('Using PRIMARY backend (AWS):', PRIMARY_API_URL);
     activeBackend = PRIMARY_API_URL;
     return PRIMARY_API_URL;
   }
 
   // Fallback to secondary
-  console.warn('⚠️ PRIMARY backend unavailable, trying FALLBACK...');
+  console.warn('PRIMARY backend unavailable, trying FALLBACK...');
   const fallbackHealthy = await checkBackendHealth(FALLBACK_API_URL);
-  
+
   if (fallbackHealthy) {
-    console.log('✅ Using FALLBACK backend (Render):', FALLBACK_API_URL);
+    console.log('Using FALLBACK backend (Render):', FALLBACK_API_URL);
     activeBackend = FALLBACK_API_URL;
     return FALLBACK_API_URL;
   }
 
   // Both failed - use primary anyway (will show error to user)
-  console.error('❌ Both backends unavailable! Using primary as last resort.');
+  console.error('Both backends unavailable. Using primary as last resort.');
   activeBackend = PRIMARY_API_URL;
   return PRIMARY_API_URL;
 };
@@ -64,16 +66,31 @@ const selectBackend = async () => {
  */
 const initializeBackend = async () => {
   await selectBackend();
-  
-  // Periodic health check every 30 seconds
+
+  // Periodic health check with visibility pause
   if (!healthCheckInterval) {
     healthCheckInterval = setInterval(async () => {
-      const newBackend = await selectBackend();
-      if (newBackend !== activeBackend) {
-        console.log(`🔄 Backend switched from ${activeBackend} to ${newBackend}`);
-        window.location.reload(); // Reload app on backend switch
+      if (
+        STABILITY_FLAGS.ENABLE_VISIBILITY_POLLING_PAUSE &&
+        typeof document !== 'undefined' &&
+        document.visibilityState === 'hidden'
+      ) {
+        return;
       }
-    }, 30000);
+
+      const previousBackend = activeBackend;
+      const newBackend = await selectBackend();
+      if (newBackend !== previousBackend) {
+        console.log(`Backend switched from ${previousBackend} to ${newBackend}`);
+        for (const listener of backendSwitchListeners) {
+          try {
+            listener({ previousBackend, activeBackend: newBackend });
+          } catch (_error) {
+            // Listener errors should not break health checks.
+          }
+        }
+      }
+    }, HEALTH_CHECK_INTERVAL_MS);
   }
 };
 
@@ -98,22 +115,25 @@ const createApiInstance = () => {
       }
       return config;
     },
-    (error) => Promise.reject(error)
+    (error) => Promise.reject(error),
   );
 
   // Response interceptor - handle errors and retry with fallback
   instance.interceptors.response.use(
     (response) => response,
     async (error) => {
-      const originalRequest = error.config;
+      const originalRequest = error.config || {};
 
       // If request failed and we haven't retried yet
-      if (!originalRequest._retry && error.code === 'ECONNABORTED' || error.code === 'ERR_NETWORK') {
+      if (
+        !originalRequest._retry &&
+        (error.code === 'ECONNABORTED' || error.code === 'ERR_NETWORK')
+      ) {
         originalRequest._retry = true;
 
         // Try fallback backend
         if (activeBackend === PRIMARY_API_URL) {
-          console.warn('⚠️ Primary backend failed, switching to fallback...');
+          console.warn('Primary backend failed, switching to fallback...');
           activeBackend = FALLBACK_API_URL;
           originalRequest.baseURL = FALLBACK_API_URL;
           return instance(originalRequest);
@@ -121,7 +141,7 @@ const createApiInstance = () => {
       }
 
       return Promise.reject(error);
-    }
+    },
   );
 
   return instance;
@@ -134,6 +154,12 @@ initializeBackend();
 const api = createApiInstance();
 
 export default api;
+
+export const onBackendSwitch = (listener) => {
+  if (typeof listener !== 'function') return () => {};
+  backendSwitchListeners.add(listener);
+  return () => backendSwitchListeners.delete(listener);
+};
 
 // Export utility functions
 export { activeBackend, selectBackend, PRIMARY_API_URL, FALLBACK_API_URL };
